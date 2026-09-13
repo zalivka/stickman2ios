@@ -213,7 +213,18 @@ struct SkeletonCanvas: View {
     }
 
     private func drawUnit(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
-        if let assets {
+        if drawn.unitType == .bubble {
+            if drawn.alpha < 1 {
+                context.drawLayer { layer in
+                    layer.opacity = Double(drawn.alpha)
+                    layer.drawLayer { opaque in
+                        drawBubbleText(drawn, context: &opaque, layout: layout)
+                    }
+                }
+            } else {
+                drawBubbleText(drawn, context: &context, layout: layout)
+            }
+        } else if let assets {
             if drawn.alpha < 1 {
                 context.drawLayer { layer in
                     layer.opacity = Double(drawn.alpha)
@@ -229,6 +240,35 @@ struct SkeletonCanvas: View {
             drawSkeleton(drawn, context: &context, layout: layout)
             if FeatureFlags.debugDrawTouchCapture {
                 drawTouchCapture(drawn, context: &context, layout: layout)
+            }
+        }
+    }
+
+    private func drawBubbleText(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard let bubble = drawn.bubble else {
+            fatalError("SkeletonCanvas unit '\(drawn.name)' type=bubble missing meta")
+        }
+        let start = drawn.point(id: 1)
+        let end = drawn.point(id: 2)
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let rgba = bubble.rgba
+        let text = Text(bubble.text)
+            .font(.system(size: bubble.fontSize))
+            .foregroundColor(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
+        context.drawLayer { ctx in
+            ctx.translateBy(
+                x: layout.originX - layout.minX * layout.scale,
+                y: layout.originY - layout.minY * layout.scale
+            )
+            ctx.scaleBy(x: layout.scale, y: layout.scale)
+            ctx.translateBy(x: start.x, y: start.y)
+            ctx.rotate(by: Angle(radians: angle))
+            ctx.scaleBy(x: drawn.scale, y: drawn.scale)
+            let resolved = ctx.resolve(text)
+            if bubble.oneLiner {
+                ctx.draw(resolved, at: .zero, anchor: .topLeading)
+            } else {
+                ctx.draw(resolved, in: CGRect(x: 0, y: 0, width: 150, height: 2000))
             }
         }
     }
@@ -426,10 +466,10 @@ struct SkeletonCanvas: View {
             return
         }
         if let name = bgName {
-            let rgb = HexRGB.parse(name)
+            let rgba = HexRGB.parse(name)
             context.fill(
                 Path(rect),
-                with: .color(Color(red: rgb.0, green: rgb.1, blue: rgb.2))
+                with: .color(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
             )
             return
         }
@@ -451,10 +491,10 @@ struct SkeletonCanvas: View {
             return
         }
         if let name = bgName {
-            let rgb = HexRGB.parse(name)
+            let rgba = HexRGB.parse(name)
             context.fill(
                 Path(rect),
-                with: .color(Color(red: rgb.0, green: rgb.1, blue: rgb.2))
+                with: .color(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
             )
             return
         }

@@ -26,3 +26,19 @@ CGAffineTransform(translationX: x, y: y)
 ```
 
 Same `PictureMove` is used for camera and `bg=`. Do not “fix” this back to `identity.scaledBy.translatedBy`.
+
+## Packed `.ati`
+
+Android extracts every zip entry ending in `.ati`, including `pack/items/name.ati`. Do not require items at the archive root. Match a unit to the entry whose last path component is `ownName.ati`.
+
+## Missing frame `bg_name` / `bg`
+
+Older scenes omit `bg_name` and sometimes `bg=`. Android `Frame` defaults to `#ffffff` and identity `PictureMove`. Do not fatal on a missing attr; still fatal on an unknown non-empty `bg_name`. Solid colors are Android `Color.parseColor`: `#rrggbb` or `#aarrggbb` (`demo_faces` uses `#ff202020`). Bitmap backgrounds are `_bgs/<own>.zip` + `bg_name="usermade:<own>"`, not a root `bg.png`.
+
+## Speech bubble is plain text
+
+Android `type="bubble"` draws a 9-patch (`bubble.9.png`) then `StaticLayout` text. iOS has no 9-patch. Load `meta` (URL-decoded JSON) and draw the string only: color, `max(22, 30 - count/4) * scale`, wrap at 150 when `oneLiner` is false. Place at point 1, rotate with the 1→2 edge. Do not bone-stretch `.9.png` to fake a bubble. Font must be `default` until scene `fonts/` exists.
+
+## Unit alpha can be > 1
+
+Scene XML stores `alpha` as a raw float. Android parses it as-is (`demo_camera` has `@:Чёрный_СтикМан#2` at `1.08`). Draw only applies a transparency layer when `alpha < 1`, so values at or above 1 are opaque. Do not reject `alpha > 1` on load. Still fatal on `alpha < 0`.

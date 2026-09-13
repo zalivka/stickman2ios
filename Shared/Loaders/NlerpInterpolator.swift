@@ -126,7 +126,9 @@ enum NlerpInterpolator {
             scale: unit1.scale,
             alpha: unit1.alpha,
             arrange: unit1.arrange,
-            flipped: unit1.flipped
+            flipped: unit1.flipped,
+            unitType: unit1.unitType,
+            bubble: unit1.bubble
         )
         result.link()
         let base = result.basePoint()

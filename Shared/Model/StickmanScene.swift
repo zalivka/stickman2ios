@@ -27,6 +27,11 @@ struct StickmanEdge {
     let to: Int
 }
 
+enum StickmanUnitType {
+    case unit
+    case bubble
+}
+
 struct StickmanUnit {
     var name: String
     var points: [StickmanPoint]
@@ -36,6 +41,8 @@ struct StickmanUnit {
     var arrange: Int = 0
     var flipped: Bool = false
     var assetsState: Int = 0
+    var unitType: StickmanUnitType = .unit
+    var bubble: BubbleMeta? = nil
 
     func point(id: Int) -> StickmanPoint {
         guard let point = points.first(where: { $0.id == id }) else {

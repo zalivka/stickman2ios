@@ -2,19 +2,32 @@ import CoreGraphics
 import Foundation
 
 enum HexRGB {
-    static func parse(_ text: String) -> (CGFloat, CGFloat, CGFloat) {
-        if text.count != 7 || !text.hasPrefix("#") {
-            fatalError("SceneLoader bg_name '\(text)' is not #rrggbb")
+    static func parse(_ text: String) -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
+        if !text.hasPrefix("#") {
+            fatalError("SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
         }
         let hex = text.dropFirst()
         guard let value = UInt32(hex, radix: 16) else {
-            fatalError("SceneLoader bg_name '\(text)' is not #rrggbb")
+            fatalError("SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
         }
-        return (
-            CGFloat((value >> 16) & 0xFF) / 255,
-            CGFloat((value >> 8) & 0xFF) / 255,
-            CGFloat(value & 0xFF) / 255
-        )
+        switch hex.count {
+        case 6:
+            return (
+                r: CGFloat((value >> 16) & 0xFF) / 255,
+                g: CGFloat((value >> 8) & 0xFF) / 255,
+                b: CGFloat(value & 0xFF) / 255,
+                a: 1
+            )
+        case 8:
+            return (
+                r: CGFloat((value >> 16) & 0xFF) / 255,
+                g: CGFloat((value >> 8) & 0xFF) / 255,
+                b: CGFloat(value & 0xFF) / 255,
+                a: CGFloat((value >> 24) & 0xFF) / 255
+            )
+        default:
+            fatalError("SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
+        }
     }
 }
 
@@ -40,9 +53,10 @@ enum SceneLoader {
         }
         var scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
         scene.unitAnimations = loadAnimations(zip: zip, names: names, resource: resource)
-        let items = names.filter { !$0.contains("/") && $0.hasSuffix(".ati") }
+        // GOTCHA (doc/gotchas.md): pack items live at pack/items/name.ati, not zip root.
+        let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }
         if items.isEmpty {
-            fatalError("SceneLoader '\(resource).ats' has no root .ati")
+            fatalError("SceneLoader '\(resource).ats' has no .ati")
         }
         let assets = UnitAssets()
         for item in items {
@@ -55,7 +69,7 @@ enum SceneLoader {
                     fatalError("SceneLoader assets missing unit '\(name)'")
                 }
                 let file = ownName(name) + ".ati"
-                if !items.contains(file) {
+                if !items.contains(where: { itemFileName($0) == file }) {
                     fatalError("SceneLoader '\(resource).ats' missing '\(file)' for '\(unit.name)'")
                 }
             }
@@ -130,6 +144,13 @@ enum SceneLoader {
         return backgrounds
     }
 
+    private static func itemFileName(_ path: String) -> String {
+        guard let slash = path.lastIndex(of: "/") else {
+            return path
+        }
+        return String(path[path.index(after: slash)...])
+    }
+
     static func ownName(_ unitName: String) -> String {
         guard let colon = unitName.firstIndex(of: ":") else { return unitName }
         let rest = String(unitName[unitName.index(after: colon)...])
@@ -186,6 +207,8 @@ private enum SceneXML {
         private var unitAlpha: CGFloat?
         private var unitArrange: Int?
         private var unitFlipped = false
+        private var unitType: StickmanUnitType = .unit
+        private var unitBubble: BubbleMeta?
         private var unitPoints: [StickmanPoint] = []
 
         func parser(
@@ -216,8 +239,13 @@ private enum SceneXML {
                 guard let idText = attributes["id"], let id = Int(idText) else {
                     fatalError("SceneLoader frame missing id")
                 }
-                guard let bgName = attributes["bg_name"], !bgName.isEmpty else {
-                    fatalError("SceneLoader frame \(id) missing bg_name")
+                // GOTCHA (doc/gotchas.md): older frames omit bg_name / bg;
+                // Android keeps #ffffff and identity PictureMove.
+                let bgName: String
+                if let text = attributes["bg_name"], !text.isEmpty {
+                    bgName = text
+                } else {
+                    bgName = "#ffffff"
                 }
                 if bgName.hasPrefix("#") {
                     _ = HexRGB.parse(bgName)
@@ -228,12 +256,13 @@ private enum SceneXML {
                 } else {
                     fatalError("SceneLoader frame \(id) unknown bg_name '\(bgName)'")
                 }
-                guard let bgMoveText = attributes["bg"], !bgMoveText.isEmpty else {
-                    fatalError("SceneLoader frame \(id) missing bg")
-                }
                 frameId = id
                 frameBgName = bgName
-                frameBgMove = PictureMove.parse(bgMoveText)
+                if let bgMoveText = attributes["bg"], !bgMoveText.isEmpty {
+                    frameBgMove = PictureMove.parse(bgMoveText)
+                } else {
+                    frameBgMove = .identity
+                }
                 if let cameraText = attributes["camera"], !cameraText.isEmpty {
                     frameCameraMove = PictureMove.parse(cameraText)
                 } else {
@@ -253,7 +282,8 @@ private enum SceneXML {
                 guard let alphaText = attributes["alpha"], let alpha = Double(alphaText) else {
                     fatalError("SceneLoader unit '\(name)' missing alpha")
                 }
-                if alpha < 0 || alpha > 1 {
+                // GOTCHA (doc/gotchas.md): Android stores alpha as-is; 1.08 is opaque.
+                if alpha < 0 {
                     fatalError("SceneLoader unit '\(name)' alpha is \(alpha)")
                 }
                 guard let arrangeText = attributes["arrange"], let arrange = Int(arrangeText) else {
@@ -264,6 +294,19 @@ private enum SceneXML {
                 unitAlpha = CGFloat(alpha)
                 unitArrange = arrange
                 unitFlipped = attributes["flipped"] == "true"
+                switch attributes["type"] {
+                case nil, "", "unit":
+                    unitType = .unit
+                    unitBubble = nil
+                case "bubble":
+                    guard let meta = attributes["meta"], !meta.isEmpty else {
+                        fatalError("SceneLoader unit '\(name)' bubble missing meta")
+                    }
+                    unitType = .bubble
+                    unitBubble = BubbleMeta.parse(encoded: meta, unitName: name)
+                case let other?:
+                    fatalError("SceneLoader unit '\(name)' unknown type '\(other)'")
+                }
                 unitPoints = []
             case "point":
                 unitPoints.append(parsePoint(attributes))
@@ -292,7 +335,9 @@ private enum SceneXML {
                     scale: scale,
                     alpha: alpha,
                     arrange: arrange,
-                    flipped: unitFlipped
+                    flipped: unitFlipped,
+                    unitType: unitType,
+                    bubble: unitBubble
                 )
                 unit.link()
                 frameUnits.append(unit)
@@ -301,6 +346,8 @@ private enum SceneXML {
                 unitAlpha = nil
                 unitArrange = nil
                 unitFlipped = false
+                unitType = .unit
+                unitBubble = nil
                 unitPoints = []
             } else if elementName == "frame" {
                 guard let id = frameId, let bgName = frameBgName else {
