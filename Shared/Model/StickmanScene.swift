@@ -250,6 +250,7 @@ struct StickmanFrame {
     var id: Int
     var units: [StickmanUnit]
     var bgName: String? = nil
+    var bgMove: PictureMove = .identity
 }
 
 struct StickmanScene {

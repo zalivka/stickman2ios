@@ -111,11 +111,15 @@ struct SkeletonCanvas: View {
 
     @Binding var unit: StickmanUnit
     var assets: UnitAssets?
+    var backgrounds: BackgroundAssets?
+    var bgName: String?
+    var bgMove: PictureMove = .identity
     var sceneWidth: CGFloat
     var sceneHeight: CGFloat
     var currentIndex: Int = 0
     var sceneFill: Color = Self.sceneFill
     var interactive: Bool = true
+    var showSkeleton: Bool = true
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
@@ -187,9 +191,11 @@ struct SkeletonCanvas: View {
                 drawBitmaps(context: &context, layout: layout, assets: assets)
             }
         }
-        drawSkeleton(context: &context, layout: layout)
-        if FeatureFlags.debugDrawTouchCapture {
-            drawTouchCapture(context: &context, layout: layout)
+        if showSkeleton {
+            drawSkeleton(context: &context, layout: layout)
+            if FeatureFlags.debugDrawTouchCapture {
+                drawTouchCapture(context: &context, layout: layout)
+            }
         }
     }
 
@@ -366,6 +372,28 @@ struct SkeletonCanvas: View {
             width: sceneWidth * layout.scale,
             height: sceneHeight * layout.scale
         )
+        if let name = bgName, name.hasPrefix("usermade:") {
+            guard let backgrounds else {
+                fatalError("SkeletonCanvas missing BackgroundAssets for '\(name)'")
+            }
+            let image = backgrounds.image(for: name)
+            context.drawLayer { layer in
+                layer.clip(to: Path(rect))
+                layer.translateBy(x: origin.x, y: origin.y)
+                layer.scaleBy(x: layout.scale, y: layout.scale)
+                layer.concatenate(bgMove.toTransform())
+                layer.draw(Image(decorative: image, scale: 1), at: .zero, anchor: .topLeading)
+            }
+            return
+        }
+        if let name = bgName {
+            let rgb = HexRGB.parse(name)
+            context.fill(
+                Path(rect),
+                with: .color(Color(red: rgb.0, green: rgb.1, blue: rgb.2))
+            )
+            return
+        }
         context.fill(Path(rect), with: .color(sceneFill))
     }
 

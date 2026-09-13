@@ -32,6 +32,14 @@ struct SeekFramesBarScreen: View, RangeDialogPresenting {
                         Ter2Screen()
                     }
                     .buttonStyle(.borderedProminent)
+                    NavigationLink("Stonedummy") {
+                        StonedummyScreen()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    NavigationLink("Saved") {
+                        SavedScenesScreen()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding()

@@ -98,6 +98,7 @@ final class UnitAssets {
     }
 
     private func install(_ rows: [EdgeAssetRow], zip: Data) {
+        let names = Set(ZipStore.names(in: zip))
         var bitmaps: [String: CGImage] = [:]
         func bitmap(named name: String) -> CGImage {
             if let cached = bitmaps[name] { return cached }
@@ -108,6 +109,9 @@ final class UnitAssets {
 
         var assets: [EdgeAsset] = []
         for row in rows {
+            if !names.contains(row.bmName) {
+                continue
+            }
             assets.append(
                 EdgeAsset(
                     unitName: row.unitName,
@@ -122,6 +126,9 @@ final class UnitAssets {
                     bitmap: bitmap(named: row.bmName)
                 )
             )
+        }
+        if assets.isEmpty {
+            fatalError("UnitAssets zip has no packed bitmaps for \(rows.map(\.bmName))")
         }
 
         for asset in assets {

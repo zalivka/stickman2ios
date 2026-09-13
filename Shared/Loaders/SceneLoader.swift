@@ -19,7 +19,7 @@ enum HexRGB {
 }
 
 enum SceneLoader {
-    static func load(resource: String, subdirectory: String) -> (StickmanScene, UnitAssets) {
+    static func load(resource: String, subdirectory: String) -> (StickmanScene, UnitAssets, BackgroundAssets) {
         let zip = ItemLoader.archive(resource: resource, subdirectory: subdirectory, ext: "ats")
         let names = ZipStore.names(in: zip)
         if !names.contains("model.xml") {
@@ -46,7 +46,47 @@ enum SceneLoader {
                 }
             }
         }
-        return (scene, assets)
+        let backgrounds = loadBackgrounds(scene: scene, zip: zip, names: names, resource: resource)
+        return (scene, assets, backgrounds)
+    }
+
+    private static func loadBackgrounds(
+        scene: StickmanScene,
+        zip: Data,
+        names: [String],
+        resource: String
+    ) -> BackgroundAssets {
+        let backgrounds = BackgroundAssets()
+        var seen: Set<String> = []
+        for frame in scene.frames {
+            guard let bgName = frame.bgName else { continue }
+            if bgName.hasPrefix("#") { continue }
+            if !bgName.hasPrefix("usermade:") {
+                fatalError("SceneLoader '\(resource).ats' unknown bg_name '\(bgName)'")
+            }
+            if seen.contains(bgName) { continue }
+            seen.insert(bgName)
+            let own = ownName(bgName)
+            let entry = "_bgs/\(own).zip"
+            if !names.contains(entry) {
+                fatalError("SceneLoader '\(resource).ats' missing '\(entry)'")
+            }
+            let nested = ZipStore.data(named: entry, in: zip)
+            let innerNames = ZipStore.names(in: nested)
+            let imageName: String
+            if innerNames.contains("bg.png") {
+                imageName = "bg.png"
+            } else if innerNames.contains("bg.jpg") {
+                imageName = "bg.jpg"
+            } else {
+                fatalError("SceneLoader '\(entry)' has no bg.png or bg.jpg")
+            }
+            backgrounds.install(
+                name: bgName,
+                image: BackgroundAssets.decode(ZipStore.data(named: imageName, in: nested), name: imageName)
+            )
+        }
+        return backgrounds
     }
 
     static func ownName(_ unitName: String) -> String {
@@ -94,6 +134,7 @@ private enum SceneXML {
 
         private var frameId: Int?
         private var frameBgName: String?
+        private var frameBgMove: PictureMove = .identity
         private var frameUnits: [StickmanUnit] = []
         private var unitName: String?
         private var unitScale: CGFloat?
@@ -133,9 +174,21 @@ private enum SceneXML {
                 guard let bgName = attributes["bg_name"], !bgName.isEmpty else {
                     fatalError("SceneLoader frame \(id) missing bg_name")
                 }
-                _ = HexRGB.parse(bgName)
+                if bgName.hasPrefix("#") {
+                    _ = HexRGB.parse(bgName)
+                } else if bgName.hasPrefix("usermade:") {
+                    if SceneLoader.ownName(bgName).isEmpty {
+                        fatalError("SceneLoader frame \(id) bg_name '\(bgName)' has empty own name")
+                    }
+                } else {
+                    fatalError("SceneLoader frame \(id) unknown bg_name '\(bgName)'")
+                }
+                guard let bgMoveText = attributes["bg"], !bgMoveText.isEmpty else {
+                    fatalError("SceneLoader frame \(id) missing bg")
+                }
                 frameId = id
                 frameBgName = bgName
+                frameBgMove = PictureMove.parse(bgMoveText)
                 frameUnits = []
             case "unit":
                 guard let name = attributes["name"], !name.isEmpty else {
@@ -197,9 +250,10 @@ private enum SceneXML {
                 if frameUnits.isEmpty {
                     fatalError("SceneLoader frame \(id) has no units")
                 }
-                frames.append(StickmanFrame(id: id, units: frameUnits, bgName: bgName))
+                frames.append(StickmanFrame(id: id, units: frameUnits, bgName: bgName, bgMove: frameBgMove))
                 frameId = nil
                 frameBgName = nil
+                frameBgMove = .identity
                 frameUnits = []
             }
         }

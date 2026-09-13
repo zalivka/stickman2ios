@@ -3,13 +3,15 @@ import SwiftUI
 struct SceneEditorScreen: View {
     @State private var scene: StickmanScene
     @State private var assets: UnitAssets
+    @State private var backgrounds: BackgroundAssets
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
 
-    init(scene: StickmanScene, assets: UnitAssets) {
+    init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
         _scene = State(initialValue: scene)
         _assets = State(initialValue: assets)
+        _backgrounds = State(initialValue: backgrounds)
         _range = State(
             initialValue: DualNavigation.defaultRange(
                 current: scene.currentIndex,
@@ -24,10 +26,12 @@ struct SceneEditorScreen: View {
             SkeletonCanvas(
                 unit: unitBinding,
                 assets: assets,
+                backgrounds: backgrounds,
+                bgName: scene.currentFrame.bgName,
+                bgMove: scene.currentFrame.bgMove,
                 sceneWidth: scene.width,
                 sceneHeight: scene.height,
-                currentIndex: scene.currentIndex,
-                sceneFill: fillColor
+                currentIndex: scene.currentIndex
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
@@ -46,16 +50,8 @@ struct SceneEditorScreen: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
-            FullscreenPreviewScreen(source: scene, assets: assets)
+            FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
         }
-    }
-
-    private var fillColor: Color {
-        guard let name = scene.currentFrame.bgName else {
-            return SkeletonCanvas.sceneFill
-        }
-        let rgb = HexRGB.parse(name)
-        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
     }
 
     private var currentIndexBinding: Binding<Int> {
@@ -91,12 +87,12 @@ struct SceneEditorScreen: View {
 }
 
 struct Ter2Screen: View {
-    @State private var loaded: (StickmanScene, UnitAssets)?
+    @State private var loaded: (StickmanScene, UnitAssets, BackgroundAssets)?
 
     var body: some View {
         Group {
             if let loaded {
-                SceneEditorScreen(scene: loaded.0, assets: loaded.1)
+                SceneEditorScreen(scene: loaded.0, assets: loaded.1, backgrounds: loaded.2)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -117,6 +113,40 @@ struct Ter2Screen: View {
         if loaded != nil { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let built = SceneLoader.load(resource: "ter2", subdirectory: "testdata")
+            DispatchQueue.main.async {
+                loaded = built
+            }
+        }
+    }
+}
+
+struct StonedummyScreen: View {
+    @State private var loaded: (StickmanScene, UnitAssets, BackgroundAssets)?
+
+    var body: some View {
+        Group {
+            if let loaded {
+                SceneEditorScreen(scene: loaded.0, assets: loaded.1, backgrounds: loaded.2)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
+                    .ignoresSafeArea()
+                    .overlay(alignment: .topLeading) {
+                        FullscreenBackButton()
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .statusBarHidden(true)
+                    .persistentSystemOverlays(.hidden)
+            }
+        }
+        .onAppear(perform: loadIfNeeded)
+    }
+
+    private func loadIfNeeded() {
+        if loaded != nil { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let built = SceneLoader.load(resource: "demo_stonedummy", subdirectory: "demo")
             DispatchQueue.main.async {
                 loaded = built
             }

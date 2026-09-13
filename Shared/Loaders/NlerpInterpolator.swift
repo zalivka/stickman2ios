@@ -20,7 +20,7 @@ enum NlerpInterpolator {
                 }
                 units.append(inbetween(unit1: unit1, unit2: unit2, t: t))
             }
-            frames.append(StickmanFrame(id: -1, units: units, bgName: frame1.bgName))
+            frames.append(StickmanFrame(id: -1, units: units, bgName: frame1.bgName, bgMove: frame1.bgMove))
         }
         frames.append(frame2)
         if frames.count != duration + 1 {

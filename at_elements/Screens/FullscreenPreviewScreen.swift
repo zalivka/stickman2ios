@@ -4,6 +4,7 @@ import SwiftUI
 struct FullscreenPreviewScreen: View {
     let source: StickmanScene
     let assets: UnitAssets
+    var backgrounds: BackgroundAssets = BackgroundAssets()
 
     @State private var movie: StickmanScene?
     @State private var phase: Phase = .generating
@@ -66,21 +67,16 @@ struct FullscreenPreviewScreen: View {
                 }
             ),
             assets: assets,
+            backgrounds: backgrounds,
+            bgName: movie.currentFrame.bgName,
+            bgMove: movie.currentFrame.bgMove,
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,
-            sceneFill: fillColor(movie),
-            interactive: false
+            interactive: false,
+            showSkeleton: false
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func fillColor(_ movie: StickmanScene) -> Color {
-        guard let name = movie.currentFrame.bgName else {
-            return SkeletonCanvas.sceneFill
-        }
-        let rgb = HexRGB.parse(name)
-        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
     }
 
     private func startGenerate() {
