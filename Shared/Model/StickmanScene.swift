@@ -342,6 +342,52 @@ struct StickmanFrame {
         let base = units[index].basePoint()
         units[index].translateAll(dx: target.x - base.x, dy: target.y - base.y)
     }
+
+    func uniqueName(for name: String) -> String {
+        UnitName.unique(base: name, existing: units.map(\.name))
+    }
+
+    mutating func addCopy(_ src: StickmanUnit, name: String, at point: CGPoint, scale: CGFloat) {
+        if scale <= 0 {
+            fatalError("StickmanFrame \(id) addCopy scale is \(scale)")
+        }
+        if units.contains(where: { $0.name == name }) {
+            fatalError("StickmanFrame \(id) already has unit '\(name)'")
+        }
+        var copy = src
+        copy.name = name
+        copy.arrange = (units.map(\.arrange).max() ?? -1) + 1
+        copy.translateAll(dx: point.x, dy: point.y)
+        let base = copy.basePoint()
+        copy.scaleBy(pivotX: base.x, pivotY: base.y, factor: scale)
+        units.append(copy)
+    }
+}
+
+enum UnitName {
+    static func number(_ name: String) -> Int {
+        guard let hash = name.firstIndex(of: "#") else { return 0 }
+        let rest = name[name.index(after: hash)...]
+        guard let value = Int(rest) else {
+            fatalError("UnitName '\(name)' has non-integer number")
+        }
+        return value
+    }
+
+    static func unique(base: String, existing: [String]) -> String {
+        if !existing.contains(base) {
+            let n = number(base)
+            let pure = UnitAssets.removeNumber(base)
+            return n == 0 ? pure : "\(pure)#\(n)"
+        }
+        let pure = UnitAssets.removeNumber(base)
+        let maxN = existing
+            .filter { UnitAssets.removeNumber($0) == pure }
+            .map(number)
+            .max() ?? 0
+        let next = maxN + 1
+        return next == 0 ? pure : "\(pure)#\(next)"
+    }
 }
 
 struct StickmanScene {

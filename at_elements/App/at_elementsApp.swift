@@ -11,7 +11,23 @@ import SwiftUI
 struct at_elementsApp: App {
     var body: some Scene {
         WindowGroup {
+            ManifestBootView()
+        }
+    }
+}
+
+private struct ManifestBootView: View {
+    @State private var ready = false
+
+    var body: some View {
+        if ready {
             ContentView()
+        } else {
+            Color.black
+                .task {
+                    _ = await Manifest.shared.requestReload()
+                    ready = true
+                }
         }
     }
 }

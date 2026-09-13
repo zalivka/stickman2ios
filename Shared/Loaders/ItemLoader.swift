@@ -1,4 +1,5 @@
 import Compression
+import CoreGraphics
 import Foundation
 
 enum ItemLoader {
@@ -31,13 +32,43 @@ enum ItemLoader {
 
     static func load(resource: String, subdirectory: String) -> (StickmanUnit, UnitAssets, CGFloat) {
         let zip = archive(resource: resource, subdirectory: subdirectory)
-        let unit = unit(from: zip)
         let assets = UnitAssets()
-        assets.loadItemFromArchive(zip)
-        if !assets.hasAssetsFor(unitName: unit.name) {
+        let unit = load(zip: zip, into: assets)
+        return (unit, assets, ItemMeta.scale(from: ZipStore.data(named: "meta.txt", in: zip)))
+    }
+
+    static func load(zip: Data, into assets: UnitAssets) -> StickmanUnit {
+        let unit = unit(from: zip)
+        assets.loadItemFromArchive(zip, forceReload: false)
+        let own = UnitAssets.removeNumber(unit.name)
+        if !assets.hasAssetsFor(unitName: own) {
             fatalError("ItemLoader assets missing unit '\(unit.name)'")
         }
-        return (unit, assets, ItemMeta.scale(from: ZipStore.data(named: "meta.txt", in: zip)))
+        return unit
+    }
+
+    static func thumb(from zip: Data, name: String) -> CGImage {
+        if !ZipStore.contains("thumb.png", in: zip) {
+            fatalError("ItemLoader '\(name)' missing thumb.png")
+        }
+        return PNGImage.cgImage(from: ZipStore.data(named: "thumb.png", in: zip), name: "\(name)/thumb.png")
+    }
+}
+
+enum PNGImage {
+    static func cgImage(from data: Data, name: String) -> CGImage {
+        guard let provider = CGDataProvider(data: data as CFData) else {
+            fatalError("PNGImage '\(name)' has no data provider")
+        }
+        guard let image = CGImage(
+            pngDataProviderSource: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        ) else {
+            fatalError("PNGImage '\(name)' is not a PNG")
+        }
+        return image
     }
 }
 
@@ -65,6 +96,10 @@ enum ZipStore {
         entries(in: zip).map(\.name)
     }
 
+    static func contains(_ name: String, in zip: Data) -> Bool {
+        names(in: zip).contains(name)
+    }
+
     static func data(named name: String, in zip: Data) -> Data {
         for entry in entries(in: zip) where entry.name == name {
             return payload(
@@ -76,6 +111,58 @@ enum ZipStore {
             )
         }
         fatalError("ItemLoader zip missing '\(name)'")
+    }
+
+    static func allFilesPresent(_ zip: Data, in directory: URL) -> Bool {
+        let fm = FileManager.default
+        for name in names(in: zip) where !name.hasSuffix("/") {
+            if !fm.fileExists(atPath: directory.appendingPathComponent(name).path) {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func unpack(_ zip: Data, to directory: URL) {
+        let fm = FileManager.default
+        let tmp = directory.appendingPathExtension("unpacking")
+        if fm.fileExists(atPath: tmp.path) {
+            do {
+                try fm.removeItem(at: tmp)
+            } catch {
+                fatalError("ZipStore could not replace \(tmp.path): \(error)")
+            }
+        }
+        do {
+            try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        } catch {
+            fatalError("ZipStore could not create \(tmp.path): \(error)")
+        }
+        for name in names(in: zip) {
+            if name.hasSuffix("/") { continue }
+            if name.hasPrefix("/") || name.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
+                fatalError("ZipStore refuses entry '\(name)'")
+            }
+            let dest = tmp.appendingPathComponent(name)
+            do {
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data(named: name, in: zip).write(to: dest, options: .atomic)
+            } catch {
+                fatalError("ZipStore could not write \(dest.path): \(error)")
+            }
+        }
+        if fm.fileExists(atPath: directory.path) {
+            do {
+                try fm.removeItem(at: directory)
+            } catch {
+                fatalError("ZipStore could not replace \(directory.path): \(error)")
+            }
+        }
+        do {
+            try fm.moveItem(at: tmp, to: directory)
+        } catch {
+            fatalError("ZipStore could not move \(tmp.path) to \(directory.path): \(error)")
+        }
     }
 
     private struct Entry {

@@ -7,8 +7,17 @@ struct SceneEditorScreen: View {
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
+    @State private var showingInsert = false
+    @State private var selectedUnitName: String
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
+        if scene.frames.isEmpty {
+            fatalError("SceneEditorScreen has no frames")
+        }
+        let frame = scene.frames[scene.currentIndex]
+        if frame.units.isEmpty {
+            fatalError("SceneEditorScreen frame \(frame.id) has no units")
+        }
         _scene = State(initialValue: scene)
         _assets = State(initialValue: assets)
         _backgrounds = State(initialValue: backgrounds)
@@ -18,11 +27,19 @@ struct SceneEditorScreen: View {
                 frameCount: scene.frames.count
             )
         )
+        _selectedUnitName = State(initialValue: frame.units[0].name)
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            MainPanel(onPlay: { showingPreview = true })
+            MainPanel(
+                onPlay: { showingPreview = true },
+                onInsert: { showingInsert.toggle() },
+                insertActivated: showingInsert
+            )
+            if showingInsert {
+                ItemChooserPanel(onPick: insert)
+            }
             SkeletonCanvas(
                 unit: unitBinding,
                 frameUnits: scene.currentFrame.units,
@@ -46,13 +63,31 @@ struct SceneEditorScreen: View {
         }
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
-            FullscreenBackButton()
+            FullscreenBackButton(extraLeading: showingInsert ? ItemChooserPanel.width : 0)
         }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
+        }
+    }
+
+    private func insert(_ item: Item) {
+        selectedUnitName = InstantiateUnit.insert(
+            item: item,
+            into: &scene,
+            assets: assets,
+            frameIndices: insertFrames
+        )
+    }
+
+    private var insertFrames: [Int] {
+        switch mode {
+        case .range:
+            return Array(range)
+        case .frames:
+            return [scene.currentIndex]
         }
     }
 
@@ -75,14 +110,28 @@ struct SceneEditorScreen: View {
                 if frame.units.isEmpty {
                     fatalError("SceneEditorScreen frame \(frame.id) has no units")
                 }
+                if let unit = frame.units.first(where: { $0.name == selectedUnitName }) {
+                    return unit
+                }
                 return frame.units[0]
             },
             set: { newUnit in
                 let frameIndex = scene.currentIndex
-                if scene.frames[frameIndex].units.isEmpty {
+                let units = scene.frames[frameIndex].units
+                if units.isEmpty {
                     fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) has no units")
                 }
-                scene.frames[frameIndex].units[0] = newUnit
+                if let index = units.firstIndex(where: { $0.name == selectedUnitName }) {
+                    scene.frames[frameIndex].units[index] = newUnit
+                    selectedUnitName = newUnit.name
+                    return
+                }
+                if let index = units.firstIndex(where: { $0.name == newUnit.name }) {
+                    scene.frames[frameIndex].units[index] = newUnit
+                    selectedUnitName = newUnit.name
+                    return
+                }
+                fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) missing unit '\(selectedUnitName)'")
             }
         )
     }

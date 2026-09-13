@@ -55,6 +55,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			explicitFolders = (
 				demo,
+				packs,
 				testdata,
 			);
 			path = at_elements;
