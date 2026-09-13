@@ -110,6 +110,7 @@ struct SkeletonCanvas: View {
     static let checkerLight = Color.white
     static let checkerGray = Color(white: 0.85)
     static let sceneFill = Color(white: 0.85)
+    static let previewBackdrop = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
     static let cameraFrame = Color(red: 0x1c / 255, green: 0x5e / 255, blue: 0xa3 / 255)
 
     @Binding var unit: StickmanUnit
@@ -151,7 +152,11 @@ struct SkeletonCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             Canvas { context, size in
-                drawChecker(context: &context, size: size)
+                if interactive {
+                    drawChecker(context: &context, size: size)
+                } else {
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.previewBackdrop))
+                }
                 let layout = resolvedLayout(size: size)
                 if interactive {
                     drawScene(context: &context, layout: layout)

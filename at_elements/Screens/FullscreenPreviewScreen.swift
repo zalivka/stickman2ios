@@ -12,23 +12,36 @@ struct FullscreenPreviewScreen: View {
     @State private var generation = UUID()
 
     private enum Phase {
-        case generating, playing, finished
+        case generating, playing, paused, finished
     }
 
     var body: some View {
         ZStack {
             if let movie {
                 canvas(movie)
+                HStack(spacing: 0) {
+                    if phase != .generating {
+                        PreviewSeekBar(progress: progressBinding)
+                            .frame(maxHeight: .infinity)
+                    }
+                    if phase == .finished {
+                        ReplayOverlay(text: overlayText, onTap: tapOverlay)
+                    } else {
+                        Color.clear.allowsHitTesting(false)
+                    }
+                }
             } else {
-                Color.white
+                SkeletonCanvas.previewBackdrop
             }
-            if phase != .playing {
+            if phase == .generating {
                 ReplayOverlay(text: overlayText, onTap: tapOverlay)
             }
         }
+        .background(SkeletonCanvas.previewBackdrop)
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(besideMainPanel: false)
+                .padding(.leading, phase != .generating && movie != nil ? PreviewSeekBar.width : 0)
         }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -47,9 +60,37 @@ struct FullscreenPreviewScreen: View {
             return "Preparing… \(percent)%"
         case .finished:
             return "TAP HERE TO REPLAY"
-        case .playing:
+        case .playing, .paused:
             return ""
         }
+    }
+
+    private var progressBinding: Binding<Double> {
+        Binding(
+            get: {
+                guard let movie else {
+                    fatalError("FullscreenPreviewScreen seek with no movie")
+                }
+                if movie.frames.isEmpty {
+                    fatalError("FullscreenPreviewScreen movie has no frames")
+                }
+                return Double(movie.currentIndex) / Double(movie.frames.count)
+            },
+            set: { value in
+                guard var playing = movie else {
+                    fatalError("FullscreenPreviewScreen seek with no movie")
+                }
+                if playing.frames.isEmpty {
+                    fatalError("FullscreenPreviewScreen movie has no frames")
+                }
+                let index = Int(Double(playing.frames.count) * value)
+                playing.currentIndex = min(max(index, 0), playing.frames.count - 1)
+                movie = playing
+                if phase == .playing || phase == .finished {
+                    phase = .paused
+                }
+            }
+        )
     }
 
     private func canvas(_ movie: StickmanScene) -> some View {
@@ -79,6 +120,8 @@ struct FullscreenPreviewScreen: View {
             showSkeleton: false
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: tapCanvas)
     }
 
     private func startGenerate() {
@@ -108,6 +151,17 @@ struct FullscreenPreviewScreen: View {
     private func tapOverlay() {
         if phase == .finished {
             startPlaying()
+        }
+    }
+
+    private func tapCanvas() {
+        switch phase {
+        case .playing:
+            phase = .paused
+        case .paused:
+            phase = .playing
+        case .generating, .finished:
+            break
         }
     }
 
