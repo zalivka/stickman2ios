@@ -131,6 +131,7 @@ struct FullscreenPreviewScreen: View {
         percent = 0
         MovieGenerator.generate(
             scene: source,
+            assets: assets,
             progress: { value in
                 guard generation == token else { return }
                 percent = value

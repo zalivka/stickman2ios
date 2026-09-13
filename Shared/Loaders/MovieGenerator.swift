@@ -5,6 +5,7 @@ enum MovieGenerator {
 
     static func generate(
         scene: StickmanScene,
+        assets: UnitAssets,
         progress: @escaping (Int) -> Void,
         completion: @escaping (StickmanScene) -> Void
     ) {
@@ -14,22 +15,30 @@ enum MovieGenerator {
         if scene.interframes < 1 {
             fatalError("MovieGenerator interframes is \(scene.interframes)")
         }
+        var stateLists: [String: [Int]] = [:]
+        for name in scene.unitAnimations.keys {
+            stateLists[name] = assets.states(for: name)
+        }
         queue.async {
             let duration = scene.interframes
             let gaps = scene.frames.count - 1
             var movieFrames: [StickmanFrame] = []
             for index in 0..<gaps {
-                let generated = NlerpInterpolator.interpolate(
+                var generated = NlerpInterpolator.interpolate(
                     from: scene.frames[index],
                     to: scene.frames[index + 1],
                     duration: duration
                 )
+                for i in generated.indices {
+                    generated[i].originFrameIndex = index
+                }
                 movieFrames.append(contentsOf: generated)
                 let percent = min(max((index + 1) * 100 / gaps, 0), 100)
                 DispatchQueue.main.async {
                     progress(percent)
                 }
             }
+            OngoingAnimations.apply(source: scene, frames: &movieFrames, stateLists: stateLists)
             var movie = scene
             movie.frames = movieFrames.enumerated().map { offset, frame in
                 var copy = frame

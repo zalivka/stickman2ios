@@ -35,6 +35,7 @@ struct StickmanUnit {
     var alpha: CGFloat = 1
     var arrange: Int = 0
     var flipped: Bool = false
+    var assetsState: Int = 0
 
     func point(id: Int) -> StickmanPoint {
         guard let point = points.first(where: { $0.id == id }) else {
@@ -268,6 +269,38 @@ struct StickmanUnit {
         let edgeAngle = atan2(to.y - from.y, to.x - from.x)
         rotate(radians: constDiff - (edgeAngle - pivotAngle), pivotX: base.x, pivotY: base.y)
     }
+
+    mutating func nextState(states: [Int], current: Int, backward: Bool, loop: Bool) -> (state: Int, backward: Bool) {
+        var states = states
+        if states.isEmpty {
+            fatalError("StickmanUnit '\(name)' has no asset states")
+        }
+        let currentState = states.contains(current) ? current : states[0]
+        guard let currentIndex = states.firstIndex(of: currentState) else {
+            fatalError("StickmanUnit '\(name)' missing state \(currentState)")
+        }
+        rotateStates(&states, by: backward ? 1 : -1)
+        let newState = states[currentIndex]
+        assetsState = newState
+        var nextBackward = backward
+        if loop {
+            if backward && newState == states.min() {
+                nextBackward = false
+            } else if !backward && newState == states.max() {
+                nextBackward = true
+            }
+        }
+        return (newState, nextBackward)
+    }
+
+    private func rotateStates(_ states: inout [Int], by distance: Int) {
+        let count = states.count
+        if count == 0 {
+            return
+        }
+        let shift = ((distance % count) + count) % count
+        states = Array(states.suffix(shift) + states.prefix(count - shift))
+    }
 }
 
 struct StickmanFrame {
@@ -276,6 +309,7 @@ struct StickmanFrame {
     var bgName: String? = nil
     var bgMove: PictureMove = .identity
     var cameraMove: PictureMove = .identity
+    var originFrameIndex: Int = 0
     var slaves = SlavesRegistry()
 
     func unit(named name: String) -> StickmanUnit {
@@ -309,6 +343,7 @@ struct StickmanScene {
     var frames: [StickmanFrame]
     var currentIndex: Int
     var interframes: Int = 36
+    var unitAnimations: [String: FBFAnimation] = [:]
 
     var currentFrame: StickmanFrame {
         if frames.isEmpty {

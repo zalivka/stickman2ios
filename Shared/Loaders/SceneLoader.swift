@@ -38,7 +38,8 @@ enum SceneLoader {
         if !names.contains("model.xml") {
             fatalError("SceneLoader '\(resource).ats' missing model.xml")
         }
-        let scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
+        var scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
+        scene.unitAnimations = loadAnimations(zip: zip, names: names, resource: resource)
         let items = names.filter { !$0.contains("/") && $0.hasSuffix(".ati") }
         if items.isEmpty {
             fatalError("SceneLoader '\(resource).ats' has no root .ati")
@@ -61,6 +62,33 @@ enum SceneLoader {
         }
         let backgrounds = loadBackgrounds(scene: scene, zip: zip, names: names, resource: resource)
         return (scene, assets, backgrounds)
+    }
+
+    private static func loadAnimations(zip: Data, names: [String], resource: String) -> [String: FBFAnimation] {
+        if !names.contains("animations_v2.txt") {
+            return [:]
+        }
+        let data = ZipStore.data(named: "animations_v2.txt", in: zip)
+        let parsed: [FBFAnimation]
+        do {
+            parsed = try JSONDecoder().decode([FBFAnimation].self, from: data)
+        } catch {
+            fatalError("SceneLoader '\(resource).ats' animations_v2.txt is not FBF JSON: \(error)")
+        }
+        var result: [String: FBFAnimation] = [:]
+        for animation in parsed {
+            if animation.unitname.isEmpty {
+                fatalError("SceneLoader '\(resource).ats' FBF animation missing unitname")
+            }
+            if animation.period < 1 {
+                fatalError("SceneLoader '\(resource).ats' FBF '\(animation.unitname)' period is \(animation.period)")
+            }
+            if result[animation.unitname] != nil {
+                fatalError("SceneLoader '\(resource).ats' duplicate FBF '\(animation.unitname)'")
+            }
+            result[animation.unitname] = animation
+        }
+        return result
     }
 
     private static func loadBackgrounds(

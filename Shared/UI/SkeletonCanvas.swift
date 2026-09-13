@@ -309,7 +309,7 @@ struct SkeletonCanvas: View {
         let name = UnitAssets.removeNumber(drawn.name)
         for edge in drawn.edges {
             let key = UnitAssets.EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: drawn.flipped)
-            guard let asset = assets.getDrawable(key, state: UnitAssets.stateDefault) else { continue }
+            guard let asset = assets.getDrawable(key, state: drawn.assetsState) else { continue }
             let from = drawn.point(id: edge.from)
             let to = drawn.point(id: edge.to)
             bones.append(
