@@ -151,6 +151,7 @@ private enum SceneXML {
         private var frameId: Int?
         private var frameBgName: String?
         private var frameBgMove: PictureMove = .identity
+        private var frameCameraMove: PictureMove = .identity
         private var frameUnits: [StickmanUnit] = []
         private var unitName: String?
         private var unitScale: CGFloat?
@@ -205,6 +206,11 @@ private enum SceneXML {
                 frameId = id
                 frameBgName = bgName
                 frameBgMove = PictureMove.parse(bgMoveText)
+                if let cameraText = attributes["camera"], !cameraText.isEmpty {
+                    frameCameraMove = PictureMove.parse(cameraText)
+                } else {
+                    frameCameraMove = .identity
+                }
                 frameUnits = []
             case "unit":
                 guard let name = attributes["name"], !name.isEmpty else {
@@ -275,12 +281,19 @@ private enum SceneXML {
                 if frameUnits.isEmpty {
                     fatalError("SceneLoader frame \(id) has no units")
                 }
-                var frame = StickmanFrame(id: id, units: frameUnits, bgName: bgName, bgMove: frameBgMove)
+                var frame = StickmanFrame(
+                    id: id,
+                    units: frameUnits,
+                    bgName: bgName,
+                    bgMove: frameBgMove,
+                    cameraMove: frameCameraMove
+                )
                 frame.refreshAttachments()
                 frames.append(frame)
                 frameId = nil
                 frameBgName = nil
                 frameBgMove = .identity
+                frameCameraMove = .identity
                 frameUnits = []
             }
         }

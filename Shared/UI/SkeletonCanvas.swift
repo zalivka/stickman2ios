@@ -61,6 +61,8 @@ struct SkeletonLayout {
         copy.originY += dy
         return copy
     }
+
+    static let sceneSpace = SkeletonLayout(minX: 0, minY: 0, scale: 1, originX: 0, originY: 0)
 }
 
 private enum ItemHandlerKind {
@@ -108,6 +110,7 @@ struct SkeletonCanvas: View {
     static let checkerLight = Color.white
     static let checkerGray = Color(white: 0.85)
     static let sceneFill = Color(white: 0.85)
+    static let cameraFrame = Color(red: 0x1c / 255, green: 0x5e / 255, blue: 0xa3 / 255)
 
     @Binding var unit: StickmanUnit
     var frameUnits: [StickmanUnit] = []
@@ -115,6 +118,7 @@ struct SkeletonCanvas: View {
     var backgrounds: BackgroundAssets?
     var bgName: String?
     var bgMove: PictureMove = .identity
+    var cameraMove: PictureMove = .identity
     var sceneWidth: CGFloat
     var sceneHeight: CGFloat
     var currentIndex: Int = 0
@@ -149,13 +153,25 @@ struct SkeletonCanvas: View {
             Canvas { context, size in
                 drawChecker(context: &context, size: size)
                 let layout = resolvedLayout(size: size)
-                drawScene(context: &context, layout: layout)
-                for drawn in unitsToDraw {
-                    drawUnit(drawn, context: &context, layout: layout)
-                }
                 if interactive {
+                    drawScene(context: &context, layout: layout)
+                    for drawn in unitsToDraw {
+                        drawUnit(drawn, context: &context, layout: layout)
+                    }
+                    drawCameraRectangle(context: &context, layout: layout)
                     drawHandlers(context: &context, layout: layout)
                     drawTouchPoint(context: &context)
+                } else {
+                    context.drawLayer { layer in
+                        layer.clip(to: Path(sceneScreenRect(layout: layout)))
+                        layer.concatenate(cameraMove.canvasTransform(layout: layout))
+                        layer.drawLayer { bg in
+                            drawSceneContent(context: &bg)
+                        }
+                        for drawn in unitsToDraw {
+                            drawUnit(drawn, context: &layer, layout: .sceneSpace)
+                        }
+                    }
                 }
             }
             .overlay {
@@ -382,25 +398,25 @@ struct SkeletonCanvas: View {
         }
     }
 
-    private func drawScene(context: inout GraphicsContext, layout: SkeletonLayout) {
+    private func sceneScreenRect(layout: SkeletonLayout) -> CGRect {
         let origin = layout.screenPoint(x: 0, y: 0)
-        let rect = CGRect(
+        return CGRect(
             x: origin.x,
             y: origin.y,
             width: sceneWidth * layout.scale,
             height: sceneHeight * layout.scale
         )
+    }
+
+    private func drawScene(context: inout GraphicsContext, layout: SkeletonLayout) {
+        let rect = sceneScreenRect(layout: layout)
         if let name = bgName, name.hasPrefix("usermade:") {
-            guard let backgrounds else {
-                fatalError("SkeletonCanvas missing BackgroundAssets for '\(name)'")
-            }
-            let image = backgrounds.image(for: name)
+            let origin = layout.screenPoint(x: 0, y: 0)
             context.drawLayer { layer in
                 layer.clip(to: Path(rect))
                 layer.translateBy(x: origin.x, y: origin.y)
                 layer.scaleBy(x: layout.scale, y: layout.scale)
-                layer.concatenate(bgMove.toTransform())
-                layer.draw(Image(decorative: image, scale: 1), at: .zero, anchor: .topLeading)
+                drawSceneContent(context: &layer)
             }
             return
         }
@@ -413,6 +429,62 @@ struct SkeletonCanvas: View {
             return
         }
         context.fill(Path(rect), with: .color(sceneFill))
+    }
+
+    private func drawSceneContent(context: inout GraphicsContext) {
+        let rect = CGRect(x: 0, y: 0, width: sceneWidth, height: sceneHeight)
+        if let name = bgName, name.hasPrefix("usermade:") {
+            guard let backgrounds else {
+                fatalError("SkeletonCanvas missing BackgroundAssets for '\(name)'")
+            }
+            context.concatenate(bgMove.toTransform())
+            context.draw(
+                Image(decorative: backgrounds.image(for: name), scale: 1),
+                at: .zero,
+                anchor: .topLeading
+            )
+            return
+        }
+        if let name = bgName {
+            let rgb = HexRGB.parse(name)
+            context.fill(
+                Path(rect),
+                with: .color(Color(red: rgb.0, green: rgb.1, blue: rgb.2))
+            )
+            return
+        }
+        context.fill(Path(rect), with: .color(sceneFill))
+    }
+
+    private func drawCameraRectangle(context: inout GraphicsContext, layout: SkeletonLayout) {
+        if cameraMove.isZero {
+            return
+        }
+        let transform = cameraMove.toTransform()
+        if transform.a * transform.d - transform.b * transform.c == 0 {
+            fatalError("SkeletonCanvas camera transform is not invertible")
+        }
+        let inverse = transform.inverted()
+        let corners = [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: sceneWidth, y: 0),
+            CGPoint(x: sceneWidth, y: sceneHeight),
+            CGPoint(x: 0, y: sceneHeight)
+        ].map { point -> CGPoint in
+            let mapped = point.applying(inverse)
+            return layout.screenPoint(x: mapped.x, y: mapped.y)
+        }
+        var path = Path()
+        path.move(to: corners[0])
+        path.addLine(to: corners[1])
+        path.addLine(to: corners[2])
+        path.addLine(to: corners[3])
+        path.closeSubpath()
+        context.stroke(
+            path,
+            with: .color(Self.cameraFrame),
+            style: StrokeStyle(lineWidth: 8 / layout.scale)
+        )
     }
 
     private func drawChecker(context: inout GraphicsContext, size: CGSize) {

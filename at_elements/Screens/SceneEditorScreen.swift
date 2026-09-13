@@ -30,6 +30,7 @@ struct SceneEditorScreen: View {
                 backgrounds: backgrounds,
                 bgName: scene.currentFrame.bgName,
                 bgMove: scene.currentFrame.bgMove,
+                cameraMove: scene.currentFrame.cameraMove,
                 sceneWidth: scene.width,
                 sceneHeight: scene.height,
                 currentIndex: scene.currentIndex

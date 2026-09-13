@@ -24,7 +24,14 @@ enum NlerpInterpolator {
                 }
                 units.append(inbetween(unit1: unit1, unit2: unit2, t: t))
             }
-            var generated = StickmanFrame(id: -1, units: units, bgName: frame1.bgName, bgMove: frame1.bgMove)
+            let cameraT = CGFloat(step + 1) / CGFloat(duration + 1)
+            var generated = StickmanFrame(
+                id: -1,
+                units: units,
+                bgName: frame1.bgName,
+                bgMove: frame1.bgMove,
+                cameraMove: frame1.cameraMove.lerp(frame2.cameraMove, t: cameraT)
+            )
             adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)
             frames.append(generated)
         }

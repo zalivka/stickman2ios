@@ -275,6 +275,7 @@ struct StickmanFrame {
     var units: [StickmanUnit]
     var bgName: String? = nil
     var bgMove: PictureMove = .identity
+    var cameraMove: PictureMove = .identity
     var slaves = SlavesRegistry()
 
     func unit(named name: String) -> StickmanUnit {
