@@ -1,11 +1,25 @@
 import CoreGraphics
 
+enum Attachable {
+    case none
+    case master
+    case slave
+}
+
+struct SlaveAttachment: Equatable {
+    var masterName: String
+    var masterPointId: Int
+}
+
 struct StickmanPoint: Identifiable {
     let id: Int
     var x: CGFloat
     var y: CGFloat
     var isBase: Bool
     var parentId: Int?
+    var attachable: Attachable = .none
+    var attachedMasterName: String? = nil
+    var attachedMasterPointId: Int? = nil
 }
 
 struct StickmanEdge {
@@ -19,6 +33,8 @@ struct StickmanUnit {
     var edges: [StickmanEdge]
     var scale: CGFloat = 1
     var alpha: CGFloat = 1
+    var arrange: Int = 0
+    var flipped: Bool = false
 
     func point(id: Int) -> StickmanPoint {
         guard let point = points.first(where: { $0.id == id }) else {
@@ -233,6 +249,14 @@ struct StickmanUnit {
         return edgeAngle - handlerAngle
     }
 
+    mutating func stripAttachment() {
+        guard let index = points.firstIndex(where: \.isBase) else {
+            fatalError("StickmanUnit '\(name)' has no base")
+        }
+        points[index].attachedMasterName = nil
+        points[index].attachedMasterPointId = nil
+    }
+
     mutating func rotateToHandler(handler: CGPoint, constDiff: CGFloat) {
         if edges.isEmpty {
             fatalError("StickmanUnit '\(name)' has no edges for rotate handler")
@@ -251,6 +275,31 @@ struct StickmanFrame {
     var units: [StickmanUnit]
     var bgName: String? = nil
     var bgMove: PictureMove = .identity
+    var slaves = SlavesRegistry()
+
+    func unit(named name: String) -> StickmanUnit {
+        guard let unit = units.first(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+        }
+        return unit
+    }
+
+    mutating func refreshAttachments() {
+        slaves.populate(units: units)
+    }
+
+    mutating func moveUnitToMaster(named name: String) {
+        guard let index = units.firstIndex(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+        }
+        guard let attachment = SlavesRegistry.attachment(of: units[index]) else {
+            return
+        }
+        let master = unit(named: attachment.masterName)
+        let target = master.point(id: attachment.masterPointId)
+        let base = units[index].basePoint()
+        units[index].translateAll(dx: target.x - base.x, dy: target.y - base.y)
+    }
 }
 
 struct StickmanScene {

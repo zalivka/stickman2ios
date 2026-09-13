@@ -36,6 +36,10 @@ struct SeekFramesBarScreen: View, RangeDialogPresenting {
                         StonedummyScreen()
                     }
                     .buttonStyle(.borderedProminent)
+                    NavigationLink("Dino") {
+                        DemoSceneScreen(resource: "demo_lil_dino")
+                    }
+                    .buttonStyle(.borderedProminent)
                     NavigationLink("Saved") {
                         SavedScenesScreen()
                     }

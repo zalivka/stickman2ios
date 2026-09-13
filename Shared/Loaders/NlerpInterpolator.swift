@@ -10,17 +10,23 @@ enum NlerpInterpolator {
         if duration <= 0 {
             fatalError("NlerpInterpolator duration must be > 0, got \(duration)")
         }
+        let excluded = exclude(frame1, frame2)
         var frames: [StickmanFrame] = []
         for step in 0..<duration {
             let t = CGFloat(step) / CGFloat(duration)
             var units: [StickmanUnit] = []
             for unit1 in frame1.units {
+                if excluded.contains(unit1.name) {
+                    continue
+                }
                 guard let unit2 = frame2.units.first(where: { $0.name == unit1.name }) else {
                     continue
                 }
                 units.append(inbetween(unit1: unit1, unit2: unit2, t: t))
             }
-            frames.append(StickmanFrame(id: -1, units: units, bgName: frame1.bgName, bgMove: frame1.bgMove))
+            var generated = StickmanFrame(id: -1, units: units, bgName: frame1.bgName, bgMove: frame1.bgMove)
+            adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)
+            frames.append(generated)
         }
         frames.append(frame2)
         if frames.count != duration + 1 {
@@ -111,7 +117,9 @@ enum NlerpInterpolator {
             points: points,
             edges: [],
             scale: unit1.scale,
-            alpha: unit1.alpha
+            alpha: unit1.alpha,
+            arrange: unit1.arrange,
+            flipped: unit1.flipped
         )
         result.link()
         let base = result.basePoint()
@@ -175,5 +183,37 @@ enum NlerpInterpolator {
 
     private static func lerp(_ from: CGFloat, _ to: CGFloat, _ t: CGFloat) -> CGFloat {
         from + (to - from) * t
+    }
+
+    private static func exclude(_ first: StickmanFrame, _ second: StickmanFrame) -> Set<String> {
+        let names1 = Set(first.units.map(\.name))
+        let names2 = Set(second.units.map(\.name))
+        var excluded = names1.symmetricDifference(names2)
+        for name in names2.subtracting(names1) {
+            excluded.formUnion(second.slaves.allSlaves(of: name))
+        }
+        for name in names1.subtracting(names2) {
+            excluded.formUnion(first.slaves.allSlaves(of: name))
+        }
+        return excluded
+    }
+
+    private static func adjustSlavesPositions(frame1: StickmanFrame, frame2: StickmanFrame, generated: inout StickmanFrame) {
+        let enslaved = generated.units
+            .filter { SlavesRegistry.attachment(of: $0) != nil }
+            .sorted { SlavesRegistry.slaveDepth($0, in: generated.units) < SlavesRegistry.slaveDepth($1, in: generated.units) }
+        for unit in enslaved {
+            let attachment1 = SlavesRegistry.attachment(of: frame1.unit(named: unit.name))
+            let attachment2 = SlavesRegistry.attachment(of: frame2.unit(named: unit.name))
+            if attachment1 != attachment2 {
+                guard let index = generated.units.firstIndex(where: { $0.name == unit.name }) else {
+                    fatalError("NlerpInterpolator missing generated unit '\(unit.name)'")
+                }
+                generated.units[index].stripAttachment()
+            } else {
+                generated.moveUnitToMaster(named: unit.name)
+            }
+        }
+        generated.refreshAttachments()
     }
 }

@@ -20,7 +20,20 @@ enum HexRGB {
 
 enum SceneLoader {
     static func load(resource: String, subdirectory: String) -> (StickmanScene, UnitAssets, BackgroundAssets) {
-        let zip = ItemLoader.archive(resource: resource, subdirectory: subdirectory, ext: "ats")
+        load(zip: ItemLoader.archive(resource: resource, subdirectory: subdirectory, ext: "ats"), resource: resource)
+    }
+
+    static func load(url: URL) -> (StickmanScene, UnitAssets, BackgroundAssets) {
+        let zip: Data
+        do {
+            zip = try Data(contentsOf: url)
+        } catch {
+            fatalError("SceneLoader could not read \(url.path): \(error)")
+        }
+        return load(zip: zip, resource: url.deletingPathExtension().lastPathComponent)
+    }
+
+    static func load(zip: Data, resource: String) -> (StickmanScene, UnitAssets, BackgroundAssets) {
         let names = ZipStore.names(in: zip)
         if !names.contains("model.xml") {
             fatalError("SceneLoader '\(resource).ats' missing model.xml")
@@ -117,19 +130,22 @@ private enum SceneXML {
         if sink.frames.isEmpty {
             fatalError("SceneLoader model.xml has no frames")
         }
+        guard let interframes = sink.interframes else {
+            fatalError("SceneLoader scene missing interframes")
+        }
         return StickmanScene(
             width: width,
             height: height,
             frames: sink.frames,
             currentIndex: 0,
-            interframes: sink.interframes
+            interframes: interframes
         )
     }
 
     private final class Sink: NSObject, XMLParserDelegate {
         var width: CGFloat?
         var height: CGFloat?
-        var interframes: Int = 36
+        var interframes: Int?
         var frames: [StickmanFrame] = []
 
         private var frameId: Int?
@@ -139,6 +155,8 @@ private enum SceneXML {
         private var unitName: String?
         private var unitScale: CGFloat?
         private var unitAlpha: CGFloat?
+        private var unitArrange: Int?
+        private var unitFlipped = false
         private var unitPoints: [StickmanPoint] = []
 
         func parser(
@@ -158,15 +176,13 @@ private enum SceneXML {
                 }
                 width = CGFloat(w)
                 height = CGFloat(h)
-                if let text = attributes["interframes"] {
-                    guard let value = Int(text) else {
-                        fatalError("SceneLoader interframes '\(text)' is not an int")
-                    }
-                    if value < 0 {
-                        fatalError("SceneLoader interframes is \(value)")
-                    }
-                    interframes = value
+                guard let text = attributes["interframes"], let value = Int(text) else {
+                    fatalError("SceneLoader scene missing interframes")
                 }
+                if value < 1 {
+                    fatalError("SceneLoader interframes is \(value)")
+                }
+                interframes = value
             case "frame":
                 guard let idText = attributes["id"], let id = Int(idText) else {
                     fatalError("SceneLoader frame missing id")
@@ -206,9 +222,14 @@ private enum SceneXML {
                 if alpha < 0 || alpha > 1 {
                     fatalError("SceneLoader unit '\(name)' alpha is \(alpha)")
                 }
+                guard let arrangeText = attributes["arrange"], let arrange = Int(arrangeText) else {
+                    fatalError("SceneLoader unit '\(name)' missing arrange")
+                }
                 unitName = name
                 unitScale = CGFloat(scale)
                 unitAlpha = CGFloat(alpha)
+                unitArrange = arrange
+                unitFlipped = attributes["flipped"] == "true"
                 unitPoints = []
             case "point":
                 unitPoints.append(parsePoint(attributes))
@@ -224,24 +245,28 @@ private enum SceneXML {
             qualifiedName qName: String?
         ) {
             if elementName == "unit" {
-                guard let name = unitName, let scale = unitScale, let alpha = unitAlpha else {
-                    fatalError("SceneLoader unit ended without name/scale/alpha")
+                guard let name = unitName, let scale = unitScale, let alpha = unitAlpha, let arrange = unitArrange else {
+                    fatalError("SceneLoader unit ended without name/scale/alpha/arrange")
                 }
                 if unitPoints.isEmpty {
                     fatalError("SceneLoader unit '\(name)' has no points")
                 }
                 var unit = StickmanUnit(
                     name: name,
-                    points: unitPoints,
+                    points: uniquePoints(unitPoints, unitName: name),
                     edges: [],
                     scale: scale,
-                    alpha: alpha
+                    alpha: alpha,
+                    arrange: arrange,
+                    flipped: unitFlipped
                 )
                 unit.link()
                 frameUnits.append(unit)
                 unitName = nil
                 unitScale = nil
                 unitAlpha = nil
+                unitArrange = nil
+                unitFlipped = false
                 unitPoints = []
             } else if elementName == "frame" {
                 guard let id = frameId, let bgName = frameBgName else {
@@ -250,12 +275,37 @@ private enum SceneXML {
                 if frameUnits.isEmpty {
                     fatalError("SceneLoader frame \(id) has no units")
                 }
-                frames.append(StickmanFrame(id: id, units: frameUnits, bgName: bgName, bgMove: frameBgMove))
+                var frame = StickmanFrame(id: id, units: frameUnits, bgName: bgName, bgMove: frameBgMove)
+                frame.refreshAttachments()
+                frames.append(frame)
                 frameId = nil
                 frameBgName = nil
                 frameBgMove = .identity
                 frameUnits = []
             }
+        }
+
+        private func uniquePoints(_ points: [StickmanPoint], unitName: String) -> [StickmanPoint] {
+            var byId: [Int: StickmanPoint] = [:]
+            var order: [Int] = []
+            for point in points {
+                if let existing = byId[point.id] {
+                    if existing.x != point.x
+                        || existing.y != point.y
+                        || existing.isBase != point.isBase
+                        || existing.parentId != point.parentId
+                        || existing.attachable != point.attachable
+                        || existing.attachedMasterName != point.attachedMasterName
+                        || existing.attachedMasterPointId != point.attachedMasterPointId
+                    {
+                        fatalError("SceneLoader unit '\(unitName)' duplicate point \(point.id) disagrees")
+                    }
+                    continue
+                }
+                byId[point.id] = point
+                order.append(point.id)
+            }
+            return order.map { byId[$0]! }
         }
 
         private func parsePoint(_ attributes: [String: String]) -> StickmanPoint {
@@ -278,7 +328,42 @@ private enum SceneXML {
                 }
                 parentId = par
             }
-            return StickmanPoint(id: id, x: CGFloat(x), y: CGFloat(y), isBase: isBase, parentId: parentId)
+            let attachable: Attachable
+            switch attributes["attachable"] {
+            case nil:
+                attachable = .none
+            case "master":
+                attachable = .master
+            case "slave":
+                attachable = .slave
+            case let other?:
+                fatalError("SceneLoader point \(id) unknown attachable '\(other)'")
+            }
+            var attachedName: String?
+            var attachedId: Int?
+            if let attached = attributes["attached"], !attached.isEmpty {
+                let parts = attached.split(separator: "&", omittingEmptySubsequences: false).map(String.init)
+                if parts.count != 2 {
+                    fatalError("SceneLoader point \(id) attached '\(attached)' is not name&id")
+                }
+                guard let masterId = Int(parts[1]) else {
+                    fatalError("SceneLoader point \(id) attached id '\(parts[1])' is not an int")
+                }
+                if masterId != -1 && parts[0] != "null" && !parts[0].isEmpty {
+                    attachedName = parts[0]
+                    attachedId = masterId
+                }
+            }
+            return StickmanPoint(
+                id: id,
+                x: CGFloat(x),
+                y: CGFloat(y),
+                isBase: isBase,
+                parentId: parentId,
+                attachable: attachable,
+                attachedMasterName: attachedName,
+                attachedMasterPointId: attachedId
+            )
         }
     }
 }

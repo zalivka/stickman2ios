@@ -110,6 +110,7 @@ struct SkeletonCanvas: View {
     static let sceneFill = Color(white: 0.85)
 
     @Binding var unit: StickmanUnit
+    var frameUnits: [StickmanUnit] = []
     var assets: UnitAssets?
     var backgrounds: BackgroundAssets?
     var bgName: String?
@@ -149,7 +150,9 @@ struct SkeletonCanvas: View {
                 drawChecker(context: &context, size: size)
                 let layout = resolvedLayout(size: size)
                 drawScene(context: &context, layout: layout)
-                drawUnit(context: &context, layout: layout)
+                for drawn in unitsToDraw {
+                    drawUnit(drawn, context: &context, layout: layout)
+                }
                 if interactive {
                     drawHandlers(context: &context, layout: layout)
                     drawTouchPoint(context: &context)
@@ -178,31 +181,41 @@ struct SkeletonCanvas: View {
         }
     }
 
-    private func drawUnit(context: inout GraphicsContext, layout: SkeletonLayout) {
+    private var unitsToDraw: [StickmanUnit] {
+        let source = frameUnits.isEmpty ? [unit] : frameUnits
+        return source.sorted {
+            if $0.arrange != $1.arrange {
+                return $0.arrange < $1.arrange
+            }
+            return $0.name < $1.name
+        }
+    }
+
+    private func drawUnit(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
         if let assets {
-            if unit.alpha < 1 {
+            if drawn.alpha < 1 {
                 context.drawLayer { layer in
-                    layer.opacity = Double(unit.alpha)
+                    layer.opacity = Double(drawn.alpha)
                     layer.drawLayer { opaque in
-                        drawBitmaps(context: &opaque, layout: layout, assets: assets)
+                        drawBitmaps(drawn, context: &opaque, layout: layout, assets: assets)
                     }
                 }
             } else {
-                drawBitmaps(context: &context, layout: layout, assets: assets)
+                drawBitmaps(drawn, context: &context, layout: layout, assets: assets)
             }
         }
         if showSkeleton {
-            drawSkeleton(context: &context, layout: layout)
+            drawSkeleton(drawn, context: &context, layout: layout)
             if FeatureFlags.debugDrawTouchCapture {
-                drawTouchCapture(context: &context, layout: layout)
+                drawTouchCapture(drawn, context: &context, layout: layout)
             }
         }
     }
 
-    private func drawSkeleton(context: inout GraphicsContext, layout: SkeletonLayout) {
-        for edge in unit.edges {
-            let from = unit.point(id: edge.from)
-            let to = unit.point(id: edge.to)
+    private func drawSkeleton(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+        for edge in drawn.edges {
+            let from = drawn.point(id: edge.from)
+            let to = drawn.point(id: edge.to)
             var path = Path()
             path.move(to: layout.screenPoint(x: from.x, y: from.y))
             path.addLine(to: layout.screenPoint(x: to.x, y: to.y))
@@ -212,7 +225,7 @@ struct SkeletonCanvas: View {
                 style: StrokeStyle(lineWidth: Self.edgeWidth, lineCap: .butt)
             )
         }
-        for point in unit.points {
+        for point in drawn.points {
             let center = layout.screenPoint(x: point.x, y: point.y)
             let radius = point.isBase ? Self.baseNodeRadius : Self.nodeRadius
             let rect = CGRect(
@@ -225,10 +238,10 @@ struct SkeletonCanvas: View {
         }
     }
 
-    private func drawTouchCapture(context: inout GraphicsContext, layout: SkeletonLayout) {
+    private func drawTouchCapture(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
         let radius = Self.hitRadius
         let color = Color.cyan.opacity(180 / 255)
-        for point in unit.points {
+        for point in drawn.points {
             let center = layout.screenPoint(x: point.x, y: point.y)
             let rect = CGRect(
                 x: center.x - radius,
@@ -264,7 +277,7 @@ struct SkeletonCanvas: View {
         context.stroke(cross, with: .color(.red), style: StrokeStyle(lineWidth: 1))
     }
 
-    private func drawBitmaps(context: inout GraphicsContext, layout: SkeletonLayout, assets: UnitAssets) {
+    private func drawBitmaps(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout, assets: UnitAssets) {
         struct Bone {
             var weight: Int
             var start: CGPoint
@@ -272,12 +285,12 @@ struct SkeletonCanvas: View {
             var asset: UnitAssets.EdgeAsset
         }
         var bones: [Bone] = []
-        let name = UnitAssets.removeNumber(unit.name)
-        for edge in unit.edges {
-            let key = UnitAssets.EdgeKey(unitName: name, start: edge.from, end: edge.to)
+        let name = UnitAssets.removeNumber(drawn.name)
+        for edge in drawn.edges {
+            let key = UnitAssets.EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: drawn.flipped)
             guard let asset = assets.getDrawable(key, state: UnitAssets.stateDefault) else { continue }
-            let from = unit.point(id: edge.from)
-            let to = unit.point(id: edge.to)
+            let from = drawn.point(id: edge.from)
+            let to = drawn.point(id: edge.to)
             bones.append(
                 Bone(
                     weight: asset.weight,
@@ -290,6 +303,11 @@ struct SkeletonCanvas: View {
         bones.sort { $0.weight < $1.weight }
         for bone in bones {
             let angle = atan2(bone.end.y - bone.start.y, bone.end.x - bone.start.x)
+            // Unit flipped=true with no flipped PNG (nativeFlipped): Android mirrors
+            // the unflipped bitmap (scale y, negate y_offset). Looking up a flipped
+            // key and drawing as-is left dino head/torso upside-down.
+            let mirror = drawn.flipped && !bone.asset.nativeFlipped
+            let yOffset = (mirror ? -bone.asset.yOffset : bone.asset.yOffset) * drawn.scale
             context.drawLayer { ctx in
                 ctx.translateBy(
                     x: layout.originX - layout.minX * layout.scale,
@@ -300,10 +318,10 @@ struct SkeletonCanvas: View {
                 ctx.rotate(by: Angle(radians: angle))
                 ctx.translateBy(x: -bone.start.x, y: -bone.start.y)
                 ctx.translateBy(
-                    x: bone.start.x + bone.asset.xOffset * unit.scale,
-                    y: bone.start.y + bone.asset.yOffset * unit.scale
+                    x: bone.start.x + bone.asset.xOffset * drawn.scale,
+                    y: bone.start.y + yOffset
                 )
-                ctx.scaleBy(x: unit.scale, y: unit.scale)
+                ctx.scaleBy(x: drawn.scale, y: mirror ? -drawn.scale : drawn.scale)
                 ctx.draw(
                     Image(decorative: bone.asset.bitmap, scale: 1),
                     at: .zero,

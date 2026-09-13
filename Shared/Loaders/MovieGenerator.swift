@@ -11,11 +11,11 @@ enum MovieGenerator {
         if scene.frames.count < 2 {
             fatalError("MovieGenerator needs at least 2 keyframes, got \(scene.frames.count)")
         }
-        if scene.interframes < 0 {
+        if scene.interframes < 1 {
             fatalError("MovieGenerator interframes is \(scene.interframes)")
         }
         queue.async {
-            let duration = scene.interframes > 0 ? scene.interframes : 36
+            let duration = scene.interframes
             let gaps = scene.frames.count - 1
             var movieFrames: [StickmanFrame] = []
             for index in 0..<gaps {

@@ -25,6 +25,7 @@ struct SceneEditorScreen: View {
             MainPanel(onPlay: { showingPreview = true })
             SkeletonCanvas(
                 unit: unitBinding,
+                frameUnits: scene.currentFrame.units,
                 assets: assets,
                 backgrounds: backgrounds,
                 bgName: scene.currentFrame.bgName,
@@ -121,7 +122,22 @@ struct Ter2Screen: View {
 }
 
 struct StonedummyScreen: View {
+    var body: some View {
+        DemoSceneScreen(resource: "demo_stonedummy")
+    }
+}
+
+struct DemoSceneScreen: View {
+    private let load: () -> (StickmanScene, UnitAssets, BackgroundAssets)
     @State private var loaded: (StickmanScene, UnitAssets, BackgroundAssets)?
+
+    init(resource: String, subdirectory: String = "demo") {
+        load = { SceneLoader.load(resource: resource, subdirectory: subdirectory) }
+    }
+
+    init(url: URL) {
+        load = { SceneLoader.load(url: url) }
+    }
 
     var body: some View {
         Group {
@@ -146,7 +162,7 @@ struct StonedummyScreen: View {
     private func loadIfNeeded() {
         if loaded != nil { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let built = SceneLoader.load(resource: "demo_stonedummy", subdirectory: "demo")
+            let built = load()
             DispatchQueue.main.async {
                 loaded = built
             }

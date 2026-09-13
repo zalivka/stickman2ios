@@ -66,6 +66,7 @@ struct FullscreenPreviewScreen: View {
                     fatalError("FullscreenPreviewScreen canvas is not interactive")
                 }
             ),
+            frameUnits: movie.currentFrame.units,
             assets: assets,
             backgrounds: backgrounds,
             bgName: movie.currentFrame.bgName,

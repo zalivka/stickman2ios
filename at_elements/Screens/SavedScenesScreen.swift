@@ -16,7 +16,12 @@ struct SavedScenesScreen: View {
                     spacing: 1
                 ) {
                     ForEach(items) { item in
-                        SavedSceneCell(item: item, width: thumbWidth, height: thumbHeight)
+                        NavigationLink {
+                            DemoSceneScreen(url: item.url)
+                        } label: {
+                            SavedSceneCell(item: item, width: thumbWidth, height: thumbHeight)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, leftover / 2)
