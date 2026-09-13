@@ -77,12 +77,19 @@ private enum SceneXML {
         if sink.frames.isEmpty {
             fatalError("SceneLoader model.xml has no frames")
         }
-        return StickmanScene(width: width, height: height, frames: sink.frames, currentIndex: 0)
+        return StickmanScene(
+            width: width,
+            height: height,
+            frames: sink.frames,
+            currentIndex: 0,
+            interframes: sink.interframes
+        )
     }
 
     private final class Sink: NSObject, XMLParserDelegate {
         var width: CGFloat?
         var height: CGFloat?
+        var interframes: Int = 36
         var frames: [StickmanFrame] = []
 
         private var frameId: Int?
@@ -110,6 +117,15 @@ private enum SceneXML {
                 }
                 width = CGFloat(w)
                 height = CGFloat(h)
+                if let text = attributes["interframes"] {
+                    guard let value = Int(text) else {
+                        fatalError("SceneLoader interframes '\(text)' is not an int")
+                    }
+                    if value < 0 {
+                        fatalError("SceneLoader interframes is \(value)")
+                    }
+                    interframes = value
+                }
             case "frame":
                 guard let idText = attributes["id"], let id = Int(idText) else {
                     fatalError("SceneLoader frame missing id")

@@ -54,7 +54,8 @@ enum ItemConstructor {
             width: sceneWidth,
             height: sceneHeight,
             frames: frames,
-            currentIndex: 0
+            currentIndex: 0,
+            interframes: 36
         )
     }
 }

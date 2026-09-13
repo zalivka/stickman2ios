@@ -257,6 +257,7 @@ struct StickmanScene {
     var height: CGFloat
     var frames: [StickmanFrame]
     var currentIndex: Int
+    var interframes: Int = 36
 
     var currentFrame: StickmanFrame {
         if frames.isEmpty {

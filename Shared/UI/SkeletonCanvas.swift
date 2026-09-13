@@ -115,6 +115,7 @@ struct SkeletonCanvas: View {
     var sceneHeight: CGFloat
     var currentIndex: Int = 0
     var sceneFill: Color = Self.sceneFill
+    var interactive: Bool = true
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
@@ -145,17 +146,21 @@ struct SkeletonCanvas: View {
                 let layout = resolvedLayout(size: size)
                 drawScene(context: &context, layout: layout)
                 drawUnit(context: &context, layout: layout)
-                drawHandlers(context: &context, layout: layout)
-                drawTouchPoint(context: &context)
+                if interactive {
+                    drawHandlers(context: &context, layout: layout)
+                    drawTouchPoint(context: &context)
+                }
             }
             .overlay {
-                SkeletonTouchOverlay(
-                    onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
-                    onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
-                    onEnded: { _ in endTouch() },
-                    onPinchBegan: { endTouch() },
-                    onPinch: { handlePinch(focus: $0, factor: $1) }
-                )
+                if interactive {
+                    SkeletonTouchOverlay(
+                        onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
+                        onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
+                        onEnded: { _ in endTouch() },
+                        onPinchBegan: { endTouch() },
+                        onPinch: { handlePinch(focus: $0, factor: $1) }
+                    )
+                }
             }
             .onAppear { freezeLayout(in: proxy.size) }
             .onChange(of: proxy.size) { _, newSize in

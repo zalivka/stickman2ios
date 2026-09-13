@@ -5,6 +5,7 @@ struct SceneEditorScreen: View {
     @State private var assets: UnitAssets
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
+    @State private var showingPreview = false
 
     init(scene: StickmanScene, assets: UnitAssets) {
         _scene = State(initialValue: scene)
@@ -19,7 +20,7 @@ struct SceneEditorScreen: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            MainPanel()
+            MainPanel(onPlay: { showingPreview = true })
             SkeletonCanvas(
                 unit: unitBinding,
                 assets: assets,
@@ -44,6 +45,9 @@ struct SceneEditorScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .fullScreenCover(isPresented: $showingPreview) {
+            FullscreenPreviewScreen(source: scene, assets: assets)
+        }
     }
 
     private var fillColor: Color {
