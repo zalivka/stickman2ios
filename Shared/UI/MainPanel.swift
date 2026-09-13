@@ -9,10 +9,26 @@ struct MainPanel: View {
 
     var onPlay: () -> Void = {}
     var onInsert: (() -> Void)? = nil
+    var onMenu: (() -> Void)? = nil
     var insertActivated = false
+    var menuActivated = false
 
     var body: some View {
         VStack(spacing: 0) {
+            if let onMenu {
+                Button(action: onMenu) {
+                    Image(decorative: Self.navIcon, scale: UIScreen.main.scale)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 36, height: 36)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(menuActivated ? Color(white: 0.22) : Color.clear)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Menu")
+            }
             chromeButton(
                 icon: Self.playIcon,
                 title: "PLAY",
@@ -62,6 +78,7 @@ struct MainPanel: View {
         .buttonStyle(.plain)
     }
 
+    private static let navIcon = chromeImage("main_btn_nav")
     private static let playIcon = chromeImage("main_btn_play")
     private static let insertIcon = chromeImage("main_btn_insert")
     private static let insertIconSel = chromeImage("main_btn_insert_sel")

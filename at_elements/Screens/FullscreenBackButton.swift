@@ -3,10 +3,11 @@ import SwiftUI
 struct FullscreenBackButton: View {
     var besideMainPanel: Bool = true
     var extraLeading: CGFloat = 0
+    var action: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Button(action: dismiss.callAsFunction) {
+        Button(action: { if let action { action() } else { dismiss() } }) {
             Image(systemName: "chevron.left")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.black)

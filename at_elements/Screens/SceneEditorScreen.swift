@@ -8,6 +8,7 @@ struct SceneEditorScreen: View {
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
     @State private var showingInsert = false
+    @State private var showingMenu = false
     @State private var selectedUnitName: String
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
@@ -31,39 +32,54 @@ struct SceneEditorScreen: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            MainPanel(
-                onPlay: { showingPreview = true },
-                onInsert: { showingInsert.toggle() },
-                insertActivated: showingInsert
-            )
-            if showingInsert {
-                ItemChooserPanel(onPick: insert)
+        ZStack(alignment: .leading) {
+            HStack(spacing: 0) {
+                MainPanel(
+                    onPlay: { showingPreview = true },
+                    onInsert: toggleInsert,
+                    onMenu: toggleMenu,
+                    insertActivated: showingInsert,
+                    menuActivated: showingMenu
+                )
+                if showingInsert {
+                    ItemChooserPanel(onPick: insert)
+                }
+                SkeletonCanvas(
+                    unit: unitBinding,
+                    frameUnits: scene.currentFrame.units,
+                    assets: assets,
+                    backgrounds: backgrounds,
+                    bgName: scene.currentFrame.bgName,
+                    bgMove: scene.currentFrame.bgMove,
+                    cameraMove: scene.currentFrame.cameraMove,
+                    sceneWidth: scene.width,
+                    sceneHeight: scene.height,
+                    currentIndex: scene.currentIndex
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white)
+                DualNavigationChrome(
+                    frameCount: scene.frames.count,
+                    currentIndex: currentIndexBinding,
+                    range: $range,
+                    mode: $mode
+                )
             }
-            SkeletonCanvas(
-                unit: unitBinding,
-                frameUnits: scene.currentFrame.units,
-                assets: assets,
-                backgrounds: backgrounds,
-                bgName: scene.currentFrame.bgName,
-                bgMove: scene.currentFrame.bgMove,
-                cameraMove: scene.currentFrame.cameraMove,
-                sceneWidth: scene.width,
-                sceneHeight: scene.height,
-                currentIndex: scene.currentIndex
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.white)
-            DualNavigationChrome(
-                frameCount: scene.frames.count,
-                currentIndex: currentIndexBinding,
-                range: $range,
-                mode: $mode
-            )
+            if showingMenu {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .onTapGesture { showingMenu = false }
+                SideMenu(onPick: pickMenu)
+                    .transition(.move(edge: .leading))
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
-            FullscreenBackButton(extraLeading: showingInsert ? ItemChooserPanel.width : 0)
+            FullscreenBackButton(
+                extraLeading: 0,
+                action: showingMenu ? { showingMenu = false } : nil
+            )
         }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -71,6 +87,25 @@ struct SceneEditorScreen: View {
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
         }
+    }
+
+    private func toggleMenu() {
+        showingMenu.toggle()
+        if showingMenu {
+            showingInsert = false
+        }
+    }
+
+    private func toggleInsert() {
+        showingInsert.toggle()
+        if showingInsert {
+            showingMenu = false
+        }
+    }
+
+    private func pickMenu(_ action: SideMenuAction) {
+        print("menu: \(action.rawValue)")
+        showingMenu = false
     }
 
     private func insert(_ item: Item) {
