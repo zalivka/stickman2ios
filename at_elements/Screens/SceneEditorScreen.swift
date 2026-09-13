@@ -1,0 +1,127 @@
+import SwiftUI
+
+struct SceneEditorScreen: View {
+    @State private var scene: StickmanScene
+    @State private var assets: UnitAssets
+    @State private var mode: DualNavigation.Mode = .frames
+    @State private var range: ClosedRange<Int>
+
+    init(scene: StickmanScene, assets: UnitAssets) {
+        _scene = State(initialValue: scene)
+        _assets = State(initialValue: assets)
+        _range = State(
+            initialValue: DualNavigation.defaultRange(
+                current: scene.currentIndex,
+                frameCount: scene.frames.count
+            )
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            MainPanel()
+            SkeletonCanvas(
+                unit: unitBinding,
+                assets: assets,
+                sceneWidth: scene.width,
+                sceneHeight: scene.height,
+                currentIndex: scene.currentIndex,
+                sceneFill: fillColor
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
+            DualNavigationChrome(
+                frameCount: scene.frames.count,
+                currentIndex: currentIndexBinding,
+                range: $range,
+                mode: $mode
+            )
+        }
+        .ignoresSafeArea()
+        .overlay(alignment: .topLeading) {
+            FullscreenBackButton()
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+    }
+
+    private var fillColor: Color {
+        guard let name = scene.currentFrame.bgName else {
+            return SkeletonCanvas.sceneFill
+        }
+        let rgb = HexRGB.parse(name)
+        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+    }
+
+    private var currentIndexBinding: Binding<Int> {
+        Binding(
+            get: { scene.currentIndex },
+            set: { newIndex in
+                if newIndex < 0 || newIndex >= scene.frames.count {
+                    fatalError("SceneEditorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                }
+                scene.currentIndex = newIndex
+            }
+        )
+    }
+
+    private var unitBinding: Binding<StickmanUnit> {
+        Binding(
+            get: {
+                let frame = scene.currentFrame
+                if frame.units.isEmpty {
+                    fatalError("SceneEditorScreen frame \(frame.id) has no units")
+                }
+                return frame.units[0]
+            },
+            set: { newUnit in
+                let frameIndex = scene.currentIndex
+                if scene.frames[frameIndex].units.isEmpty {
+                    fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) has no units")
+                }
+                scene.frames[frameIndex].units[0] = newUnit
+            }
+        )
+    }
+}
+
+struct Ter2Screen: View {
+    @State private var loaded: (StickmanScene, UnitAssets)?
+
+    var body: some View {
+        Group {
+            if let loaded {
+                SceneEditorScreen(scene: loaded.0, assets: loaded.1)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
+                    .ignoresSafeArea()
+                    .overlay(alignment: .topLeading) {
+                        FullscreenBackButton()
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .statusBarHidden(true)
+                    .persistentSystemOverlays(.hidden)
+            }
+        }
+        .onAppear(perform: loadIfNeeded)
+    }
+
+    private func loadIfNeeded() {
+        if loaded != nil { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let built = SceneLoader.load(resource: "ter2", subdirectory: "testdata")
+            DispatchQueue.main.async {
+                loaded = built
+            }
+        }
+    }
+}
+
+#Preview {
+    NavigationStack {
+        Ter2Screen()
+    }
+}
