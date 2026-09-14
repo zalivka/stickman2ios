@@ -14,6 +14,7 @@ struct SceneEditorScreen: View {
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
     @State private var showingCamera = false
+    @State private var showingBackground = false
     @State private var showingInsert = false
     @State private var showingMenu = false
     @State private var scenePropsSheet: ScenePropsSheet?
@@ -101,6 +102,9 @@ struct SceneEditorScreen: View {
         .fullScreenCover(isPresented: $showingCamera) {
             CameraAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
         }
+        .fullScreenCover(isPresented: $showingBackground) {
+            BgAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
+        }
         .sheet(item: $scenePropsSheet) { sheet in
             switch sheet {
             case .edit:
@@ -139,6 +143,9 @@ struct SceneEditorScreen: View {
         }
         if action == .camera {
             showingCamera = true
+        }
+        if action == .background {
+            showingBackground = true
         }
     }
 

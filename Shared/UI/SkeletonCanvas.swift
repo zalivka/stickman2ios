@@ -103,6 +103,7 @@ enum SkeletonCanvasMode {
     case editor
     case preview
     case camera
+    case background
 }
 
 struct SkeletonCanvas: View {
@@ -159,7 +160,7 @@ struct SkeletonCanvas: View {
         GeometryReader { proxy in
             Canvas { context, size in
                 switch mode {
-                case .editor, .camera:
+                case .editor, .camera, .background:
                     context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.pane))
                 case .preview:
                     context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.previewBackdrop))
@@ -180,6 +181,12 @@ struct SkeletonCanvas: View {
                 case .camera:
                     drawAppliedCamera(context: &context, layout: layout, clip: false)
                     drawCameraWindow(context: &context, layout: layout)
+                case .background:
+                    drawScene(context: &context, layout: layout)
+                    drawSceneBound(context: &context, layout: layout)
+                    for drawn in unitsToDraw {
+                        drawUnit(drawn, context: &context, layout: layout)
+                    }
                 }
             }
             .overlay {
