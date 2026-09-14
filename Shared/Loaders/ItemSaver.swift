@@ -11,7 +11,7 @@ enum ItemSaver {
         return String(format: "Item_%d", millis % 1000)
     }
 
-    static func save(unit: StickmanUnit, source: Data, name rawName: String) throws -> URL {
+    static func save(unit: StickmanUnit, assets: UnitAssets, source: Data, name rawName: String) throws -> URL {
         if !SceneSaver.isGoodFileName(rawName) {
             fatalError("ItemSaver illegal name '\(rawName)'")
         }
@@ -21,10 +21,18 @@ enum ItemSaver {
         var files: [(name: String, data: Data)] = [
             (name: "model.xml", data: ModelXML.serialize(unit, fullName: fullName))
         ]
-        if ZipStore.contains("assets.xml", in: source) {
-            let rows = AssetsXML.parse(ZipStore.data(named: "assets.xml", in: source))
+
+        let rows = assets.exportRows(unitName: unit.name)
+        if !rows.isEmpty {
+            let packed = Set(ZipStore.names(in: source))
+            for row in rows where !packed.contains(row.bmName) {
+                fatalError("ItemSaver '\(fullName)' edge \(row.start)-\(row.end) bm '\(row.bmName)' missing from archive")
+            }
             files.append((name: "assets.xml", data: AssetsXML.serialize(rows: rows, fullName: fullName)))
+        } else if ZipStore.contains("assets.xml", in: source) {
+            fatalError("ItemSaver '\(fullName)' live assets empty but source has assets.xml")
         }
+
         // Bone art, thumb, poster and audio are untouched by skeleton editing, so they ride along as is.
         for entry in ZipStore.names(in: source) where !regenerated.contains(entry) {
             if entry.hasSuffix(".name") || entry.hasSuffix("/") {

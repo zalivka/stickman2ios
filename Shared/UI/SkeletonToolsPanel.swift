@@ -19,6 +19,18 @@ enum SkeletonChrome {
     static let boneNew = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
     static let boneNewPressed = Color(red: 0x4a / 255, green: 0x6b / 255, blue: 0x18 / 255)
     static let holdBanner = Color(red: 1, green: 0xaf / 255, blue: 0x3b / 255)
+    static let galleryPhoneWidth: CGFloat = 100
+    static let galleryPadWidth: CGFloat = 180
+    static let galleryRowHeight: CGFloat = 80
+    /// Gallery bone cells — white at 30% over the canvas (rail itself is clear).
+    static let galleryThumbFill = Color.white.opacity(0.3)
+    static let galleryHighlight = Color.red
+    /// NEW BONE fill — opaque bright blue; label stays white.
+    static let galleryNewBone = Color(red: 0, green: 0xB2 / 255, blue: 1)
+
+    static func galleryWidth(horizontalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
+        horizontalSizeClass == .regular ? galleryPadWidth : galleryPhoneWidth
+    }
 
     static func leadingWidth(panel: SkeletonToolsPanel) -> CGFloat {
         sidebarWidth + (panel == .none ? 0 : secondaryWidth)
@@ -30,6 +42,7 @@ struct SkeletonLeftPanel: View {
     var onMenu: () -> Void
     var onSelect: (SkeletonToolsPanel) -> Void
     var menuActivated: Bool
+    var onBack: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +58,7 @@ struct SkeletonLeftPanel: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Menu")
+            .padding(.top, 8)
             .padding(.horizontal, 8)
 
             VStack(spacing: 12) {
@@ -58,6 +72,20 @@ struct SkeletonLeftPanel: View {
             .padding(.top, 8)
 
             Spacer(minLength: 0)
+
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.white))
+                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            .padding(.top, 4)
+            .padding(.bottom, 8)
         }
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
@@ -70,7 +98,7 @@ struct SkeletonLeftPanel: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 19)
                 .background(selected ? accent : SkeletonChrome.toggleIdle)
                 .clipShape(UnevenRoundedRectangle(
                     topLeadingRadius: 2,

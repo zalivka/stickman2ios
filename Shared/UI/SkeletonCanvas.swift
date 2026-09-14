@@ -132,6 +132,10 @@ struct SkeletonCanvas: View {
     static let boneCreateMinDrag: CGFloat = 16
     /// Android COLOR_SELECTION_HIGHLIGHT
     static let boneSelected = Color(red: 0, green: 1, blue: 0)
+    /// Android vacant-point flash (`#51be00` @ 196/255).
+    static let vacantExpose = Color(red: 0x51 / 255, green: 0xbe / 255, blue: 0).opacity(196 / 255)
+    /// Android `EditView.EXPOSE_RADIUS` in scene units.
+    static let vacantExposeRadius: CGFloat = 30
     static let sceneBound = Color(red: 0, green: 0xd7 / 255, blue: 1)
     static let sceneFill = pane
     static let previewBackdrop = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
@@ -155,6 +159,8 @@ struct SkeletonCanvas: View {
     var selectedPointId: Binding<Int?> = .constant(nil)
     /// Bumped when asset draw-order changes so the canvas redraws.
     var layerEpoch: Int = 0
+    /// Android `toggleVacantPoints` — green circles over all nodes.
+    var exposeVacantPoints: Bool = false
     var onCameraChange: ((PictureMove) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
@@ -209,6 +215,9 @@ struct SkeletonCanvas: View {
                         drawUnit(drawn, context: &context, layout: layout)
                     }
                     drawBoneCreatePreview(context: &context, layout: layout)
+                    if exposeVacantPoints {
+                        drawVacantPoints(unit, context: &context, layout: layout)
+                    }
                     drawTouchPoint(context: &context)
                 case .preview:
                     drawAppliedCamera(context: &context, layout: layout, clip: true)
@@ -446,6 +455,17 @@ struct SkeletonCanvas: View {
         context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 4, lineCap: .round))
         let tipRadius = Self.boneNodeRadius * 1.5
         context.fill(Path(ellipseIn: Self.square(around: to, radius: tipRadius)), with: .color(color))
+    }
+
+    private func drawVacantPoints(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+        let radius = Self.vacantExposeRadius * layout.scale
+        for point in drawn.points {
+            let center = layout.screenPoint(x: point.x, y: point.y)
+            context.fill(
+                Path(ellipseIn: Self.square(around: center, radius: radius)),
+                with: .color(Self.vacantExpose)
+            )
+        }
     }
 
     private func drawTouchCapture(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {

@@ -40,6 +40,14 @@ final class UnitAssets {
         var nativeFlipped: Bool
         var bmName: String
         var bitmap: CGImage
+        var svgName: String?
+        var commandScale: String?
+    }
+
+    struct GalleryBone: Identifiable {
+        var id: String { bmName }
+        var bmName: String
+        var thumb: CGImage
     }
 
     private var edgeAssets: [EdgeKey: [Int: EdgeAsset]] = [:]
@@ -120,6 +128,104 @@ final class UnitAssets {
     func getEdgeWeight(unitName: String, startId: Int, endId: Int, state: Int, flipped: Bool) -> Int {
         let key = EdgeKey(unitName: unitName, start: startId, end: endId, flipped: flipped)
         return getDrawable(key, state: state)?.weight ?? -1
+    }
+
+    /// Unique bone bitmaps for the gallery rail, ordered by first-seen weight then bmName.
+    func galleryBones(unitName: String) -> [GalleryBone] {
+        let name = Self.removeNumber(unitName)
+        struct Seen {
+            var bmName: String
+            var thumb: CGImage
+            var weight: Int
+        }
+        var byBm: [String: Seen] = [:]
+        for (key, states) in edgeAssets where key.unitName == name {
+            for asset in states.values {
+                if byBm[asset.bmName] != nil { continue }
+                byBm[asset.bmName] = Seen(bmName: asset.bmName, thumb: asset.bitmap, weight: asset.weight)
+            }
+        }
+        return byBm.values
+            .sorted {
+                if $0.weight != $1.weight { return $0.weight < $1.weight }
+                return $0.bmName < $1.bmName
+            }
+            .map { GalleryBone(bmName: $0.bmName, thumb: $0.thumb) }
+    }
+
+    func bmName(forEdge start: Int, end: Int, unitName: String) -> String? {
+        let name = Self.removeNumber(unitName)
+        let key = EdgeKey(unitName: name, start: start, end: end, flipped: false)
+        return getDrawable(key, state: Self.stateDefault)?.bmName
+    }
+
+    /// Clones art from an existing `bmName` onto a new edge (shared bitmap, Android-style reuse).
+    func attachBone(bmName: String, toEdge start: Int, end: Int, unitName: String) {
+        if bmName.isEmpty {
+            fatalError("UnitAssets attachBone empty bmName")
+        }
+        let name = Self.removeNumber(unitName)
+        guard let template = firstAsset(bmName: bmName, unitName: name) else {
+            fatalError("UnitAssets attachBone unknown bm '\(bmName)' for '\(name)'")
+        }
+        let nextWeight = (edgeAssets
+            .filter { $0.key.unitName == name }
+            .flatMap { $0.value.values.map(\.weight) }
+            .max() ?? -1) + 1
+        let key = EdgeKey(
+            unitName: name,
+            start: start,
+            end: end,
+            flipped: template.nativeFlipped
+        )
+        var asset = template
+        asset.unitName = name
+        asset.start = start
+        asset.end = end
+        asset.weight = nextWeight
+        asset.state = Self.stateDefault
+        edgeAssets[key] = [Self.stateDefault: asset]
+    }
+
+    /// Live edge rows for save — includes edges attached during this session.
+    func exportRows(unitName: String) -> [EdgeAssetRow] {
+        let name = Self.removeNumber(unitName)
+        var rows: [EdgeAssetRow] = []
+        for (key, states) in edgeAssets where key.unitName == name {
+            for asset in states.values.sorted(by: { $0.state < $1.state }) {
+                rows.append(
+                    EdgeAssetRow(
+                        unitName: name,
+                        start: asset.start,
+                        end: asset.end,
+                        xOffset: asset.xOffset,
+                        yOffset: asset.yOffset,
+                        weight: asset.weight,
+                        state: asset.state,
+                        nativeFlipped: asset.nativeFlipped,
+                        bmName: asset.bmName,
+                        svgName: asset.svgName,
+                        commandScale: asset.commandScale
+                    )
+                )
+            }
+        }
+        rows.sort {
+            if $0.weight != $1.weight { return $0.weight < $1.weight }
+            if $0.start != $1.start { return $0.start < $1.start }
+            if $0.end != $1.end { return $0.end < $1.end }
+            return $0.state < $1.state
+        }
+        return rows
+    }
+
+    private func firstAsset(bmName: String, unitName: String) -> EdgeAsset? {
+        for (key, states) in edgeAssets where key.unitName == unitName {
+            if let match = states.values.first(where: { $0.bmName == bmName }) {
+                return match
+            }
+        }
+        return nil
     }
 
     /// Swaps draw-order weight of the edge with its neighbor, matching Android `doMoveOrder`.
@@ -204,7 +310,9 @@ final class UnitAssets {
                     state: row.state,
                     nativeFlipped: row.nativeFlipped,
                     bmName: row.bmName,
-                    bitmap: bitmap(named: row.bmName)
+                    bitmap: bitmap(named: row.bmName),
+                    svgName: row.svgName,
+                    commandScale: row.commandScale
                 )
             )
         }

@@ -4,6 +4,8 @@ import Foundation
 final class SkeletonEditSession {
     var boneCreateHoldMode = false
     var selectedPointId: Int?
+    /// When true, canvas draws green vacant-point circles (Android `toggleVacantPoints`).
+    var exposeVacantPoints = false
     /// Bumped to force SwiftUI refresh when selection or hold mode changes outside @State.
     var revision = 0
 
@@ -14,6 +16,11 @@ final class SkeletonEditSession {
 
     func select(_ id: Int?) {
         selectedPointId = id
+        revision += 1
+    }
+
+    func setExposeVacantPoints(_ on: Bool) {
+        exposeVacantPoints = on
         revision += 1
     }
 }

@@ -70,6 +70,33 @@ struct StickmanUnit {
         return newId
     }
 
+    /// Gallery attach: new child at `length` from parent, angled like Android `EditUnit.addPointWithEdge`.
+    mutating func addGalleryBonePoint(parentId: Int, length: CGFloat = 200) -> Int {
+        let parent = point(id: parentId)
+        var dx: CGFloat = 150
+        var dy: CGFloat = 0
+        if let upper = upperEdge(of: parentId) {
+            let start = point(id: upper.from)
+            let end = point(id: upper.to)
+            let baseDeg = atan2(end.y - start.y, end.x - start.x) * 180 / .pi
+            let angleDeg = baseDeg + CGFloat(Int.random(in: 0..<12)) * 30
+            let rads = angleDeg * .pi / 180
+            // Match Android: dx = sin(θ) * 50, dy = cos(θ) * 50
+            dx = sin(rads) * 50
+            dy = cos(rads) * 50
+        }
+        let dist = hypot(dx, dy)
+        if dist < 0.001 {
+            fatalError("StickmanUnit '\(name)' gallery bone direction is zero")
+        }
+        let scale = length / dist
+        return addPointWithEdge(
+            parentId: parentId,
+            destX: parent.x + dx * scale,
+            destY: parent.y + dy * scale
+        )
+    }
+
     /// Deletes `id` and every descendant. Base point is not deletable.
     mutating func deletePointSubtree(id: Int) {
         let target = point(id: id)

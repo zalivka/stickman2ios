@@ -18,7 +18,10 @@ struct SkeletonScreen: View {
     @State private var boneCreateHoldMode = false
     @State private var selectedPointId: Int?
     @State private var layerEpoch = 0
+    @State private var exposeVacantPoints = false
     @State private var editSession = SkeletonEditSession()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dismiss) private var dismiss
 
     init(item: CustomItems.Item) {
         title = item.name
@@ -46,7 +49,8 @@ struct SkeletonScreen: View {
                     mode: .skeleton,
                     editSession: editSession,
                     selectedPointId: $selectedPointId,
-                    layerEpoch: layerEpoch
+                    layerEpoch: layerEpoch,
+                    exposeVacantPoints: exposeVacantPoints
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -61,7 +65,14 @@ struct SkeletonScreen: View {
                         }
                         toolsPanel = next
                     },
-                    menuActivated: showingMenu
+                    menuActivated: showingMenu,
+                    onBack: {
+                        if showingMenu {
+                            showingMenu = false
+                        } else {
+                            dismiss()
+                        }
+                    }
                 )
                 if toolsPanel == .bones {
                     SkeletonSecondaryPanel(
@@ -92,6 +103,7 @@ struct SkeletonScreen: View {
                     .background(SkeletonChrome.holdBanner)
                     .frame(maxWidth: .infinity)
                     .padding(.leading, SkeletonChrome.leadingWidth(panel: toolsPanel))
+                    .padding(.trailing, SkeletonChrome.galleryWidth(horizontalSizeClass: horizontalSizeClass))
                     .frame(maxHeight: .infinity, alignment: .top)
                     .allowsHitTesting(false)
             }
@@ -107,26 +119,75 @@ struct SkeletonScreen: View {
                 .transition(.move(edge: .leading))
             }
         }
+        .overlay(alignment: .trailing) {
+            if scene != nil, assets != nil {
+                BonesGalleryPanel(
+                    bones: galleryBones,
+                    highlightedBmName: highlightedBmName,
+                    onNewBone: {},
+                    onAttach: attachBone
+                )
+            }
+        }
         .background(SkeletonCanvas.checkerLight)
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .ignoresSafeArea()
         .accessibilityLabel(title)
         .onAppear(perform: loadIfNeeded)
-        .overlay(alignment: .topLeading) {
-            FullscreenBackButton(
-                besideMainPanel: true,
-                extraLeading: SkeletonChrome.leadingWidth(panel: toolsPanel) - MainPanel.width,
-                action: showingMenu ? { showingMenu = false } : nil
-            )
-        }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
     }
 
+    private var galleryBones: [UnitAssets.GalleryBone] {
+        _ = layerEpoch
+        guard let assets, let unit = optionalUnit else { return [] }
+        return assets.galleryBones(unitName: unit.name)
+    }
+
+    private var highlightedBmName: String? {
+        _ = layerEpoch
+        guard let assets, let unit = optionalUnit, let id = selectedPointId else { return nil }
+        guard let edge = unit.upperEdge(of: id) else { return nil }
+        return assets.bmName(forEdge: edge.from, end: edge.to, unitName: unit.name)
+    }
+
     private func setHoldMode(_ on: Bool) {
         editSession.boneCreateHoldMode = on
         boneCreateHoldMode = on
+    }
+
+    private func attachBone(_ bmName: String) {
+        guard var unit = optionalUnit, let assets else { return }
+        guard let parentId = selectedPointId else {
+            pulseVacantPoints()
+            return
+        }
+        let newId = unit.addGalleryBonePoint(parentId: parentId, length: 200)
+        assets.attachBone(bmName: bmName, toEdge: parentId, end: newId, unitName: unit.name)
+        writeUnit(unit)
+        selectedPointId = newId
+        editSession.select(newId)
+        layerEpoch += 1
+    }
+
+    /// Android Handler pulse: on 0, off 200, on 400, off 600.
+    private func pulseVacantPoints() {
+        Task { @MainActor in
+            let steps: [(Bool, UInt64)] = [
+                (true, 0),
+                (false, 200_000_000),
+                (true, 200_000_000),
+                (false, 200_000_000),
+            ]
+            for (on, delay) in steps {
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+                exposeVacantPoints = on
+                editSession.setExposeVacantPoints(on)
+            }
+        }
     }
 
     private func deleteSelected() {
@@ -137,6 +198,7 @@ struct SkeletonScreen: View {
         unit.deletePointSubtree(id: id)
         selectedPointId = nil
         writeUnit(unit)
+        layerEpoch += 1
     }
 
     private func moveSelected(up: Bool) {
@@ -173,11 +235,14 @@ struct SkeletonScreen: View {
         guard let sourceZip else {
             fatalError("SkeletonScreen '\(title)' has no source archive to save from")
         }
+        guard let assets else {
+            fatalError("SkeletonScreen '\(title)' has no assets to save")
+        }
         let unit = scene.currentFrame.units[0]
         let name = ItemSaver.freeName()
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                _ = try ItemSaver.save(unit: unit, source: sourceZip, name: name)
+                _ = try ItemSaver.save(unit: unit, assets: assets, source: sourceZip, name: name)
             } catch {
                 fatalError("SkeletonScreen could not save '\(name)': \(error)")
             }
