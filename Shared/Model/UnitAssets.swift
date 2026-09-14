@@ -122,6 +122,40 @@ final class UnitAssets {
         return getDrawable(key, state: state)?.weight ?? -1
     }
 
+    /// Swaps draw-order weight of the edge with its neighbor, matching Android `doMoveOrder`.
+    @discardableResult
+    func moveEdgeOrder(unitName: String, start: Int, end: Int, moveUp: Bool) -> Bool {
+        let name = Self.removeNumber(unitName)
+        struct Entry {
+            var key: EdgeKey
+            var weight: Int
+        }
+        var entries: [Entry] = []
+        for (key, states) in edgeAssets where key.unitName == name {
+            let weight = states.values.map(\.weight).min() ?? 0
+            entries.append(Entry(key: key, weight: weight))
+        }
+        entries.sort { $0.weight < $1.weight }
+        guard let index = entries.firstIndex(where: {
+            ($0.key.start == start && $0.key.end == end) || ($0.key.start == end && $0.key.end == start)
+        }) else {
+            return false
+        }
+        let swapIndex = moveUp ? index + 1 : index - 1
+        if swapIndex < 0 || swapIndex >= entries.count {
+            return false
+        }
+        entries.swapAt(index, swapIndex)
+        for (order, entry) in entries.enumerated() {
+            guard var states = edgeAssets[entry.key] else { continue }
+            for state in states.keys {
+                states[state]?.weight = order
+            }
+            edgeAssets[entry.key] = states
+        }
+        return true
+    }
+
     func restLength(unitName: String, endId: Int) -> CGFloat {
         restModel[unitName]?[endId] ?? 0
     }

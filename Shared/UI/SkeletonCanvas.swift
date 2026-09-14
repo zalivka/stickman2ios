@@ -124,6 +124,14 @@ struct SkeletonCanvas: View {
     static let boneEdgeWidth: CGFloat = 3
     static let boneBaseRingRadius: CGFloat = 8.5
     static let boneBaseRingWidth: CGFloat = 2
+    /// Android EditView.COLOR_NODE_ACTIVE — bone-create preview.
+    static let boneCreatePreview = Color(red: 1, green: 0xaf / 255, blue: 0x3b / 255)
+    /// Android CAPTURE_RAD in scene units, used as a screen-space multiplier with layout.scale.
+    static let boneCreateCapture: CGFloat = 60
+    /// Android BONE_CREATE_MIN_DRAG (= NODE_RADIUS * 2) in unscaled item units.
+    static let boneCreateMinDrag: CGFloat = 16
+    /// Android COLOR_SELECTION_HIGHLIGHT
+    static let boneSelected = Color(red: 0, green: 1, blue: 0)
     static let sceneBound = Color(red: 0, green: 0xd7 / 255, blue: 1)
     static let sceneFill = pane
     static let previewBackdrop = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
@@ -142,6 +150,11 @@ struct SkeletonCanvas: View {
     var sceneFill: Color = Self.sceneFill
     var mode: SkeletonCanvasMode = .editor
     var showSkeleton: Bool = true
+    /// Live hold/selection flags — reference type so touch closures never see a stale copy.
+    var editSession: SkeletonEditSession?
+    var selectedPointId: Binding<Int?> = .constant(nil)
+    /// Bumped when asset draw-order changes so the canvas redraws.
+    var layerEpoch: Int = 0
     var onCameraChange: ((PictureMove) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
@@ -151,6 +164,8 @@ struct SkeletonCanvas: View {
     @State private var handlerScale = CGPoint.zero
     @State private var touchScreen: CGPoint?
     @State private var dragRef = DragRef()
+    @State private var boneCreateStartId: Int?
+    @State private var boneCreateEnd: CGPoint?
 
     private final class DragRef {
         var nodeId: Int?
@@ -168,6 +183,7 @@ struct SkeletonCanvas: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let _ = layerEpoch
             Canvas { context, size in
                 let layout = resolvedLayout(size: size)
                 switch mode {
@@ -192,6 +208,7 @@ struct SkeletonCanvas: View {
                     for drawn in unitsToDraw {
                         drawUnit(drawn, context: &context, layout: layout)
                     }
+                    drawBoneCreatePreview(context: &context, layout: layout)
                     drawTouchPoint(context: &context)
                 case .preview:
                     drawAppliedCamera(context: &context, layout: layout, clip: true)
@@ -209,6 +226,7 @@ struct SkeletonCanvas: View {
             .overlay {
                 if mode == .editor || mode == .skeleton {
                     SkeletonTouchOverlay(
+                        useRawTouches: mode == .skeleton,
                         onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
                         onEnded: { _ in endTouch() },
@@ -234,7 +252,16 @@ struct SkeletonCanvas: View {
                     snapHandlers(to: current)
                 }
             }
+            .onChange(of: boneCreateHoldFlag) { _, on in
+                if !on {
+                    resetBoneCreateGesture()
+                }
+            }
         }
+    }
+
+    private var boneCreateHoldFlag: Bool {
+        editSession?.boneCreateHoldMode ?? false
     }
 
     private var cameraChangeHandler: (PictureMove) -> Void {
@@ -342,13 +369,23 @@ struct SkeletonCanvas: View {
 
     private func drawSkeleton(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
         let bones = mode == .skeleton
-        let edgeColor = bones ? Self.boneCommon : Self.color
+        let selectedId = selectedPointId.wrappedValue
+        let selectedEdge = selectedId.flatMap { drawn.upperEdge(of: $0) }
         for edge in drawn.edges {
             let from = drawn.point(id: edge.from)
             let to = drawn.point(id: edge.to)
             var path = Path()
             path.move(to: layout.screenPoint(x: from.x, y: from.y))
             path.addLine(to: layout.screenPoint(x: to.x, y: to.y))
+            let isSelected = bones && selectedEdge?.from == edge.from && selectedEdge?.to == edge.to
+            let edgeColor: Color
+            if isSelected {
+                edgeColor = Self.boneSelected
+            } else if bones {
+                edgeColor = Self.boneCommon
+            } else {
+                edgeColor = Self.color
+            }
             context.stroke(
                 path,
                 with: .color(edgeColor),
@@ -357,10 +394,18 @@ struct SkeletonCanvas: View {
         }
         for point in drawn.points {
             let center = layout.screenPoint(x: point.x, y: point.y)
-            let color = bones ? Self.boneColor(point) : Self.color
+            let isSelected = bones && point.id == selectedId
+            let color: Color
+            if isSelected {
+                color = Self.boneSelected
+            } else if bones {
+                color = Self.boneColor(point)
+            } else {
+                color = Self.color
+            }
             let radius: CGFloat
             if bones {
-                radius = Self.boneNodeRadius
+                radius = isSelected ? Self.boneNodeRadius * 1.5 : Self.boneNodeRadius
             } else {
                 radius = point.isBase ? Self.baseNodeRadius : Self.nodeRadius
             }
@@ -385,6 +430,22 @@ struct SkeletonCanvas: View {
 
     private static func square(around center: CGPoint, radius: CGFloat) -> CGRect {
         CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+    }
+
+    private func drawBoneCreatePreview(context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard boneCreateHoldFlag, let startId = boneCreateStartId, let end = boneCreateEnd else {
+            return
+        }
+        let start = unit.point(id: startId)
+        let from = layout.screenPoint(x: start.x, y: start.y)
+        let to = layout.screenPoint(x: end.x, y: end.y)
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: to)
+        let color = Self.boneCreatePreview.opacity(220 / 255)
+        context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        let tipRadius = Self.boneNodeRadius * 1.5
+        context.fill(Path(ellipseIn: Self.square(around: to, radius: tipRadius)), with: .color(color))
     }
 
     private func drawTouchCapture(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
@@ -688,6 +749,10 @@ struct SkeletonCanvas: View {
     private func handleDrag(at location: CGPoint, size: CGSize, began: Bool) {
         touchScreen = location
         let current = resolvedLayout(size: size)
+        if mode == .skeleton, boneCreateHoldFlag {
+            handleBoneCreate(at: location, layout: current, began: began)
+            return
+        }
         if began {
             if mode == .editor, let handle = hitHandler(at: location, layout: current) {
                 dragRef.handler = handle.kind
@@ -710,6 +775,9 @@ struct SkeletonCanvas: View {
                 dragRef.handler = nil
                 dragRef.nodeId = hitNode(at: location, layout: current)
                 dragRef.panning = dragRef.nodeId == nil
+                if mode == .skeleton {
+                    selectedPointId.wrappedValue = dragRef.nodeId
+                }
                 if let id = dragRef.nodeId {
                     let graph = current.graphPoint(screen: location)
                     let node = unit.point(id: id)
@@ -767,6 +835,11 @@ struct SkeletonCanvas: View {
     }
 
     private func endTouch() {
+        if mode == .skeleton, boneCreateHoldFlag || boneCreateStartId != nil {
+            commitBoneCreate()
+            touchScreen = nil
+            return
+        }
         touchScreen = nil
         dragRef.nodeId = nil
         dragRef.handler = nil
@@ -777,6 +850,48 @@ struct SkeletonCanvas: View {
         if let current = layout {
             snapHandlers(to: current)
         }
+    }
+
+    private func handleBoneCreate(at location: CGPoint, layout: SkeletonLayout, began: Bool) {
+        let graph = layout.graphPoint(screen: location)
+        if began {
+            boneCreateStartId = hitNode(
+                at: location,
+                layout: layout,
+                radius: Self.boneCreateCapture * layout.scale
+            )
+            if let id = boneCreateStartId {
+                let start = unit.point(id: id)
+                boneCreateEnd = CGPoint(x: start.x, y: start.y)
+            } else {
+                boneCreateEnd = nil
+            }
+            return
+        }
+        if boneCreateStartId != nil {
+            boneCreateEnd = graph
+        }
+    }
+
+    private func commitBoneCreate() {
+        defer { resetBoneCreateGesture() }
+        guard let startId = boneCreateStartId, let end = boneCreateEnd else {
+            return
+        }
+        let start = unit.point(id: startId)
+        let drag = hypot(end.x - start.x, end.y - start.y)
+        // Android BONE_CREATE_MIN_DRAG is in unscaled item units; iOS points are already scaled.
+        let minDrag = Self.boneCreateMinDrag * max(unit.scale, 0.01)
+        if drag < minDrag {
+            return
+        }
+        let newId = unit.addPointWithEdge(parentId: startId, destX: end.x, destY: end.y)
+        selectedPointId.wrappedValue = newId
+    }
+
+    private func resetBoneCreateGesture() {
+        boneCreateStartId = nil
+        boneCreateEnd = nil
     }
 
     private func hitHandler(at location: CGPoint, layout: SkeletonLayout) -> (kind: ItemHandlerKind, x: CGFloat, y: CGFloat)? {
@@ -793,9 +908,9 @@ struct SkeletonCanvas: View {
         return best
     }
 
-    private func hitNode(at location: CGPoint, layout: SkeletonLayout) -> Int? {
+    private func hitNode(at location: CGPoint, layout: SkeletonLayout, radius: CGFloat = Self.hitRadius) -> Int? {
         var bestId: Int?
-        var bestDist = Self.hitRadius
+        var bestDist = radius
         for point in unit.points {
             let center = layout.screenPoint(x: point.x, y: point.y)
             let dist = hypot(location.x - center.x, location.y - center.y)
@@ -1008,6 +1123,7 @@ private struct CameraTouchOverlay: UIViewRepresentable {
 }
 
 private struct SkeletonTouchOverlay: UIViewRepresentable {
+    var useRawTouches: Bool = false
     var onBegan: (CGPoint) -> Void
     var onChanged: (CGPoint) -> Void
     var onEnded: (CGPoint) -> Void
@@ -1018,23 +1134,29 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> TouchForwardView {
+        let view = TouchForwardView()
         view.backgroundColor = .clear
+        view.isMultipleTouchEnabled = true
+        view.coordinator = context.coordinator
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
         pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = false
+        view.pan = pan
         view.addGestureRecognizer(pan)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
         view.addGestureRecognizer(pinch)
+        context.coordinator.apply(useRawTouches: useRawTouches, to: view)
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: TouchForwardView, context: Context) {
         context.coordinator.onBegan = onBegan
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
         context.coordinator.onPinchBegan = onPinchBegan
         context.coordinator.onPinch = onPinch
+        context.coordinator.apply(useRawTouches: useRawTouches, to: uiView)
     }
 
     final class Coordinator: NSObject {
@@ -1043,8 +1165,34 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         var onEnded: (CGPoint) -> Void = { _ in }
         var onPinchBegan: () -> Void = {}
         var onPinch: (CGPoint, CGFloat) -> Void = { _, _ in }
+        var useRawTouches = false
+        private var rawActive = false
+
+        func apply(useRawTouches: Bool, to view: TouchForwardView) {
+            self.useRawTouches = useRawTouches
+            view.pan?.isEnabled = !useRawTouches
+            view.forwardsTouches = useRawTouches
+        }
+
+        func rawBegan(_ point: CGPoint) {
+            guard useRawTouches else { return }
+            rawActive = true
+            onBegan(point)
+        }
+
+        func rawChanged(_ point: CGPoint) {
+            guard useRawTouches, rawActive else { return }
+            onChanged(point)
+        }
+
+        func rawEnded(_ point: CGPoint) {
+            guard useRawTouches, rawActive else { return }
+            rawActive = false
+            onEnded(point)
+        }
 
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+            if useRawTouches { return }
             let point = gesture.location(in: gesture.view)
             switch gesture.state {
             case .began:
@@ -1062,6 +1210,10 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
             let focus = gesture.location(in: gesture.view)
             switch gesture.state {
             case .began:
+                if rawActive {
+                    rawActive = false
+                    onEnded(focus)
+                }
                 onPinchBegan()
                 onPinch(focus, 1)
             case .changed:
@@ -1074,5 +1226,50 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
                 break
             }
         }
+    }
+}
+
+/// Delivers touchesBegan immediately (no pan-threshold delay) when bone-create needs it.
+private final class TouchForwardView: UIView {
+    weak var coordinator: SkeletonTouchOverlay.Coordinator?
+    weak var pan: UIPanGestureRecognizer?
+    var forwardsTouches = false
+    private var tracking: UITouch?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard forwardsTouches, tracking == nil, let touch = touches.first else {
+            super.touchesBegan(touches, with: event)
+            return
+        }
+        tracking = touch
+        coordinator?.rawBegan(touch.location(in: self))
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard forwardsTouches, let tracking, touches.contains(tracking) else {
+            super.touchesMoved(touches, with: event)
+            return
+        }
+        coordinator?.rawChanged(tracking.location(in: self))
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard forwardsTouches, let tracking, touches.contains(tracking) else {
+            super.touchesEnded(touches, with: event)
+            return
+        }
+        let point = tracking.location(in: self)
+        self.tracking = nil
+        coordinator?.rawEnded(point)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard forwardsTouches, let tracking, touches.contains(tracking) else {
+            super.touchesCancelled(touches, with: event)
+            return
+        }
+        let point = tracking.location(in: self)
+        self.tracking = nil
+        coordinator?.rawEnded(point)
     }
 }

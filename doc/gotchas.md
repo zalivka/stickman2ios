@@ -56,3 +56,15 @@ Scene XML stores `alpha` as a raw float. Android parses it as-is (`demo_camera` 
 If Xcode spends several seconds on **Waiting to attach**, followed by another delay before the first `App.init` log, the app is not causing that delay. Xcode is starting `debugserver`, connecting LLDB to the device, loading symbols and preparing breakpoints before application code runs.
 
 For fast UI iteration, open **Product → Scheme → Edit Scheme → Run → Info** and uncheck **Debug executable**. The app then launches without LLDB; `print` / unified logging still works, but breakpoints, variable inspection, debugger commands, memory graph and view hierarchy debugging do not. Re-enable it when interactive debugging is needed.
+
+## Two-finger gestures across separate `UIViewRepresentable`s
+
+The skeleton editor needs one finger holding **New** (`HoldTouchPad` in `Shared/UI/SkeletonToolsPanel.swift`) while a second finger drags a bone out of a node on the canvas (`SkeletonTouchOverlay` in `Shared/UI/SkeletonCanvas.swift`). Three separate traps, all of which look like "the button is ignoring me":
+
+**Never set `isExclusiveTouch` on the hold view.** It does not mean "this view keeps its own touch"; it means no other view in the window receives touches while this one tracks. Holding New then silently killed every canvas touch, so dragging did nothing at all.
+
+**Do not track the hold with raw `touchesBegan`.** Touches reach a representable's `UIView` only after SwiftUI's recognizers on the hosting view finish arbitrating, which is a clearly perceptible delay. Use a `UILongPressGestureRecognizer` with `minimumPressDuration = 0`, `delaysTouchesBegan = false`, `delaysTouchesEnded = false`, `cancelsTouchesInView = false`. Zero duration enters `.began` on touch-down, ahead of that arbitration. Set `allowableMovement = .greatestFiniteMagnitude` or a thumb sliding a few points fails the gesture and drops hold mode mid-drag. The delegate must return `true` from `shouldRecognizeSimultaneouslyWith` so the canvas keeps its own recognizers.
+
+**A clear representable is invisible to hit-testing.** Give the hold view a tiny `backgroundColor` alpha (0.01) and override `hitTest` to return `self` inside `bounds`; a `.background` modifier is not enough, the pad has to overlay the button's visuals directly. Without this the hold fires only sometimes.
+
+Shared editor state (hold mode, selected point) lives in `SkeletonEditSession`, a class. Touch callbacks fire outside the SwiftUI update cycle, so a value type snapshotted into a closure reads stale.

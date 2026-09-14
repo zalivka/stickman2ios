@@ -15,6 +15,10 @@ enum SkeletonChrome {
     static let drawAccent = Color(red: 0x2F / 255, green: 0x88 / 255, blue: 0xFF / 255)
     static let toggleIdle = Color(white: 0x66 / 255)
     static let stripeWidth: CGFloat = 4
+    static let toolLabel = Color(red: 0x82 / 255, green: 0x82 / 255, blue: 0x82 / 255)
+    static let boneNew = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
+    static let boneNewPressed = Color(red: 0x4a / 255, green: 0x6b / 255, blue: 0x18 / 255)
+    static let holdBanner = Color(red: 1, green: 0xaf / 255, blue: 0x3b / 255)
 
     static func leadingWidth(panel: SkeletonToolsPanel) -> CGFloat {
         sidebarWidth + (panel == .none ? 0 : secondaryWidth)
@@ -41,6 +45,7 @@ struct SkeletonLeftPanel: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Menu")
+            .padding(.horizontal, 8)
 
             VStack(spacing: 12) {
                 toggle("BONES", accent: SkeletonChrome.bonesAccent, selected: panel == .bones) {
@@ -54,7 +59,6 @@ struct SkeletonLeftPanel: View {
 
             Spacer(minLength: 0)
         }
-        .padding(8)
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(SkeletonChrome.pane)
@@ -68,36 +72,138 @@ struct SkeletonLeftPanel: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(selected ? accent : SkeletonChrome.toggleIdle)
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 2, bottomLeadingRadius: 2, bottomTrailingRadius: 0, topTrailingRadius: 0))
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 2,
+                    bottomLeadingRadius: 2,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                ))
         }
         .buttonStyle(.plain)
     }
 
-    private static let navIcon: CGImage = {
-        guard let url = Bundle.main.url(forResource: "main_btn_nav", withExtension: "png", subdirectory: "chrome")
-            ?? Bundle.main.url(forResource: "main_btn_nav", withExtension: "png")
-        else {
-            fatalError("SkeletonLeftPanel missing chrome/main_btn_nav.png")
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            return PNGImage.cgImage(from: data, name: "chrome/main_btn_nav.png")
-        } catch {
-            fatalError("SkeletonLeftPanel could not read \(url.path): \(error)")
-        }
-    }()
+    private static let navIcon: CGImage = chromeImage("main_btn_nav")
 }
 
 struct SkeletonSecondaryPanel: View {
     var accent: Color
+    var content: SkeletonSecondaryContent = .empty
 
     var body: some View {
         HStack(spacing: 0) {
             accent.frame(width: SkeletonChrome.stripeWidth)
-            SkeletonChrome.pane
+            Group {
+                switch content {
+                case .empty:
+                    SkeletonChrome.pane
+                case .bones(let onBoneHoldStart, let onBoneHoldEnd, let onDelete, let onMoveDown, let onMoveUp):
+                    SkeletonBonesTools(
+                        onBoneHoldStart: onBoneHoldStart,
+                        onBoneHoldEnd: onBoneHoldEnd,
+                        onDelete: onDelete,
+                        onMoveDown: onMoveDown,
+                        onMoveUp: onMoveUp
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(SkeletonChrome.pane)
         }
         .frame(width: SkeletonChrome.secondaryWidth)
         .frame(maxHeight: .infinity)
+    }
+}
+
+enum SkeletonSecondaryContent {
+    case empty
+    case bones(
+        onBoneHoldStart: () -> Void,
+        onBoneHoldEnd: () -> Void,
+        onDelete: () -> Void,
+        onMoveDown: () -> Void,
+        onMoveUp: () -> Void
+    )
+}
+
+/// Android `skeleton_node_tools`: New (hold), Props, Delete, Down, Up.
+struct SkeletonBonesTools: View {
+    var onBoneHoldStart: () -> Void
+    var onBoneHoldEnd: () -> Void
+    var onDelete: () -> Void
+    var onMoveDown: () -> Void
+    var onMoveUp: () -> Void
+    @State private var newPressed = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            boneNewButton
+            toolButton(title: "Props", icon: "skel_edit_point_active", action: {})
+            toolButton(title: "Delete", icon: "skel_btn_del_active", action: onDelete)
+            toolButton(title: "Down", icon: "bone_down_active", action: onMoveDown)
+            toolButton(title: "Up", icon: "bone_up_active", action: onMoveUp)
+        }
+        .padding(.top, 5)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var boneNewButton: some View {
+        ZStack {
+            VStack(spacing: 3) {
+                ZStack {
+                    Circle()
+                        .fill(newPressed ? SkeletonChrome.boneNewPressed : SkeletonChrome.boneNew)
+                        .frame(width: 48, height: 48)
+                    Image(decorative: Self.plusIcon, scale: UIScreen.main.scale)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 22, height: 22)
+                }
+                Text("NEW")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+            }
+            // Must sit above the artwork — a .background UIView loses most hits to SwiftUI.
+            HoldTouchPad(
+                onBegan: {
+                    newPressed = true
+                    onBoneHoldStart()
+                },
+                onEnded: {
+                    newPressed = false
+                    onBoneHoldEnd()
+                }
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .accessibilityLabel("Hold to add a bone")
+    }
+
+    private func toolButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(decorative: Self.icon(icon), scale: 3)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                Text(title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private static let plusIcon: CGImage = chromeImage("plus_icon")
+
+    private static func icon(_ name: String) -> CGImage {
+        chromeImage(name)
     }
 }
 
@@ -131,5 +237,110 @@ struct SkeletonSideMenu: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private func chromeImage(_ name: String) -> CGImage {
+    guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
+        ?? Bundle.main.url(forResource: name, withExtension: "png")
+    else {
+        fatalError("chrome missing \(name).png")
+    }
+    do {
+        let data = try Data(contentsOf: url)
+        return PNGImage.cgImage(from: data, name: "chrome/\(name).png")
+    } catch {
+        fatalError("chrome could not read \(url.path): \(error)")
+    }
+}
+
+/// UIKit hold pad — survives a second finger on the canvas (SwiftUI DragGesture often cancels).
+private struct HoldTouchPad: UIViewRepresentable {
+    var onBegan: () -> Void
+    var onEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onBegan: onBegan, onEnded: onEnded)
+    }
+
+    func makeUIView(context: Context) -> HoldTouchView {
+        let view = HoldTouchView()
+        view.coordinator = context.coordinator
+        // Fully clear views are skipped by UIKit hit-testing; keep a tiny alpha.
+        view.backgroundColor = UIColor(white: 1, alpha: 0.01)
+        view.isMultipleTouchEnabled = false
+        view.isUserInteractionEnabled = true
+        // Zero-duration long press fires on touch-down without SwiftUI's gesture-arbitration delay.
+        let press = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePress)
+        )
+        press.minimumPressDuration = 0
+        press.allowableMovement = .greatestFiniteMagnitude
+        press.cancelsTouchesInView = false
+        press.delaysTouchesBegan = false
+        press.delaysTouchesEnded = false
+        press.delegate = context.coordinator
+        view.addGestureRecognizer(press)
+        return view
+    }
+
+    func updateUIView(_ uiView: HoldTouchView, context: Context) {
+        uiView.coordinator = context.coordinator
+        context.coordinator.onBegan = onBegan
+        context.coordinator.onEnded = onEnded
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onBegan: () -> Void
+        var onEnded: () -> Void
+        private var holding = false
+
+        init(onBegan: @escaping () -> Void, onEnded: @escaping () -> Void) {
+            self.onBegan = onBegan
+            self.onEnded = onEnded
+        }
+
+        @objc func handlePress(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                began()
+            case .ended, .cancelled, .failed:
+                ended()
+            default:
+                break
+            }
+        }
+
+        func began() {
+            if holding { return }
+            holding = true
+            onBegan()
+        }
+
+        func ended() {
+            guard holding else { return }
+            holding = false
+            onEnded()
+        }
+
+        // The canvas must keep receiving its own touches while New is held.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+private final class HoldTouchView: UIView {
+    var coordinator: HoldTouchPad.Coordinator?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.001, bounds.contains(point) else {
+            return nil
+        }
+        return self
     }
 }

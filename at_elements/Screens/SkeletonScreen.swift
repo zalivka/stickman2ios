@@ -15,6 +15,10 @@ struct SkeletonScreen: View {
     @State private var sourceZip: Data?
     @State private var toolsPanel: SkeletonToolsPanel = .bones
     @State private var showingMenu = false
+    @State private var boneCreateHoldMode = false
+    @State private var selectedPointId: Int?
+    @State private var layerEpoch = 0
+    @State private var editSession = SkeletonEditSession()
 
     init(item: CustomItems.Item) {
         title = item.name
@@ -39,7 +43,10 @@ struct SkeletonScreen: View {
                     assets: assets,
                     sceneWidth: scene.width,
                     sceneHeight: scene.height,
-                    mode: .skeleton
+                    mode: .skeleton,
+                    editSession: editSession,
+                    selectedPointId: $selectedPointId,
+                    layerEpoch: layerEpoch
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -48,15 +55,45 @@ struct SkeletonScreen: View {
                 SkeletonLeftPanel(
                     panel: toolsPanel,
                     onMenu: toggleMenu,
-                    onSelect: { toolsPanel = $0 },
+                    onSelect: { next in
+                        if next != .bones {
+                            setHoldMode(false)
+                        }
+                        toolsPanel = next
+                    },
                     menuActivated: showingMenu
                 )
                 if toolsPanel == .bones {
-                    SkeletonSecondaryPanel(accent: SkeletonChrome.bonesAccent)
+                    SkeletonSecondaryPanel(
+                        accent: SkeletonChrome.bonesAccent,
+                        content: .bones(
+                            onBoneHoldStart: { setHoldMode(true) },
+                            onBoneHoldEnd: { setHoldMode(false) },
+                            onDelete: deleteSelected,
+                            onMoveDown: { moveSelected(up: false) },
+                            onMoveUp: { moveSelected(up: true) }
+                        )
+                    )
                 } else if toolsPanel == .draw {
                     SkeletonSecondaryPanel(accent: SkeletonChrome.drawAccent)
                 }
-                Spacer(minLength: 0)
+                // Keep the open canvas area pass-through for touches under this chrome stack.
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+            }
+
+            if boneCreateHoldMode {
+                Text("Hold the button and drag from a point to add a bone")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(SkeletonChrome.holdBanner)
+                    .frame(maxWidth: .infinity)
+                    .padding(.leading, SkeletonChrome.leadingWidth(panel: toolsPanel))
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
             }
 
             if showingMenu {
@@ -85,6 +122,43 @@ struct SkeletonScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+    }
+
+    private func setHoldMode(_ on: Bool) {
+        editSession.boneCreateHoldMode = on
+        boneCreateHoldMode = on
+    }
+
+    private func deleteSelected() {
+        guard var unit = optionalUnit, let id = selectedPointId else { return }
+        if unit.point(id: id).isBase {
+            return
+        }
+        unit.deletePointSubtree(id: id)
+        selectedPointId = nil
+        writeUnit(unit)
+    }
+
+    private func moveSelected(up: Bool) {
+        guard let unit = optionalUnit, let id = selectedPointId, let assets else { return }
+        guard let edge = unit.upperEdge(of: id) else { return }
+        if assets.moveEdgeOrder(unitName: unit.name, start: edge.from, end: edge.to, moveUp: up) {
+            layerEpoch += 1
+        }
+    }
+
+    private var optionalUnit: StickmanUnit? {
+        guard let scene, !scene.currentFrame.units.isEmpty else { return nil }
+        return scene.currentFrame.units[0]
+    }
+
+    private func writeUnit(_ unit: StickmanUnit) {
+        guard var loaded = scene else {
+            fatalError("SkeletonScreen '\(title)' has no scene loaded")
+        }
+        let frameIndex = loaded.currentIndex
+        loaded.frames[frameIndex].units[0] = unit
+        scene = loaded
     }
 
     private func toggleMenu() {

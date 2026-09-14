@@ -56,6 +56,36 @@ struct StickmanUnit {
         return point
     }
 
+    /// Adds a child tip at `dest` under `parentId` and rebuilds edges. Returns the new point id.
+    mutating func addPointWithEdge(parentId: Int, destX: CGFloat, destY: CGFloat) -> Int {
+        _ = point(id: parentId)
+        let newId = (points.map(\.id).max() ?? 0) + 1
+        if points.contains(where: { $0.id == newId }) {
+            fatalError("StickmanUnit '\(name)' already has point \(newId)")
+        }
+        points.append(
+            StickmanPoint(id: newId, x: destX, y: destY, isBase: false, parentId: parentId)
+        )
+        link()
+        return newId
+    }
+
+    /// Deletes `id` and every descendant. Base point is not deletable.
+    mutating func deletePointSubtree(id: Int) {
+        let target = point(id: id)
+        if target.isBase {
+            fatalError("StickmanUnit '\(name)' cannot delete base \(id)")
+        }
+        let remove = Set([id] + descendants(of: id))
+        points.removeAll { remove.contains($0.id) }
+        link()
+    }
+
+    /// Parent→child edge that ends at `id`, if any.
+    func upperEdge(of id: Int) -> StickmanEdge? {
+        edges.first { $0.to == id }
+    }
+
     mutating func link() {
         let bases = points.filter(\.isBase)
         if bases.count != 1 {
