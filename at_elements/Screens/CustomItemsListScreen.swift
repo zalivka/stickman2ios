@@ -32,6 +32,9 @@ struct CustomItemsListScreen: View {
                 templates = await Manifest.shared.schedule { AssetTemplates.list() }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .customItemsDidChange)) { _ in
+            items = CustomItems.collect()
+        }
         .sheet(item: $copyItem) { item in
             CopyCustomItemSheet(
                 name: $copyName,
@@ -96,13 +99,17 @@ struct CustomItemsListScreen: View {
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(templates, id: \.systemName) { item in
-                        KFImage.dataProvider(TemplatePosterProvider(item: item))
-                            .fade(duration: 0.2)
-                            .cancelOnDisappear(true)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: templateIconSize, height: templateIconSize)
-                            .onTapGesture {}
+                        NavigationLink {
+                            SkeletonScreen(template: item)
+                        } label: {
+                            KFImage.dataProvider(TemplatePosterProvider(item: item))
+                                .fade(duration: 0.2)
+                                .cancelOnDisappear(true)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: templateIconSize, height: templateIconSize)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -134,28 +141,36 @@ private struct CustomItemCell: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            KFImage.dataProvider(CustomItemThumbProvider(item: item))
-                .fade(duration: 0.2)
-                .cancelOnDisappear(true)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 60, height: 60)
-                .clipped()
-                .background(slotsThumbFill)
-                .padding(5)
+            NavigationLink {
+                SkeletonScreen(item: item)
+            } label: {
+                HStack(spacing: 0) {
+                    KFImage.dataProvider(CustomItemThumbProvider(item: item))
+                        .fade(duration: 0.2)
+                        .cancelOnDisappear(true)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 60, height: 60)
+                        .clipped()
+                        .background(slotsThumbFill)
+                        .padding(5)
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text(item.name)
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("Created \(createdDate)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(item.name)
+                            .font(.system(size: 20))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text("Created \(createdDate)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.leading, 10)
+                    .padding(.top, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .padding(.leading, 10)
-            .padding(.top, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .tint(.white)
 
             Menu {
                 itemActions

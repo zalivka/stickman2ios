@@ -204,14 +204,14 @@ enum SceneXML {
         if scene.interframes < 1 {
             fatalError("SceneXML serialize interframes is \(scene.interframes)")
         }
-        var xml = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n"
+        var xml = XMLWrite.header
         xml += "<scene"
-        xml += attr("version_code", versionCode())
-        xml += attr("w", xmlFloat(scene.width))
-        xml += attr("h", xmlFloat(scene.height))
-        xml += attr("interframes", "\(scene.interframes)")
-        xml += attr("no_interpolation", scene.noInterpolation ? "true" : "false")
-        xml += attr("no_interpolation_frames", "\(scene.noInterpolationFrames)")
+        xml += XMLWrite.attr("version_code", XMLWrite.versionCode())
+        xml += XMLWrite.attr("w", XMLWrite.float(scene.width))
+        xml += XMLWrite.attr("h", XMLWrite.float(scene.height))
+        xml += XMLWrite.attr("interframes", "\(scene.interframes)")
+        xml += XMLWrite.attr("no_interpolation", scene.noInterpolation ? "true" : "false")
+        xml += XMLWrite.attr("no_interpolation_frames", "\(scene.noInterpolationFrames)")
         xml += ">\n"
         var written = 0
         for frame in scene.frames {
@@ -225,10 +225,7 @@ enum SceneXML {
             fatalError("SceneXML serialize has no frames")
         }
         xml += "</scene>\n"
-        guard let data = xml.data(using: .utf8) else {
-            fatalError("SceneXML serialize is not UTF-8")
-        }
-        return data
+        return XMLWrite.data(xml)
     }
 
     private static func serialize(_ frame: StickmanFrame) -> String {
@@ -237,10 +234,10 @@ enum SceneXML {
         }
         let bgName = frame.bgName ?? "#ffffff"
         var xml = "<frame"
-        xml += attr("id", "\(frame.id)")
-        xml += attr("bg", frame.bgMove.serialize())
-        xml += attr("camera", frame.cameraMove.serialize())
-        xml += attr("bg_name", bgName)
+        xml += XMLWrite.attr("id", "\(frame.id)")
+        xml += XMLWrite.attr("bg", frame.bgMove.serialize())
+        xml += XMLWrite.attr("camera", frame.cameraMove.serialize())
+        xml += XMLWrite.attr("bg_name", bgName)
         xml += ">\n"
         for unit in frame.units {
             xml += serialize(unit)
@@ -263,22 +260,22 @@ enum SceneXML {
             fatalError("SceneXML unit '\(unit.name)' alpha is \(unit.alpha)")
         }
         var xml = "<unit"
-        xml += attr("name", unit.name)
+        xml += XMLWrite.attr("name", unit.name)
         switch unit.unitType {
         case .unit:
-            xml += attr("type", "unit")
+            xml += XMLWrite.attr("type", "unit")
         case .bubble:
-            xml += attr("type", "bubble")
+            xml += XMLWrite.attr("type", "bubble")
             guard let bubble = unit.bubble else {
                 fatalError("SceneXML unit '\(unit.name)' bubble missing meta")
             }
-            xml += attr("meta", bubble.encoded(unitName: unit.name))
+            xml += XMLWrite.attr("meta", bubble.encoded(unitName: unit.name))
         }
-        xml += attr("flipped", unit.flipped ? "true" : "false")
-        xml += attr("arrange", "\(unit.arrange)")
-        xml += attr("scale", xmlFloat(unit.scale))
-        xml += attr("alpha", xmlFloat(unit.alpha))
-        xml += attr("state", "\(unit.assetsState)")
+        xml += XMLWrite.attr("flipped", unit.flipped ? "true" : "false")
+        xml += XMLWrite.attr("arrange", "\(unit.arrange)")
+        xml += XMLWrite.attr("scale", XMLWrite.float(unit.scale))
+        xml += XMLWrite.attr("alpha", XMLWrite.float(unit.alpha))
+        xml += XMLWrite.attr("state", "\(unit.assetsState)")
         xml += ">\n"
         for point in unit.points {
             xml += serialize(point, unitName: unit.name)
@@ -289,61 +286,30 @@ enum SceneXML {
 
     private static func serialize(_ point: StickmanPoint, unitName: String) -> String {
         var xml = "<point"
-        xml += attr("id", "\(point.id)")
-        xml += attr("x", xmlFloat(point.x))
-        xml += attr("y", xmlFloat(point.y))
+        xml += XMLWrite.attr("id", "\(point.id)")
+        xml += XMLWrite.attr("x", XMLWrite.float(point.x))
+        xml += XMLWrite.attr("y", XMLWrite.float(point.y))
         if point.isBase {
-            xml += attr("base", "true")
+            xml += XMLWrite.attr("base", "true")
         } else {
             guard let parentId = point.parentId else {
                 fatalError("SceneXML unit '\(unitName)' point \(point.id) missing par")
             }
-            xml += attr("par", "\(parentId)")
+            xml += XMLWrite.attr("par", "\(parentId)")
         }
         switch point.attachable {
         case .none:
             break
         case .master:
-            xml += attr("attachable", "master")
+            xml += XMLWrite.attr("attachable", "master")
         case .slave:
-            xml += attr("attachable", "slave")
+            xml += XMLWrite.attr("attachable", "slave")
             if let name = point.attachedMasterName, let id = point.attachedMasterPointId {
-                xml += attr("attached", "\(name)&\(id)")
+                xml += XMLWrite.attr("attached", "\(name)&\(id)")
             }
         }
         xml += " />\n"
         return xml
-    }
-
-    private static func attr(_ name: String, _ value: String) -> String {
-        " \(name)=\"\(escape(value))\""
-    }
-
-    private static func escape(_ value: String) -> String {
-        var out = ""
-        out.reserveCapacity(value.count)
-        for ch in value {
-            switch ch {
-            case "&": out += "&amp;"
-            case "<": out += "&lt;"
-            case ">": out += "&gt;"
-            case "\"": out += "&quot;"
-            case "'": out += "&apos;"
-            default: out.append(ch)
-            }
-        }
-        return out
-    }
-
-    private static func xmlFloat(_ value: CGFloat) -> String {
-        String(format: "%g", locale: Locale(identifier: "en_US_POSIX"), Double(value))
-    }
-
-    private static func versionCode() -> String {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !value.isEmpty else {
-            fatalError("SceneXML missing CFBundleVersion")
-        }
-        return value
     }
 
     private final class Sink: NSObject, XMLParserDelegate {

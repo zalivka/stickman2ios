@@ -27,14 +27,12 @@ struct SavedScenesScreen: View {
                 .padding(.horizontal, leftover / 2)
             }
         }
-        .background(Color.white)
-        .ignoresSafeArea()
-        .overlay(alignment: .topLeading) {
-            FullscreenBackButton(besideMainPanel: false)
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
+        .background(Color.white.ignoresSafeArea())
+        .navigationTitle("Saved Scenes")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
         .onAppear {
             items = SavedScenes.collect()
         }

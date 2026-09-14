@@ -224,7 +224,7 @@ final class UnitAssets {
     }
 }
 
-private struct EdgeAssetRow {
+struct EdgeAssetRow {
     var unitName: String
     var start: Int
     var end: Int
@@ -234,6 +234,8 @@ private struct EdgeAssetRow {
     var state: Int
     var nativeFlipped: Bool
     var bmName: String
+    var svgName: String?
+    var commandScale: String?
 }
 
 private enum PNG {
@@ -253,7 +255,43 @@ private enum PNG {
     }
 }
 
-private enum AssetsXML {
+enum AssetsXML {
+    static func serialize(rows: [EdgeAssetRow], fullName: String) -> Data {
+        if fullName.isEmpty {
+            fatalError("AssetsXML serialize has empty unit name")
+        }
+        if rows.isEmpty {
+            fatalError("AssetsXML serialize '\(fullName)' has no rows")
+        }
+        var xml = XMLWrite.header
+        xml += "<unit"
+        xml += XMLWrite.attr("name", fullName)
+        xml += XMLWrite.attr("version", XMLWrite.versionCode())
+        xml += ">\n"
+        for row in rows {
+            xml += "<edgeAsset"
+            xml += XMLWrite.attr("start", "\(row.start)")
+            xml += XMLWrite.attr("end", "\(row.end)")
+            xml += XMLWrite.attr("weight", "\(row.weight)")
+            xml += XMLWrite.attr("x_offset", XMLWrite.float(row.xOffset))
+            xml += XMLWrite.attr("y_offset", XMLWrite.float(row.yOffset))
+            xml += XMLWrite.attr("state", "\(row.state)")
+            xml += XMLWrite.attr("bm", row.bmName)
+            if row.nativeFlipped {
+                xml += XMLWrite.attr("flipped", "true")
+            }
+            if let scale = row.commandScale {
+                xml += XMLWrite.attr("command_scale", scale)
+            }
+            if let svg = row.svgName {
+                xml += XMLWrite.attr("svg", svg)
+            }
+            xml += " />\n"
+        }
+        xml += "</unit>\n"
+        return XMLWrite.data(xml)
+    }
+
     static func parse(_ data: Data) -> [EdgeAssetRow] {
         let parser = XMLParser(data: data)
         let sink = Sink()
@@ -312,7 +350,9 @@ private enum AssetsXML {
                     weight: Int(attributes["weight"] ?? "") ?? 0,
                     state: Int(attributes["state"] ?? "") ?? UnitAssets.stateDefault,
                     nativeFlipped: attributes["flipped"] == "true",
-                    bmName: bm
+                    bmName: bm,
+                    svgName: attributes["svg"],
+                    commandScale: attributes["command_scale"]
                 )
             )
         }

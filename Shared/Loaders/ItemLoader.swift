@@ -408,6 +408,68 @@ enum ModelXML {
         return StickmanUnit(name: name, points: sink.points, edges: [])
     }
 
+    /// Writes the item format: base point at the origin, in native unscaled item units.
+    static func serialize(_ unit: StickmanUnit, fullName: String) -> Data {
+        if fullName.isEmpty {
+            fatalError("ModelXML serialize has empty unit name")
+        }
+        if unit.scale <= 0 {
+            fatalError("ModelXML serialize unit '\(unit.name)' scale is \(unit.scale)")
+        }
+        let base = unit.basePoint()
+        var xml = XMLWrite.header
+        xml += "<unit"
+        xml += XMLWrite.attr("name", fullName)
+        xml += ">\n"
+        for point in unit.points {
+            xml += serialize(point, base: base, scale: unit.scale, unitName: unit.name)
+        }
+        xml += "</unit>\n"
+        return XMLWrite.data(xml)
+    }
+
+    private static func serialize(
+        _ point: StickmanPoint,
+        base: StickmanPoint,
+        scale: CGFloat,
+        unitName: String
+    ) -> String {
+        var xml = "<point"
+        xml += XMLWrite.attr("id", "\(point.id)")
+        xml += XMLWrite.attr("x", XMLWrite.float((point.x - base.x) / scale))
+        xml += XMLWrite.attr("y", XMLWrite.float((point.y - base.y) / scale))
+        if point.isBase {
+            xml += XMLWrite.attr("base", "true")
+        } else {
+            guard let parentId = point.parentId else {
+                fatalError("ModelXML unit '\(unitName)' point \(point.id) missing par")
+            }
+            xml += XMLWrite.attr("par", "\(parentId)")
+        }
+        if point.fixed {
+            xml += XMLWrite.attr("fixed", "true")
+        }
+        if point.kinematicStart {
+            xml += XMLWrite.attr("kinstart", "true")
+        }
+        if point.kinematicStop {
+            xml += XMLWrite.attr("kinstop", "true")
+        }
+        if point.stretchable {
+            xml += XMLWrite.attr("stretchable", "true")
+        }
+        if let name = point.semanticName {
+            xml += XMLWrite.attr("name", name)
+        }
+        switch point.attachable {
+        case .none: break
+        case .master: xml += XMLWrite.attr("attachable", "master")
+        case .slave: xml += XMLWrite.attr("attachable", "slave")
+        }
+        xml += " />\n"
+        return xml
+    }
+
     private final class Sink: NSObject, XMLParserDelegate {
         var unitName: String?
         var points: [StickmanPoint] = []
@@ -443,8 +505,28 @@ enum ModelXML {
                 }
                 parentId = par
             }
+            let attachable: Attachable
+            switch attributes["attachable"] {
+            case nil: attachable = .none
+            case "master": attachable = .master
+            case "slave": attachable = .slave
+            default: fatalError("ItemLoader point \(id) attachable '\(attributes["attachable"]!)'")
+            }
             points.append(
-                StickmanPoint(id: id, x: CGFloat(x), y: CGFloat(y), isBase: isBase, parentId: parentId)
+                StickmanPoint(
+                    id: id,
+                    x: CGFloat(x),
+                    y: CGFloat(y),
+                    isBase: isBase,
+                    parentId: parentId,
+                    attachable: attachable,
+                    semanticName: attributes["name"],
+                    // Android forces the base unstretchable on load.
+                    fixed: attributes["fixed"] == "true",
+                    stretchable: !isBase && attributes["stretchable"] == "true",
+                    kinematicStart: attributes["kinstart"] == "true",
+                    kinematicStop: attributes["kinstop"] == "true"
+                )
             )
         }
     }

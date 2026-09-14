@@ -24,7 +24,7 @@ struct SeekFramesBarScreen: View, RangeDialogPresenting {
                         DemoSceneScreen(resource: "demo_lil_dino")
                     }
                     .buttonStyle(.borderedProminent)
-                    NavigationLink("Saved") {
+                    NavigationLink("Saved Scenes") {
                         SavedScenesScreen()
                     }
                     .buttonStyle(.borderedProminent)

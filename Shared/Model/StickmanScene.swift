@@ -20,6 +20,11 @@ struct StickmanPoint: Identifiable {
     var attachable: Attachable = .none
     var attachedMasterName: String? = nil
     var attachedMasterPointId: Int? = nil
+    var semanticName: String? = nil
+    var fixed: Bool = false
+    var stretchable: Bool = false
+    var kinematicStart: Bool = false
+    var kinematicStop: Bool = false
 }
 
 struct StickmanEdge {
@@ -162,6 +167,22 @@ struct StickmanUnit {
             translateAll(dx: destX - point(id: id).x, dy: destY - point(id: id).y)
         } else {
             rotateAroundParent(id: id, destX: destX, destY: destY)
+        }
+    }
+
+    mutating func movePointAndDescendants(id: Int, destX: CGFloat, destY: CGFloat) {
+        let grabbed = point(id: id)
+        if grabbed.isBase {
+            return
+        }
+        let dx = destX - grabbed.x
+        let dy = destY - grabbed.y
+        for moveId in [id] + descendants(of: id) {
+            guard let index = points.firstIndex(where: { $0.id == moveId }) else {
+                fatalError("StickmanUnit '\(name)' missing point \(moveId)")
+            }
+            points[index].x += dx
+            points[index].y += dy
         }
     }
 

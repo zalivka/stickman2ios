@@ -104,6 +104,7 @@ enum SkeletonCanvasMode {
     case preview
     case camera
     case background
+    case skeleton
 }
 
 struct SkeletonCanvas: View {
@@ -114,6 +115,15 @@ struct SkeletonCanvas: View {
     static let hitRadius: CGFloat = 28
     static let handlerHitRadius: CGFloat = 32
     static let pane = Color(red: 0x3d / 255, green: 0x3e / 255, blue: 0x4c / 255)
+    static let checkerLight = Color(red: 0xf2 / 255, green: 0xf2 / 255, blue: 0xf2 / 255)
+    static let checkerSquare: CGFloat = 12
+    static let boneCommon = Color(red: 0, green: 0xb2 / 255, blue: 1)
+    static let boneSlave = Color(red: 1, green: 0x26 / 255, blue: 0)
+    static let boneMaster = Color(red: 0x88 / 255, green: 0xe2 / 255, blue: 0x0d / 255)
+    static let boneNodeRadius: CGFloat = 4
+    static let boneEdgeWidth: CGFloat = 3
+    static let boneBaseRingRadius: CGFloat = 8.5
+    static let boneBaseRingWidth: CGFloat = 2
     static let sceneBound = Color(red: 0, green: 0xd7 / 255, blue: 1)
     static let sceneFill = pane
     static let previewBackdrop = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
@@ -159,13 +169,15 @@ struct SkeletonCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             Canvas { context, size in
+                let layout = resolvedLayout(size: size)
                 switch mode {
                 case .editor, .camera, .background:
                     context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.pane))
+                case .skeleton:
+                    drawCheckerboard(context: &context, size: size, layout: layout)
                 case .preview:
                     context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.previewBackdrop))
                 }
-                let layout = resolvedLayout(size: size)
                 switch mode {
                 case .editor:
                     drawScene(context: &context, layout: layout)
@@ -175,6 +187,11 @@ struct SkeletonCanvas: View {
                     }
                     drawCameraRectangle(context: &context, layout: layout)
                     drawHandlers(context: &context, layout: layout)
+                    drawTouchPoint(context: &context)
+                case .skeleton:
+                    for drawn in unitsToDraw {
+                        drawUnit(drawn, context: &context, layout: layout)
+                    }
                     drawTouchPoint(context: &context)
                 case .preview:
                     drawAppliedCamera(context: &context, layout: layout, clip: true)
@@ -190,7 +207,7 @@ struct SkeletonCanvas: View {
                 }
             }
             .overlay {
-                if mode == .editor {
+                if mode == .editor || mode == .skeleton {
                     SkeletonTouchOverlay(
                         onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
@@ -298,7 +315,34 @@ struct SkeletonCanvas: View {
         }
     }
 
+    private func drawCheckerboard(context: inout GraphicsContext, size: CGSize, layout: SkeletonLayout) {
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.checkerLight))
+        let square = Self.checkerSquare * layout.scale
+        if square < 6 {
+            return
+        }
+        let origin = layout.screenPoint(x: 0, y: 0)
+        let firstCol = Int(floor(-origin.x / square))
+        let lastCol = Int(ceil((size.width - origin.x) / square))
+        let firstRow = Int(floor(-origin.y / square))
+        let lastRow = Int(ceil((size.height - origin.y) / square))
+        var path = Path()
+        for row in firstRow..<lastRow {
+            for col in firstCol..<lastCol where (row + col) % 2 != 0 {
+                path.addRect(CGRect(
+                    x: origin.x + CGFloat(col) * square,
+                    y: origin.y + CGFloat(row) * square,
+                    width: square,
+                    height: square
+                ))
+            }
+        }
+        context.fill(path, with: .color(.white))
+    }
+
     private func drawSkeleton(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+        let bones = mode == .skeleton
+        let edgeColor = bones ? Self.boneCommon : Self.color
         for edge in drawn.edges {
             let from = drawn.point(id: edge.from)
             let to = drawn.point(id: edge.to)
@@ -307,21 +351,40 @@ struct SkeletonCanvas: View {
             path.addLine(to: layout.screenPoint(x: to.x, y: to.y))
             context.stroke(
                 path,
-                with: .color(Self.color),
-                style: StrokeStyle(lineWidth: Self.edgeWidth, lineCap: .butt)
+                with: .color(edgeColor),
+                style: StrokeStyle(lineWidth: bones ? Self.boneEdgeWidth : Self.edgeWidth, lineCap: .butt)
             )
         }
         for point in drawn.points {
             let center = layout.screenPoint(x: point.x, y: point.y)
-            let radius = point.isBase ? Self.baseNodeRadius : Self.nodeRadius
-            let rect = CGRect(
-                x: center.x - radius,
-                y: center.y - radius,
-                width: radius * 2,
-                height: radius * 2
-            )
-            context.fill(Path(ellipseIn: rect), with: .color(Self.color))
+            let color = bones ? Self.boneColor(point) : Self.color
+            let radius: CGFloat
+            if bones {
+                radius = Self.boneNodeRadius
+            } else {
+                radius = point.isBase ? Self.baseNodeRadius : Self.nodeRadius
+            }
+            context.fill(Path(ellipseIn: Self.square(around: center, radius: radius)), with: .color(color))
+            if bones, point.isBase {
+                context.stroke(
+                    Path(ellipseIn: Self.square(around: center, radius: Self.boneBaseRingRadius)),
+                    with: .color(color),
+                    style: StrokeStyle(lineWidth: Self.boneBaseRingWidth)
+                )
+            }
         }
+    }
+
+    private static func boneColor(_ point: StickmanPoint) -> Color {
+        switch point.attachable {
+        case .none: boneCommon
+        case .slave: boneSlave
+        case .master: boneMaster
+        }
+    }
+
+    private static func square(around center: CGPoint, radius: CGFloat) -> CGRect {
+        CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
     }
 
     private func drawTouchCapture(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
@@ -626,7 +689,7 @@ struct SkeletonCanvas: View {
         touchScreen = location
         let current = resolvedLayout(size: size)
         if began {
-            if let handle = hitHandler(at: location, layout: current) {
+            if mode == .editor, let handle = hitHandler(at: location, layout: current) {
                 dragRef.handler = handle.kind
                 dragRef.handlerX = handle.x
                 dragRef.handlerY = handle.y
@@ -688,11 +751,13 @@ struct SkeletonCanvas: View {
         }
         if let id = dragRef.nodeId {
             let graphPoint = current.graphPoint(screen: location)
-            unit.drag(
-                id: id,
-                destX: graphPoint.x - dragRef.touchOffsetX,
-                destY: graphPoint.y - dragRef.touchOffsetY
-            )
+            let destX = graphPoint.x - dragRef.touchOffsetX
+            let destY = graphPoint.y - dragRef.touchOffsetY
+            if mode == .skeleton {
+                unit.movePointAndDescendants(id: id, destX: destX, destY: destY)
+            } else {
+                unit.drag(id: id, destX: destX, destY: destY)
+            }
             snapHandlers(to: current)
             return
         }

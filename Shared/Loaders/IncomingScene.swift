@@ -2,6 +2,7 @@ import Foundation
 
 extension Notification.Name {
     static let savedScenesDidChange = Notification.Name("savedScenesDidChange")
+    static let customItemsDidChange = Notification.Name("customItemsDidChange")
 }
 
 enum IncomingScene {
