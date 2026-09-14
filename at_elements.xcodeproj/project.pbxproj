@@ -49,11 +49,21 @@
 			);
 			target = 743A52B43054CBF6000CC4A9 /* RotatingTriangleWidget */;
 		};
+		74AT00013054E000000CC4A9 /* Exceptions for "at_elements" folder in "at_elements" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 743A529E3054CBF6000CC4A9 /* at_elements */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		743A52A13054CBF6000CC4A9 /* at_elements */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				74AT00013054E000000CC4A9 /* Exceptions for "at_elements" folder in "at_elements" target */,
+			);
 			explicitFolders = (
 				demo,
 				packs,
@@ -399,6 +409,7 @@
 				DEVELOPMENT_TEAM = 2X6F8N8723;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = at_elements/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -432,6 +443,7 @@
 				DEVELOPMENT_TEAM = 2X6F8N8723;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = at_elements/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

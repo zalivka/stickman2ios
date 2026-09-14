@@ -38,6 +38,9 @@ struct SavedScenesScreen: View {
         .onAppear {
             items = SavedScenes.collect()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .savedScenesDidChange)) { _ in
+            items = SavedScenes.collect()
+        }
     }
 }
 

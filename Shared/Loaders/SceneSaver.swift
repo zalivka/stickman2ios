@@ -91,6 +91,19 @@ enum SceneSaver {
         return name
     }
 
+    static func incomingName(from zip: Data) -> String {
+        if ZipStore.contains("metadata.txt", in: zip) {
+            let data = ZipStore.data(named: "metadata.txt", in: zip)
+            if let meta = try? JSONDecoder().decode(SceneMetadataFile.self, from: data) {
+                let name = meta.mName.replacingOccurrences(of: " ", with: "_")
+                if !name.isEmpty {
+                    return name
+                }
+            }
+        }
+        return "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
+    }
+
     private static func ensureSavedDirectory() throws -> URL {
         let dir = savedDirectory()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -133,7 +146,7 @@ enum SceneSaver {
     }
 }
 
-private struct SceneMetadataFile: Encodable {
+private struct SceneMetadataFile: Codable {
     var mAuthor: String
     var mName: String
     var mCreatedAt: Int64

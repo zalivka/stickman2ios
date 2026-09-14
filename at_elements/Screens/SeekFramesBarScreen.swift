@@ -20,28 +20,16 @@ struct SeekFramesBarScreen: View, RangeDialogPresenting {
                 )
                 HStack(spacing: 8) {
                     rangeButton
-                    NavigationLink("Skeleton") {
-                        SkeletonScreen(title: "Skeleton", unit: ItemConstructor.spider())
-                    }
-                    .buttonStyle(.borderedProminent)
-                    NavigationLink("Terrence") {
-                        TerrenceScreen()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    NavigationLink("Ter2") {
-                        Ter2Screen()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    NavigationLink("Stonedummy") {
-                        StonedummyScreen()
-                    }
-                    .buttonStyle(.borderedProminent)
                     NavigationLink("Dino") {
                         DemoSceneScreen(resource: "demo_lil_dino")
                     }
                     .buttonStyle(.borderedProminent)
                     NavigationLink("Saved") {
                         SavedScenesScreen()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    NavigationLink("Custom Items") {
+                        CustomItemsListScreen()
                     }
                     .buttonStyle(.borderedProminent)
                 }
