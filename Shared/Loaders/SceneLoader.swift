@@ -60,7 +60,7 @@ enum SceneLoader {
         }
         let assets = UnitAssets()
         for item in items {
-            assets.loadItemFromArchive(ZipStore.data(named: item, in: zip))
+            assets.loadItemFromArchive(ZipStore.data(named: item, in: zip), entryName: item)
         }
         for frame in scene.frames {
             for unit in frame.units {
@@ -138,7 +138,8 @@ enum SceneLoader {
             }
             backgrounds.install(
                 name: bgName,
-                image: BackgroundAssets.decode(ZipStore.data(named: imageName, in: nested), name: imageName)
+                image: BackgroundAssets.decode(ZipStore.data(named: imageName, in: nested), name: imageName),
+                archive: nested
             )
         }
         return backgrounds
@@ -161,7 +162,7 @@ enum SceneLoader {
     }
 }
 
-private enum SceneXML {
+enum SceneXML {
     static func parse(_ data: Data) -> StickmanScene {
         let parser = XMLParser(data: data)
         let sink = Sink()
@@ -193,6 +194,158 @@ private enum SceneXML {
         )
     }
 
+    static func serialize(_ scene: StickmanScene) -> Data {
+        if scene.frames.isEmpty {
+            fatalError("SceneXML serialize has no frames")
+        }
+        if scene.width <= 0 || scene.height <= 0 {
+            fatalError("SceneXML serialize size \(scene.width)x\(scene.height)")
+        }
+        if scene.interframes < 1 {
+            fatalError("SceneXML serialize interframes is \(scene.interframes)")
+        }
+        var xml = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n"
+        xml += "<scene"
+        xml += attr("version_code", versionCode())
+        xml += attr("w", xmlFloat(scene.width))
+        xml += attr("h", xmlFloat(scene.height))
+        xml += attr("interframes", "\(scene.interframes)")
+        xml += attr("no_interpolation", scene.noInterpolation ? "true" : "false")
+        xml += attr("no_interpolation_frames", "\(scene.noInterpolationFrames)")
+        xml += ">\n"
+        var written = 0
+        for frame in scene.frames {
+            if frame.id == -1 {
+                continue
+            }
+            xml += serialize(frame)
+            written += 1
+        }
+        if written == 0 {
+            fatalError("SceneXML serialize has no frames")
+        }
+        xml += "</scene>\n"
+        guard let data = xml.data(using: .utf8) else {
+            fatalError("SceneXML serialize is not UTF-8")
+        }
+        return data
+    }
+
+    private static func serialize(_ frame: StickmanFrame) -> String {
+        if frame.units.isEmpty {
+            fatalError("SceneXML frame \(frame.id) has no units")
+        }
+        let bgName = frame.bgName ?? "#ffffff"
+        var xml = "<frame"
+        xml += attr("id", "\(frame.id)")
+        xml += attr("bg", frame.bgMove.serialize())
+        xml += attr("camera", frame.cameraMove.serialize())
+        xml += attr("bg_name", bgName)
+        xml += ">\n"
+        for unit in frame.units {
+            xml += serialize(unit)
+        }
+        xml += "</frame>\n"
+        return xml
+    }
+
+    private static func serialize(_ unit: StickmanUnit) -> String {
+        if unit.name.isEmpty {
+            fatalError("SceneXML unit has empty name")
+        }
+        if unit.points.isEmpty {
+            fatalError("SceneXML unit '\(unit.name)' has no points")
+        }
+        if unit.scale <= 0 {
+            fatalError("SceneXML unit '\(unit.name)' scale is \(unit.scale)")
+        }
+        if unit.alpha < 0 {
+            fatalError("SceneXML unit '\(unit.name)' alpha is \(unit.alpha)")
+        }
+        var xml = "<unit"
+        xml += attr("name", unit.name)
+        switch unit.unitType {
+        case .unit:
+            xml += attr("type", "unit")
+        case .bubble:
+            xml += attr("type", "bubble")
+            guard let bubble = unit.bubble else {
+                fatalError("SceneXML unit '\(unit.name)' bubble missing meta")
+            }
+            xml += attr("meta", bubble.encoded(unitName: unit.name))
+        }
+        xml += attr("flipped", unit.flipped ? "true" : "false")
+        xml += attr("arrange", "\(unit.arrange)")
+        xml += attr("scale", xmlFloat(unit.scale))
+        xml += attr("alpha", xmlFloat(unit.alpha))
+        xml += attr("state", "\(unit.assetsState)")
+        xml += ">\n"
+        for point in unit.points {
+            xml += serialize(point, unitName: unit.name)
+        }
+        xml += "</unit>\n"
+        return xml
+    }
+
+    private static func serialize(_ point: StickmanPoint, unitName: String) -> String {
+        var xml = "<point"
+        xml += attr("id", "\(point.id)")
+        xml += attr("x", xmlFloat(point.x))
+        xml += attr("y", xmlFloat(point.y))
+        if point.isBase {
+            xml += attr("base", "true")
+        } else {
+            guard let parentId = point.parentId else {
+                fatalError("SceneXML unit '\(unitName)' point \(point.id) missing par")
+            }
+            xml += attr("par", "\(parentId)")
+        }
+        switch point.attachable {
+        case .none:
+            break
+        case .master:
+            xml += attr("attachable", "master")
+        case .slave:
+            xml += attr("attachable", "slave")
+            if let name = point.attachedMasterName, let id = point.attachedMasterPointId {
+                xml += attr("attached", "\(name)&\(id)")
+            }
+        }
+        xml += " />\n"
+        return xml
+    }
+
+    private static func attr(_ name: String, _ value: String) -> String {
+        " \(name)=\"\(escape(value))\""
+    }
+
+    private static func escape(_ value: String) -> String {
+        var out = ""
+        out.reserveCapacity(value.count)
+        for ch in value {
+            switch ch {
+            case "&": out += "&amp;"
+            case "<": out += "&lt;"
+            case ">": out += "&gt;"
+            case "\"": out += "&quot;"
+            case "'": out += "&apos;"
+            default: out.append(ch)
+            }
+        }
+        return out
+    }
+
+    private static func xmlFloat(_ value: CGFloat) -> String {
+        String(format: "%g", locale: Locale(identifier: "en_US_POSIX"), Double(value))
+    }
+
+    private static func versionCode() -> String {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !value.isEmpty else {
+            fatalError("SceneXML missing CFBundleVersion")
+        }
+        return value
+    }
+
     private final class Sink: NSObject, XMLParserDelegate {
         var width: CGFloat?
         var height: CGFloat?
@@ -211,6 +364,7 @@ private enum SceneXML {
         private var unitAlpha: CGFloat?
         private var unitArrange: Int?
         private var unitFlipped = false
+        private var unitState = 0
         private var unitType: StickmanUnitType = .unit
         private var unitBubble: BubbleMeta?
         private var unitPoints: [StickmanPoint] = []
@@ -314,6 +468,14 @@ private enum SceneXML {
                 unitAlpha = CGFloat(alpha)
                 unitArrange = arrange
                 unitFlipped = attributes["flipped"] == "true"
+                if let text = attributes["state"] {
+                    guard let state = Int(text) else {
+                        fatalError("SceneLoader unit '\(name)' state '\(text)' is not an int")
+                    }
+                    unitState = state
+                } else {
+                    unitState = 0
+                }
                 switch attributes["type"] {
                 case nil, "", "unit":
                     unitType = .unit
@@ -356,6 +518,7 @@ private enum SceneXML {
                     alpha: alpha,
                     arrange: arrange,
                     flipped: unitFlipped,
+                    assetsState: unitState,
                     unitType: unitType,
                     bubble: unitBubble
                 )
@@ -366,6 +529,7 @@ private enum SceneXML {
                 unitAlpha = nil
                 unitArrange = nil
                 unitFlipped = false
+                unitState = 0
                 unitType = .unit
                 unitBubble = nil
                 unitPoints = []

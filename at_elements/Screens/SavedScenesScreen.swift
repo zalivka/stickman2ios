@@ -2,7 +2,7 @@ import Kingfisher
 import SwiftUI
 
 struct SavedScenesScreen: View {
-    private let items = SavedScenes.collectDemos()
+    @State private var items: [SavedScenes.Item] = []
     private let thumbWidth: CGFloat = 160
     private let thumbHeight: CGFloat = 64
 
@@ -35,6 +35,9 @@ struct SavedScenesScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .onAppear {
+            items = SavedScenes.collect()
+        }
     }
 }
 

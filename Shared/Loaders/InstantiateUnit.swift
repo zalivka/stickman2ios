@@ -15,6 +15,11 @@ enum InstantiateUnit {
             fatalError("InstantiateUnit locked item '\(item.makeFullName())'")
         }
         let zip = Manifest.shared.itemZip(fullname: item.makeFullName())
+        assets.loadItemFromArchive(
+            zip,
+            entryName: UnitAssets.atiEntryName(packName: item.packName, systemName: item.systemName),
+            forceReload: false
+        )
         let model = ItemLoader.load(zip: zip, into: assets)
         var scale = item.scale
         if ZipStore.contains("meta.txt", in: zip) {

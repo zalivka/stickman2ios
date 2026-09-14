@@ -44,13 +44,26 @@ final class UnitAssets {
 
     private var edgeAssets: [EdgeKey: [Int: EdgeAsset]] = [:]
     private var restModel: [String: [Int: CGFloat]] = [:]
+    private var archives: [String: StoredArchive] = [:]
+
+    struct StoredArchive {
+        var entryName: String
+        var zip: Data
+    }
 
     func hasAssetsFor(unitName: String) -> Bool {
         edgeAssets.keys.contains { $0.unitName == unitName }
     }
 
-    func loadItemFromArchive(_ zip: Data, forceReload: Bool = true) {
+    func loadItemFromArchive(_ zip: Data, entryName: String, forceReload: Bool = true) {
+        if entryName.isEmpty {
+            fatalError("UnitAssets empty archive entry name")
+        }
         let model = ModelXML.parse(ZipStore.data(named: "model.xml", in: zip))
+        let key = Self.removeNumber(model.name)
+        if archives[key] == nil {
+            archives[key] = StoredArchive(entryName: entryName, zip: zip)
+        }
         if !forceReload && hasAssetsFor(unitName: model.name) {
             return
         }
@@ -58,6 +71,40 @@ final class UnitAssets {
         let parsed = AssetsXML.parse(xml)
         install(parsed, zip: zip)
         captureRest(from: model)
+    }
+
+    func archive(for unitName: String) -> StoredArchive {
+        let key = Self.removeNumber(unitName)
+        guard let stored = archives[key] else {
+            fatalError("UnitAssets missing archive for '\(key)'")
+        }
+        return stored
+    }
+
+    static func atiEntryName(packName: String, systemName: String) -> String {
+        if systemName.isEmpty {
+            fatalError("UnitAssets empty systemName")
+        }
+        if packName == "@" {
+            return systemName + ".ati"
+        }
+        if packName.isEmpty {
+            fatalError("UnitAssets empty packName for '\(systemName)'")
+        }
+        return "\(packName)/items/\(systemName).ati"
+    }
+
+    static func atiEntryName(for unitName: String) -> String {
+        let name = removeNumber(unitName)
+        guard let colon = name.firstIndex(of: ":") else {
+            return name + ".ati"
+        }
+        let pack = String(name[..<colon])
+        let own = String(name[name.index(after: colon)...])
+        if own.isEmpty {
+            fatalError("UnitAssets unit name '\(unitName)' has empty own name")
+        }
+        return atiEntryName(packName: pack, systemName: own)
     }
 
     func getDrawable(_ key: EdgeKey, state: Int) -> EdgeAsset? {

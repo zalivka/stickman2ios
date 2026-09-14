@@ -19,6 +19,11 @@ struct SceneEditorScreen: View {
     @State private var showingMenu = false
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String
+    @State private var showingSave = false
+    @State private var saveName = ""
+    @State private var saveError = ""
+    @State private var lastSavedName: String?
+    @State private var saveToast = ""
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
         if scene.frames.isEmpty {
@@ -119,6 +124,28 @@ struct SceneEditorScreen: View {
                 }
             }
         }
+        .sheet(isPresented: $showingSave) {
+            SaveProjectSheet(
+                name: $saveName,
+                error: $saveError,
+                onCancel: { showingSave = false },
+                onSave: confirmSave
+            )
+        }
+        .overlay {
+            if !saveToast.isEmpty {
+                Text(saveToast)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.bottom, 48)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private func toggleMenu() {
@@ -138,6 +165,11 @@ struct SceneEditorScreen: View {
     private func pickMenu(_ action: SideMenuAction) {
         print("menu: \(action.rawValue)")
         showingMenu = false
+        if action == .save {
+            saveError = ""
+            saveName = lastSavedName ?? SceneSaver.generateName()
+            showingSave = true
+        }
         if action == .editScene {
             scenePropsSheet = .edit
         }
@@ -146,6 +178,37 @@ struct SceneEditorScreen: View {
         }
         if action == .background {
             showingBackground = true
+        }
+    }
+
+    private func confirmSave() {
+        if !SceneSaver.isGoodFileName(saveName) {
+            saveError = "Illegal symbols"
+            return
+        }
+        do {
+            let saved = try SceneSaver.save(
+                scene: scene,
+                assets: assets,
+                backgrounds: backgrounds,
+                name: saveName
+            )
+            lastSavedName = saved
+            showingSave = false
+            showToast("The project has been saved as  \(saved)")
+        } catch {
+            showingSave = false
+            showToast("error")
+        }
+    }
+
+    private func showToast(_ text: String) {
+        saveToast = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if saveToast == text {
+                saveToast = ""
+            }
         }
     }
 
@@ -235,6 +298,56 @@ struct SceneEditorScreen: View {
                 fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) missing unit '\(selectedUnitName)'")
             }
         )
+    }
+}
+
+private struct SaveProjectSheet: View {
+    @Binding var name: String
+    @Binding var error: String
+    var onCancel: () -> Void
+    var onSave: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Save project as")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+
+            TextField("Name", text: $name)
+                .font(.system(size: 22))
+                .foregroundStyle(.black)
+                .tint(.black)
+                .textFieldStyle(.plain)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(12)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            if !error.isEmpty {
+                Text(error)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .font(.system(size: 17))
+                    .foregroundStyle(.white)
+                Spacer()
+                Button("Save", action: onSave)
+                    .font(.system(size: 17, weight: .semibold))
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255))
+            }
+            Spacer()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(white: 0.15))
+        .presentationBackground(Color(white: 0.15))
+        .presentationDetents([.medium])
     }
 }
 

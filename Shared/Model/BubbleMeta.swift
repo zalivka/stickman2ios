@@ -49,7 +49,36 @@ struct BubbleMeta: Equatable {
         )
     }
 
-    private struct Payload: Decodable {
+    func encoded(unitName: String) -> String {
+        if text.isEmpty {
+            fatalError("SceneXML unit '\(unitName)' bubble text is empty")
+        }
+        if font != "default" {
+            fatalError("SceneXML unit '\(unitName)' bubble font '\(font)' is not default")
+        }
+        if scale <= 0 {
+            fatalError("SceneXML unit '\(unitName)' bubble scale is \(scale)")
+        }
+        _ = HexRGB.parse(color)
+        let payload = Payload(text: text, color: color, font: font, scale: scale, oneLiner: oneLiner)
+        let json: Data
+        do {
+            json = try JSONEncoder().encode(payload)
+        } catch {
+            fatalError("SceneXML unit '\(unitName)' bubble meta JSON: \(error)")
+        }
+        guard let raw = String(data: json, encoding: .utf8) else {
+            fatalError("SceneXML unit '\(unitName)' bubble meta is not UTF-8")
+        }
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-_.")
+        guard let encoded = raw.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            fatalError("SceneXML unit '\(unitName)' bubble meta is not URL-encodable")
+        }
+        return encoded
+    }
+
+    private struct Payload: Codable {
         var text: String
         var color: String
         var font: String

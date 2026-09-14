@@ -39,7 +39,7 @@ enum ItemLoader {
 
     static func load(zip: Data, into assets: UnitAssets) -> StickmanUnit {
         let unit = unit(from: zip)
-        assets.loadItemFromArchive(zip, forceReload: false)
+        assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: unit.name), forceReload: false)
         let own = UnitAssets.removeNumber(unit.name)
         if !assets.hasAssetsFor(unitName: own) {
             fatalError("ItemLoader assets missing unit '\(unit.name)'")
@@ -126,6 +126,91 @@ enum ZipStore {
             compressed: entry.compressed,
             uncompressed: entry.uncompressed
         )
+    }
+
+    static func archive(_ files: [(name: String, data: Data)]) -> Data {
+        if files.isEmpty {
+            fatalError("ZipStore archive has no files")
+        }
+        var seen = Set<String>()
+        var locals = Data()
+        var central = Data()
+        var count: UInt16 = 0
+        for file in files {
+            let name = file.name
+            let payload = file.data
+            if name.isEmpty || name.hasPrefix("/") || name.hasSuffix("/") {
+                fatalError("ZipStore refuses entry '\(name)'")
+            }
+            if name.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
+                fatalError("ZipStore refuses entry '\(name)'")
+            }
+            if seen.contains(name) {
+                fatalError("ZipStore duplicate entry '\(name)'")
+            }
+            seen.insert(name)
+            guard let nameData = name.data(using: .utf8) else {
+                fatalError("ZipStore entry '\(name)' is not UTF-8")
+            }
+            if nameData.count > 0xFFFF {
+                fatalError("ZipStore entry '\(name)' name is \(nameData.count) bytes")
+            }
+            if payload.count > Int(UInt32.max) {
+                fatalError("ZipStore entry '\(name)' is \(payload.count) bytes")
+            }
+            let crc = CRC32.hash(payload)
+            let size = UInt32(payload.count)
+            let localOffset = UInt32(locals.count)
+            locals.appendU32(0x0403_4b50)
+            locals.appendU16(20)
+            locals.appendU16(0)
+            locals.appendU16(store)
+            locals.appendU16(0)
+            locals.appendU16(0)
+            locals.appendU32(crc)
+            locals.appendU32(size)
+            locals.appendU32(size)
+            locals.appendU16(UInt16(nameData.count))
+            locals.appendU16(0)
+            locals.append(nameData)
+            locals.append(payload)
+
+            central.appendU32(0x0201_4b50)
+            central.appendU16(20)
+            central.appendU16(20)
+            central.appendU16(0)
+            central.appendU16(store)
+            central.appendU16(0)
+            central.appendU16(0)
+            central.appendU32(crc)
+            central.appendU32(size)
+            central.appendU32(size)
+            central.appendU16(UInt16(nameData.count))
+            central.appendU16(0)
+            central.appendU16(0)
+            central.appendU16(0)
+            central.appendU16(0)
+            central.appendU32(0)
+            central.appendU32(localOffset)
+            central.append(nameData)
+            if count == UInt16.max {
+                fatalError("ZipStore archive exceeds \(UInt16.max) entries")
+            }
+            count += 1
+        }
+        let cdOffset = UInt32(locals.count)
+        let cdSize = UInt32(central.count)
+        var out = locals
+        out.append(central)
+        out.appendU32(0x0605_4b50)
+        out.appendU16(0)
+        out.appendU16(0)
+        out.appendU16(count)
+        out.appendU16(count)
+        out.appendU32(cdSize)
+        out.appendU32(cdOffset)
+        out.appendU16(0)
+        return out
     }
 
     static func unpack(_ zip: Data, to directory: URL) {
@@ -283,6 +368,31 @@ enum ZipStore {
     }
 }
 
+private enum CRC32 {
+    static let table: [UInt32] = {
+        (0..<256).map { i -> UInt32 in
+            var c = UInt32(i)
+            for _ in 0..<8 {
+                if c & 1 != 0 {
+                    c = 0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >>= 1
+                }
+            }
+            return c
+        }
+    }()
+
+    static func hash(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in data {
+            let index = Int((crc ^ UInt32(byte)) & 0xFF)
+            crc = table[index] ^ (crc >> 8)
+        }
+        return crc ^ 0xFFFF_FFFF
+    }
+}
+
 enum ModelXML {
     static func parse(_ data: Data) -> StickmanUnit {
         let parser = XMLParser(data: data)
@@ -366,5 +476,17 @@ private extension Data {
         if offset < 0 || length < 0 || offset + length > count {
             fatalError("ItemLoader zip read \(offset)+\(length) out of \(count)")
         }
+    }
+
+    mutating func appendU16(_ value: UInt16) {
+        append(UInt8(value & 0xFF))
+        append(UInt8((value >> 8) & 0xFF))
+    }
+
+    mutating func appendU32(_ value: UInt32) {
+        append(UInt8(value & 0xFF))
+        append(UInt8((value >> 8) & 0xFF))
+        append(UInt8((value >> 16) & 0xFF))
+        append(UInt8((value >> 24) & 0xFF))
     }
 }

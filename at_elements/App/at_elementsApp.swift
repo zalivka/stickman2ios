@@ -44,6 +44,7 @@ private struct ManifestBootView: View {
             .onAppear { BootLog.say("ManifestBootView.onAppear") }
             .task {
                 BootLog.say("ManifestBootView.task start")
+                DemoSeeder.copyIfNeeded()
                 _ = await Manifest.shared.awaitBootReload()
                 BootLog.say("ManifestBootView.task done")
                 ready = true

@@ -4,6 +4,7 @@ import ImageIO
 
 final class BackgroundAssets {
     private var images: [String: CGImage] = [:]
+    private var archives: [String: Data] = [:]
 
     func image(for name: String) -> CGImage {
         guard let image = images[name] else {
@@ -16,11 +17,24 @@ final class BackgroundAssets {
         images[name] != nil
     }
 
-    func install(name: String, image: CGImage) {
+    func install(name: String, image: CGImage, archive: Data? = nil) {
         if name.isEmpty {
             fatalError("BackgroundAssets empty name")
         }
         images[name] = image
+        if let archive {
+            if archive.isEmpty {
+                fatalError("BackgroundAssets '\(name)' archive is empty")
+            }
+            archives[name] = archive
+        }
+    }
+
+    func archive(for name: String) -> Data {
+        guard let zip = archives[name] else {
+            fatalError("BackgroundAssets missing archive for '\(name)'")
+        }
+        return zip
     }
 
     static func decode(_ data: Data, name: String) -> CGImage {

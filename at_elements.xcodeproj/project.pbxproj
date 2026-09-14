@@ -8,8 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		743A52BE3054CBF6000CC4A9 /* RotatingTriangleWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 743A52B33054CBF6000CC4A9 /* RotatingTriangleWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
 		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
+		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -566,15 +566,15 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		74KF00023054D000000CC4A9 /* Kingfisher */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */;
-			productName = Kingfisher;
-		};
 		74FC00023054D100000CC4A9 /* FlexColorPicker */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */;
 			productName = FlexColorPicker;
+		};
+		74KF00023054D000000CC4A9 /* Kingfisher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
