@@ -19,6 +19,7 @@ struct SkeletonScreen: View {
     @State private var selectedPointId: Int?
     @State private var layerEpoch = 0
     @State private var exposeVacantPoints = false
+    @State private var showingPreview = false
     @State private var editSession = SkeletonEditSession()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
@@ -114,7 +115,8 @@ struct SkeletonScreen: View {
                     .onTapGesture { showingMenu = false }
                 SkeletonSideMenu(
                     onPick: { showingMenu = false },
-                    onSaveAs: saveAs
+                    onSaveAs: saveAs,
+                    onPreview: openPreview
                 )
                 .transition(.move(edge: .leading))
             }
@@ -134,6 +136,9 @@ struct SkeletonScreen: View {
         .ignoresSafeArea()
         .accessibilityLabel(title)
         .onAppear(perform: loadIfNeeded)
+        .fullScreenCover(isPresented: $showingPreview) {
+            previewScreen
+        }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -225,6 +230,29 @@ struct SkeletonScreen: View {
 
     private func toggleMenu() {
         showingMenu.toggle()
+    }
+
+    private func openPreview() {
+        showingMenu = false
+        guard scene != nil, assets != nil else {
+            fatalError("SkeletonScreen '\(title)' preview before load")
+        }
+        showingPreview = true
+    }
+
+    private var previewScreen: SkeletonPreviewScreen {
+        guard let scene, let assets else {
+            fatalError("SkeletonScreen '\(title)' preview cover with no scene")
+        }
+        if scene.currentFrame.units.isEmpty {
+            fatalError("SkeletonScreen '\(title)' preview with no unit")
+        }
+        return SkeletonPreviewScreen(
+            unit: scene.currentFrame.units[0],
+            assets: assets,
+            sceneWidth: scene.width,
+            sceneHeight: scene.height
+        )
     }
 
     private func saveAs() {

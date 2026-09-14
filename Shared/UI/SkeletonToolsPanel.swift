@@ -37,6 +37,40 @@ enum SkeletonChrome {
     }
 }
 
+struct SkeletonBackButton: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(Color.white))
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+}
+
+struct SkeletonPreviewPanel: View {
+    var onBack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            SkeletonBackButton(action: onBack)
+        }
+        .frame(width: SkeletonChrome.sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(SkeletonChrome.pane)
+    }
+}
+
 struct SkeletonLeftPanel: View {
     var panel: SkeletonToolsPanel
     var onMenu: () -> Void
@@ -73,19 +107,7 @@ struct SkeletonLeftPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.white))
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            .padding(.top, 4)
-            .padding(.bottom, 8)
+            SkeletonBackButton(action: onBack)
         }
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
@@ -238,15 +260,15 @@ struct SkeletonBonesTools: View {
 struct SkeletonSideMenu: View {
     var onPick: () -> Void
     var onSaveAs: () -> Void
+    var onPreview: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Color.clear.frame(height: SideMenu.topInset)
-            row("Save as", action: onSaveAs)
-            row("Preview", action: onPick)
-            row("Audio", action: onPick)
-            row("Settings", action: onPick)
-            row("Help", action: onPick)
+            row("Save as", icon: "square.and.arrow.down", action: onSaveAs)
+            row("Preview", icon: "eye", action: onPreview)
+            row("Audio", icon: "speaker.wave.2", action: onPick)
+            row("Settings", icon: "gearshape", action: onPick)
+            row("Help", icon: "questionmark.circle", action: onPick)
             Spacer(minLength: 0)
         }
         .frame(width: SideMenu.width)
@@ -254,15 +276,21 @@ struct SkeletonSideMenu: View {
         .background(SkeletonChrome.pane)
     }
 
-    private func row(_ title: String, action: @escaping () -> Void) -> some View {
+    private func row(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 15))
-                .foregroundStyle(Color(white: 0.85))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .frame(width: 26)
+                Text(title)
+                    .font(.system(size: 20))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Color(white: 0.85))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
