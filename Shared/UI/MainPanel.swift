@@ -8,8 +8,10 @@ struct MainPanel: View {
     static let insertActive = Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255)
 
     var onPlay: () -> Void = {}
+    var playEnabled: Bool = true
     var onInsert: (() -> Void)? = nil
     var onMenu: (() -> Void)? = nil
+    var onReset: (() -> Void)? = nil
     var insertActivated = false
     var menuActivated = false
 
@@ -34,6 +36,7 @@ struct MainPanel: View {
                 title: "PLAY",
                 color: Self.play,
                 activated: false,
+                enabled: playEnabled,
                 action: onPlay
             )
             if let onInsert {
@@ -43,6 +46,14 @@ struct MainPanel: View {
                     color: insertActivated ? .white : Self.insert,
                     activated: insertActivated,
                     action: onInsert
+                )
+            }
+            if let onReset {
+                systemButton(
+                    systemName: "arrow.counterclockwise",
+                    title: "RESET",
+                    color: .white,
+                    action: onReset
                 )
             }
             Spacer(minLength: 0)
@@ -58,6 +69,7 @@ struct MainPanel: View {
         title: String,
         color: Color,
         activated: Bool,
+        enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -73,6 +85,31 @@ struct MainPanel: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(activated ? Self.insertActive : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+    }
+
+    private func systemButton(
+        systemName: String,
+        title: String,
+        color: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemName)
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundStyle(color)
+                    .frame(width: 36, height: 36)
+                Text(title)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(color)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

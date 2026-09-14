@@ -113,14 +113,19 @@ enum ZipStore {
         fatalError("ItemLoader zip missing '\(name)'")
     }
 
-    static func allFilesPresent(_ zip: Data, in directory: URL) -> Bool {
-        let fm = FileManager.default
-        for name in names(in: zip) where !name.hasSuffix("/") {
-            if !fm.fileExists(atPath: directory.appendingPathComponent(name).path) {
-                return false
-            }
+    static func data(atiNamed file: String, in zip: Data) -> Data {
+        let matches = entries(in: zip).filter { ($0.name as NSString).lastPathComponent == file }
+        if matches.isEmpty {
+            fatalError("ItemLoader zip missing '\(file)'")
         }
-        return true
+        let entry = matches.first(where: { $0.name == "items/\(file)" }) ?? matches[0]
+        return payload(
+            zip: zip,
+            localOffset: entry.localOffset,
+            method: entry.method,
+            compressed: entry.compressed,
+            uncompressed: entry.uncompressed
+        )
     }
 
     static func unpack(_ zip: Data, to directory: URL) {

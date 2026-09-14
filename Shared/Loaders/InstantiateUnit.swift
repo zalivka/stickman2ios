@@ -16,6 +16,13 @@ enum InstantiateUnit {
         }
         let zip = Manifest.shared.itemZip(fullname: item.makeFullName())
         let model = ItemLoader.load(zip: zip, into: assets)
+        var scale = item.scale
+        if ZipStore.contains("meta.txt", in: zip) {
+            let atiScale = ItemMeta.scale(from: ZipStore.data(named: "meta.txt", in: zip))
+            if atiScale > 0.01 {
+                scale = atiScale
+            }
+        }
         var existing: [String] = []
         for index in frameIndices {
             if index < 0 || index >= scene.frames.count {
@@ -29,7 +36,7 @@ enum InstantiateUnit {
             if index < 0 || index >= scene.frames.count {
                 fatalError("InstantiateUnit frame \(index) out of \(scene.frames.count)")
             }
-            scene.frames[index].addCopy(model, name: resolved, at: wherePoint, scale: item.scale)
+            scene.frames[index].addCopy(model, name: resolved, at: wherePoint, scale: scale)
         }
         return resolved
     }

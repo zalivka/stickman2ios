@@ -50,3 +50,9 @@ Insert queries one pack at a time (`Query(packName)`). Do not mix `common` or cu
 ## Unit alpha can be > 1
 
 Scene XML stores `alpha` as a raw float. Android parses it as-is (`demo_camera` has `@:Чёрный_СтикМан#2` at `1.08`). Draw only applies a transparency layer when `alpha < 1`, so values at or above 1 are opaque. Do not reject `alpha > 1` on load. Still fatal on `alpha < 0`.
+
+## Slow physical-device launch with Xcode
+
+If Xcode spends several seconds on **Waiting to attach**, followed by another delay before the first `App.init` log, the app is not causing that delay. Xcode is starting `debugserver`, connecting LLDB to the device, loading symbols and preparing breakpoints before application code runs.
+
+For fast UI iteration, open **Product → Scheme → Edit Scheme → Run → Info** and uncheck **Debug executable**. The app then launches without LLDB; `print` / unified logging still works, but breakpoints, variable inspection, debugger commands, memory graph and view hierarchy debugging do not. Re-enable it when interactive debugging is needed.

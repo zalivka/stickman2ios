@@ -2,14 +2,14 @@ import CoreGraphics
 import Foundation
 
 enum ManifestXML {
-    static func parse(_ data: Data, packName: String, translations: [String: String]) -> (
+    static func parse(_ data: Data, packName: String, translations: [String: String], archive: Data) -> (
         defScale: CGFloat,
         editableItems: Bool,
         useCommonBg: Bool,
         items: [Item]
     ) {
         let parser = XMLParser(data: data)
-        let sink = Sink(packName: packName, translations: translations)
+        let sink = Sink(packName: packName, translations: translations, archive: archive)
         parser.delegate = sink
         if !parser.parse() {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
@@ -21,14 +21,21 @@ enum ManifestXML {
     nonisolated private final class Sink: NSObject, XMLParserDelegate {
         let packName: String
         let translations: [String: String]
+        let atiFiles: Set<String>
         var defScale: CGFloat = 1
         var editableItems = false
         var useCommonBg = true
         var items: [Item] = []
 
-        init(packName: String, translations: [String: String]) {
+        init(packName: String, translations: [String: String], archive: Data) {
             self.packName = packName
             self.translations = translations
+            atiFiles = Set(
+                ZipStore.names(in: archive).compactMap { name -> String? in
+                    let file = (name as NSString).lastPathComponent
+                    return file.hasSuffix(".ati") ? file : nil
+                }
+            )
         }
 
         func parser(
@@ -54,8 +61,7 @@ enum ManifestXML {
                 guard let sname = attributes["sname"], !sname.isEmpty else {
                     fatalError("ManifestXML '\(packName)' item missing sname")
                 }
-                let ati = ExternalPack.itemFile(packName: packName, systemName: sname)
-                if !FileManager.default.fileExists(atPath: ati.path) {
+                if !atiFiles.contains("\(sname).ati") {
                     fatalError("ManifestXML '\(packName)' missing items/\(sname).ati")
                 }
                 let setName = attributes["set"] ?? ""
@@ -68,8 +74,7 @@ enum ManifestXML {
                     }
                     scale = CGFloat(value)
                 }
-                var multiframed = attributes["multiframed"] == "true"
-                applyAtiMeta(ati, sname: sname, scale: &scale, multiframed: &multiframed)
+                let multiframed = attributes["multiframed"] == "true"
                 let human = translations[sname] ?? sname
                 items.append(
                     Item(
@@ -90,28 +95,5 @@ enum ManifestXML {
             }
         }
 
-        private func applyAtiMeta(_ url: URL, sname: String, scale: inout CGFloat, multiframed: inout Bool) {
-            let zip: Data
-            do {
-                zip = try Data(contentsOf: url)
-            } catch {
-                fatalError("ManifestXML could not read \(url.path): \(error)")
-            }
-            if !ZipStore.contains("meta.txt", in: zip) {
-                return
-            }
-            guard let object = try? JSONSerialization.jsonObject(with: ZipStore.data(named: "meta.txt", in: zip)) as? [String: Any] else {
-                fatalError("ManifestXML '\(packName)' \(sname).ati meta.txt is not JSON")
-            }
-            if let number = object["scale"] as? NSNumber {
-                let value = CGFloat(truncating: number)
-                if value > 0.01 {
-                    scale = value
-                }
-            }
-            if object["multiframed"] as? Bool == true {
-                multiframed = true
-            }
-        }
     }
 }

@@ -12,23 +12,28 @@ enum MovieGenerator {
         if scene.frames.count < 2 {
             fatalError("MovieGenerator needs at least 2 keyframes, got \(scene.frames.count)")
         }
-        if scene.interframes < 1 {
-            fatalError("MovieGenerator interframes is \(scene.interframes)")
-        }
         var stateLists: [String: [Int]] = [:]
         for name in scene.unitAnimations.keys {
             stateLists[name] = assets.states(for: name)
         }
         queue.async {
-            let duration = scene.interframes
+            let duration = scene.noInterpolation
+                ? max(scene.noInterpolationFrames, 1)
+                : max(scene.interframes, 1)
             let gaps = scene.frames.count - 1
             var movieFrames: [StickmanFrame] = []
             for index in 0..<gaps {
-                var generated = NlerpInterpolator.interpolate(
-                    from: scene.frames[index],
-                    to: scene.frames[index + 1],
-                    duration: duration
-                )
+                var generated = scene.noInterpolation
+                    ? NullInterpolator.interpolate(
+                        from: scene.frames[index],
+                        to: scene.frames[index + 1],
+                        duration: duration
+                    )
+                    : NlerpInterpolator.interpolate(
+                        from: scene.frames[index],
+                        to: scene.frames[index + 1],
+                        duration: duration
+                    )
                 for i in generated.indices {
                     generated[i].originFrameIndex = index
                 }

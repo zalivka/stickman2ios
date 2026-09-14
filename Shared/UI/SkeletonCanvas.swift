@@ -99,6 +99,12 @@ private enum HandlerArtwork {
     }
 }
 
+enum SkeletonCanvasMode {
+    case editor
+    case preview
+    case camera
+}
+
 struct SkeletonCanvas: View {
     static let color = Color(red: 1, green: 0x71 / 255, blue: 0)
     static let edgeWidth: CGFloat = 1
@@ -106,12 +112,11 @@ struct SkeletonCanvas: View {
     static let baseNodeRadius: CGFloat = 4.4
     static let hitRadius: CGFloat = 28
     static let handlerHitRadius: CGFloat = 32
-    static let checkerCell: CGFloat = 16
-    static let checkerLight = Color.white
-    static let checkerGray = Color(white: 0.85)
-    static let sceneFill = Color(white: 0.85)
+    static let pane = Color(red: 0x3d / 255, green: 0x3e / 255, blue: 0x4c / 255)
+    static let sceneBound = Color(red: 0, green: 0xd7 / 255, blue: 1)
+    static let sceneFill = pane
     static let previewBackdrop = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
-    static let cameraFrame = Color(red: 0x1c / 255, green: 0x5e / 255, blue: 0xa3 / 255)
+    static let cameraFrame = Color(red: 1, green: 0x2d / 255, blue: 0x6f / 255)
 
     @Binding var unit: StickmanUnit
     var frameUnits: [StickmanUnit] = []
@@ -124,8 +129,9 @@ struct SkeletonCanvas: View {
     var sceneHeight: CGFloat
     var currentIndex: Int = 0
     var sceneFill: Color = Self.sceneFill
-    var interactive: Bool = true
+    var mode: SkeletonCanvasMode = .editor
     var showSkeleton: Bool = true
+    var onCameraChange: ((PictureMove) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
@@ -152,41 +158,46 @@ struct SkeletonCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             Canvas { context, size in
-                if interactive {
-                    drawChecker(context: &context, size: size)
-                } else {
+                switch mode {
+                case .editor, .camera:
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.pane))
+                case .preview:
                     context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.previewBackdrop))
                 }
                 let layout = resolvedLayout(size: size)
-                if interactive {
+                switch mode {
+                case .editor:
                     drawScene(context: &context, layout: layout)
+                    drawSceneBound(context: &context, layout: layout)
                     for drawn in unitsToDraw {
                         drawUnit(drawn, context: &context, layout: layout)
                     }
                     drawCameraRectangle(context: &context, layout: layout)
                     drawHandlers(context: &context, layout: layout)
                     drawTouchPoint(context: &context)
-                } else {
-                    context.drawLayer { layer in
-                        layer.clip(to: Path(sceneScreenRect(layout: layout)))
-                        layer.concatenate(cameraMove.canvasTransform(layout: layout))
-                        layer.drawLayer { bg in
-                            drawSceneContent(context: &bg)
-                        }
-                        for drawn in unitsToDraw {
-                            drawUnit(drawn, context: &layer, layout: .sceneSpace)
-                        }
-                    }
+                case .preview:
+                    drawAppliedCamera(context: &context, layout: layout, clip: true)
+                case .camera:
+                    drawAppliedCamera(context: &context, layout: layout, clip: false)
+                    drawCameraWindow(context: &context, layout: layout)
                 }
             }
             .overlay {
-                if interactive {
+                if mode == .editor {
                     SkeletonTouchOverlay(
                         onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
                         onEnded: { _ in endTouch() },
                         onPinchBegan: { endTouch() },
                         onPinch: { handlePinch(focus: $0, factor: $1) }
+                    )
+                } else if mode == .camera {
+                    CameraTouchOverlay(
+                        currentIndex: currentIndex,
+                        cameraMove: cameraMove,
+                        layoutScale: resolvedLayout(size: proxy.size).scale,
+                        windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
+                        onChange: cameraChangeHandler
                     )
                 }
             }
@@ -200,6 +211,13 @@ struct SkeletonCanvas: View {
                 }
             }
         }
+    }
+
+    private var cameraChangeHandler: (PictureMove) -> Void {
+        guard let onCameraChange else {
+            fatalError("SkeletonCanvas camera mode missing onCameraChange")
+        }
+        return onCameraChange
     }
 
     private var unitsToDraw: [StickmanUnit] {
@@ -476,6 +494,38 @@ struct SkeletonCanvas: View {
         context.fill(Path(rect), with: .color(sceneFill))
     }
 
+    private func drawAppliedCamera(context: inout GraphicsContext, layout: SkeletonLayout, clip: Bool) {
+        context.drawLayer { layer in
+            if clip {
+                layer.clip(to: Path(sceneScreenRect(layout: layout)))
+            }
+            layer.concatenate(cameraMove.canvasTransform(layout: layout))
+            layer.drawLayer { bg in
+                drawSceneContent(context: &bg)
+            }
+            for drawn in unitsToDraw {
+                drawUnit(drawn, context: &layer, layout: .sceneSpace)
+            }
+        }
+    }
+
+    private func drawCameraWindow(context: inout GraphicsContext, layout: SkeletonLayout) {
+        context.stroke(
+            Path(sceneScreenRect(layout: layout)),
+            with: .color(Self.cameraFrame),
+            style: StrokeStyle(lineWidth: 4 * layout.scale, lineCap: .square)
+        )
+    }
+
+    private func drawSceneBound(context: inout GraphicsContext, layout: SkeletonLayout) {
+        let rect = sceneScreenRect(layout: layout)
+        context.stroke(
+            Path(rect),
+            with: .color(Self.sceneBound),
+            style: StrokeStyle(lineWidth: 2 * layout.scale, lineCap: .square)
+        )
+    }
+
     private func drawSceneContent(context: inout GraphicsContext) {
         let rect = CGRect(x: 0, y: 0, width: sceneWidth, height: sceneHeight)
         if let name = bgName, name.hasPrefix("usermade:") {
@@ -528,29 +578,8 @@ struct SkeletonCanvas: View {
         context.stroke(
             path,
             with: .color(Self.cameraFrame),
-            style: StrokeStyle(lineWidth: 8 / layout.scale)
+            style: StrokeStyle(lineWidth: 4 * layout.scale, lineCap: .square)
         )
-    }
-
-    private func drawChecker(context: inout GraphicsContext, size: CGSize) {
-        let cell = Self.checkerCell
-        var row = 0
-        var y: CGFloat = 0
-        while y < size.height {
-            var col = 0
-            var x: CGFloat = 0
-            while x < size.width {
-                let color = (row + col).isMultiple(of: 2) ? Self.checkerLight : Self.checkerGray
-                context.fill(
-                    Path(CGRect(x: x, y: y, width: cell, height: cell)),
-                    with: .color(color)
-                )
-                x += cell
-                col += 1
-            }
-            y += cell
-            row += 1
-        }
     }
 
     private func drawHandlers(context: inout GraphicsContext, layout: SkeletonLayout) {
@@ -704,6 +733,205 @@ struct SkeletonCanvas: View {
             }
         }
         return bestId
+    }
+}
+
+private struct CameraTouchOverlay: UIViewRepresentable {
+    var currentIndex: Int
+    var cameraMove: PictureMove
+    var layoutScale: CGFloat
+    var windowCenter: CGPoint
+    var onChange: (PictureMove) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = context.coordinator
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
+        pinch.delegate = context.coordinator
+        let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate))
+        rotate.delegate = context.coordinator
+        view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(pinch)
+        view.addGestureRecognizer(rotate)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let coordinator = context.coordinator
+        if coordinator.currentIndex != currentIndex {
+            coordinator.working = nil
+            coordinator.currentIndex = currentIndex
+        }
+        coordinator.cameraMove = cameraMove
+        coordinator.layoutScale = layoutScale
+        coordinator.windowCenter = windowCenter
+        coordinator.onChange = onChange
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        static let minScale: CGFloat = 0.2
+        static let maxScale: CGFloat = 4.4
+        static let rotationSnap: CGFloat = 5
+
+        var currentIndex = 0
+        var cameraMove = PictureMove.identity
+        var layoutScale: CGFloat = 1
+        var windowCenter = CGPoint.zero
+        var onChange: (PictureMove) -> Void = { _ in }
+        var working: PictureMove?
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            (gestureRecognizer is UIPinchGestureRecognizer && other is UIRotationGestureRecognizer)
+                || (gestureRecognizer is UIRotationGestureRecognizer && other is UIPinchGestureRecognizer)
+        }
+
+        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                beginSession()
+            case .changed:
+                beginSession()
+                if layoutScale <= 0 {
+                    fatalError("CameraTouchOverlay layoutScale is \(layoutScale)")
+                }
+                let delta = gesture.translation(in: gesture.view)
+                gesture.setTranslation(.zero, in: gesture.view)
+                mutate {
+                    $0.x += delta.x / layoutScale
+                    $0.y += delta.y / layoutScale
+                }
+                publish()
+            case .ended, .cancelled, .failed:
+                if working != nil {
+                    publish()
+                }
+                endIfIdle(gesture)
+            default:
+                break
+            }
+        }
+
+        @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                beginSession()
+                gesture.scale = 1
+            case .changed, .ended, .cancelled, .failed:
+                beginSession()
+                let factor = gesture.scale
+                gesture.scale = 1
+                if factor <= 0 {
+                    fatalError("CameraTouchOverlay pinch factor is \(factor)")
+                }
+                mutate { move in
+                    let oldScale = move.scale
+                    let newScale = min(max(oldScale * sqrt(factor), Self.minScale), Self.maxScale)
+                    let f = newScale / oldScale
+                    move.scale = newScale
+                    move.x = f * move.x + (1 - f) * windowCenter.x
+                    move.y = f * move.y + (1 - f) * windowCenter.y
+                }
+                publish()
+                if gesture.state != .changed {
+                    endIfIdle(gesture)
+                }
+            default:
+                break
+            }
+        }
+
+        @objc func handleRotate(_ gesture: UIRotationGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                beginSession()
+                gesture.rotation = 0
+            case .changed, .ended, .cancelled, .failed:
+                beginSession()
+                let degrees = gesture.rotation * 180 / .pi
+                gesture.rotation = 0
+                mutate { move in
+                    move.rotate = Self.wrapDegrees(move.rotate + degrees)
+                }
+                publish()
+                if gesture.state != .changed {
+                    endIfIdle(gesture)
+                }
+            default:
+                break
+            }
+        }
+
+        private func beginSession() {
+            if working == nil {
+                working = cameraMove
+            }
+        }
+
+        private func mutate(_ body: (inout PictureMove) -> Void) {
+            guard var move = working else {
+                fatalError("CameraTouchOverlay mutate with no working move")
+            }
+            body(&move)
+            working = move
+        }
+
+        private func publish() {
+            guard let move = working else {
+                fatalError("CameraTouchOverlay publish with no working move")
+            }
+            onChange(
+                PictureMove(
+                    scale: move.scale,
+                    rotate: Self.snapRotation(move.rotate),
+                    x: move.x,
+                    y: move.y
+                )
+            )
+        }
+
+        private func endIfIdle(_ gesture: UIGestureRecognizer) {
+            guard let recognizers = gesture.view?.gestureRecognizers else {
+                working = nil
+                return
+            }
+            let active = recognizers.contains {
+                $0.state == .began || $0.state == .changed
+            }
+            if !active {
+                working = nil
+            }
+        }
+
+        static func wrapDegrees(_ degrees: CGFloat) -> CGFloat {
+            if degrees > 180 {
+                return degrees - 360
+            }
+            if degrees < -180 {
+                return degrees + 360
+            }
+            return degrees
+        }
+
+        static func snapRotation(_ degrees: CGFloat) -> CGFloat {
+            var snapped = (degrees / Self.rotationSnap).rounded() * Self.rotationSnap
+            if snapped > 180 {
+                snapped -= 360
+            }
+            if snapped < -180 {
+                snapped += 360
+            }
+            return snapped
+        }
     }
 }
 

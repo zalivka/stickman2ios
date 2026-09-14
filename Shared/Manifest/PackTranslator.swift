@@ -1,25 +1,19 @@
 import Foundation
 
 enum PackTranslator {
-    static func load(packName: String) -> [String: String] {
+    static func load(from zip: Data, packName: String) -> [String: String] {
         let lang = Locale.current.language.languageCode?.identifier ?? "en"
-        let preferred = ExternalPack.translationFile(packName: packName, lang: lang)
-        let english = ExternalPack.translationFile(packName: packName, lang: "en")
-        let url: URL
-        if FileManager.default.fileExists(atPath: preferred.path) {
-            url = preferred
-        } else if FileManager.default.fileExists(atPath: english.path) {
-            url = english
+        let preferred = "translate_\(lang).xml"
+        let english = "translate_en.xml"
+        let name: String
+        if ZipStore.contains(preferred, in: zip) {
+            name = preferred
+        } else if ZipStore.contains(english, in: zip) {
+            name = english
         } else {
             fatalError("PackTranslator '\(packName)' missing translate_en.xml")
         }
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch {
-            fatalError("PackTranslator could not read \(url.path): \(error)")
-        }
-        return parse(data, source: url.lastPathComponent)
+        return parse(ZipStore.data(named: name, in: zip), source: "\(packName)/\(name)")
     }
 
     /// Android XmlPullParser accepts any xml version. NSXMLParser only accepts 1.0 / 1.1.

@@ -71,6 +71,7 @@ struct SeekFramesBar: View {
             .preference(key: SeekFramesBarHeightKey.self, value: proxy.size.height)
         }
         .frame(width: Self.barWidth)
+        .background(Color.clear)
     }
 
     private func selectNearest(atY y: CGFloat, height: CGFloat) {

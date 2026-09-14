@@ -187,7 +187,9 @@ private enum SceneXML {
             height: height,
             frames: sink.frames,
             currentIndex: 0,
-            interframes: interframes
+            interframes: interframes,
+            noInterpolation: sink.noInterpolation,
+            noInterpolationFrames: sink.noInterpolationFrames
         )
     }
 
@@ -195,6 +197,8 @@ private enum SceneXML {
         var width: CGFloat?
         var height: CGFloat?
         var interframes: Int?
+        var noInterpolation = false
+        var noInterpolationFrames = 0
         var frames: [StickmanFrame] = []
 
         private var frameId: Int?
@@ -235,6 +239,22 @@ private enum SceneXML {
                     fatalError("SceneLoader interframes is \(value)")
                 }
                 interframes = value
+                if let text = attributes["no_interpolation"] {
+                    switch text.lowercased() {
+                    case "true":
+                        noInterpolation = true
+                    case "false":
+                        noInterpolation = false
+                    default:
+                        fatalError("SceneLoader no_interpolation is \(text)")
+                    }
+                }
+                if let text = attributes["no_interpolation_frames"] {
+                    guard let frames = Int(text) else {
+                        fatalError("SceneLoader no_interpolation_frames is \(text)")
+                    }
+                    noInterpolationFrames = frames
+                }
             case "frame":
                 guard let idText = attributes["id"], let id = Int(idText) else {
                     fatalError("SceneLoader frame missing id")

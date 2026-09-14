@@ -396,6 +396,8 @@ struct StickmanScene {
     var frames: [StickmanFrame]
     var currentIndex: Int
     var interframes: Int = 36
+    var noInterpolation: Bool = false
+    var noInterpolationFrames: Int = 0
     var unitAnimations: [String: FBFAnimation] = [:]
 
     var currentFrame: StickmanFrame {

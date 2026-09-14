@@ -147,12 +147,7 @@ struct ItemChooserPanel: View {
     }
 
     private func packLogo(_ packName: String) -> CGImage {
-        let url = ExternalPack.logoFile(packName)
-        do {
-            return PNGImage.cgImage(from: try Data(contentsOf: url), name: url.path)
-        } catch {
-            fatalError("ItemChooser could not read \(url.path): \(error)")
-        }
+        PNGImage.cgImage(from: Manifest.shared.packLogo(packName), name: "\(packName)/logo.png")
     }
 
     private func itemThumb(_ item: Item) -> CGImage {

@@ -116,7 +116,7 @@ struct FullscreenPreviewScreen: View {
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,
-            interactive: false,
+            mode: .preview,
             showSkeleton: false
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

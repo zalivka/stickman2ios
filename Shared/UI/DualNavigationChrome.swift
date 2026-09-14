@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct DualNavigationChrome: View {
     let frameCount: Int
@@ -32,7 +33,7 @@ struct DualNavigationChrome: View {
 
     private var framesColumn: some View {
         VStack(spacing: 0) {
-            navButton(systemName: "chevron.up") {
+            navButton(idle: Self.prevIdle, pressed: Self.prevPressed) {
                 currentIndex = max(0, currentIndex - 1)
             } longPress: {
                 currentIndex = SeekFramesBar.prevPage(
@@ -48,7 +49,7 @@ struct DualNavigationChrome: View {
             )
             .frame(maxHeight: .infinity)
 
-            navButton(systemName: "chevron.down") {
+            navButton(idle: Self.nextIdle, pressed: Self.nextPressed) {
                 currentIndex = min(frameCount - 1, currentIndex + 1)
             } longPress: {
                 currentIndex = SeekFramesBar.nextPage(
@@ -59,6 +60,7 @@ struct DualNavigationChrome: View {
             }
         }
         .frame(width: SeekFramesBar.barWidth)
+        .background(Color.clear)
     }
 
     private func enterRange() {
@@ -70,13 +72,46 @@ struct DualNavigationChrome: View {
         mode = .frames
     }
 
-    private func navButton(systemName: String, tap: @escaping () -> Void, longPress: @escaping () -> Void) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(.black)
-            .frame(width: SeekFramesBar.barWidth, height: SeekFramesBar.barWidth)
+    private func navButton(idle: CGImage, pressed: CGImage, tap: @escaping () -> Void, longPress: @escaping () -> Void) -> some View {
+        FrameNavButton(idle: idle, pressed: pressed, tap: tap, longPress: longPress)
+    }
+
+    private static let prevIdle = chromeImage("main_prev_frame_np")
+    private static let prevPressed = chromeImage("main_prev_frame_pr")
+    private static let nextIdle = chromeImage("main_next_frame_np")
+    private static let nextPressed = chromeImage("main_next_frame_pr")
+
+    private static func chromeImage(_ name: String) -> CGImage {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
+            ?? Bundle.main.url(forResource: name, withExtension: "png")
+        else {
+            fatalError("DualNavigationChrome missing chrome/\(name).png")
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            return PNGImage.cgImage(from: data, name: "chrome/\(name).png")
+        } catch {
+            fatalError("DualNavigationChrome could not read \(url.path): \(error)")
+        }
+    }
+}
+
+private struct FrameNavButton: View {
+    let idle: CGImage
+    let pressed: CGImage
+    var tap: () -> Void
+    var longPress: () -> Void
+
+    @State private var isPressed = false
+
+    var body: some View {
+        Image(decorative: isPressed ? pressed : idle, scale: UIScreen.main.scale)
+            .resizable()
+            .scaledToFit()
+            .frame(width: SeekFramesBar.barWidth / 1.5, height: SeekFramesBar.barWidth / 1.5)
             .contentShape(Rectangle())
             .onTapGesture(perform: tap)
-            .onLongPressGesture(perform: longPress)
+            .onLongPressGesture(minimumDuration: 0.35, pressing: { isPressed = $0 }, perform: longPress)
+            .padding(8)
     }
 }

@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum ScenePropsSheet: String, Identifiable {
+    case edit
+    case customSize
+    var id: String { rawValue }
+}
+
 struct SceneEditorScreen: View {
     @State private var scene: StickmanScene
     @State private var assets: UnitAssets
@@ -7,8 +13,10 @@ struct SceneEditorScreen: View {
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
+    @State private var showingCamera = false
     @State private var showingInsert = false
     @State private var showingMenu = false
+    @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
@@ -41,9 +49,6 @@ struct SceneEditorScreen: View {
                     insertActivated: showingInsert,
                     menuActivated: showingMenu
                 )
-                if showingInsert {
-                    ItemChooserPanel(onPick: insert)
-                }
                 SkeletonCanvas(
                     unit: unitBinding,
                     frameUnits: scene.currentFrame.units,
@@ -57,13 +62,11 @@ struct SceneEditorScreen: View {
                     currentIndex: scene.currentIndex
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white)
-                DualNavigationChrome(
-                    frameCount: scene.frames.count,
-                    currentIndex: currentIndexBinding,
-                    range: $range,
-                    mode: $mode
-                )
+                .background(SkeletonCanvas.pane)
+            }
+            if showingInsert {
+                ItemChooserPanel(onPick: insert)
+                    .padding(.leading, MainPanel.width)
             }
             if showingMenu {
                 Color.black.opacity(0.35)
@@ -72,6 +75,14 @@ struct SceneEditorScreen: View {
                 SideMenu(onPick: pickMenu)
                     .transition(.move(edge: .leading))
             }
+        }
+        .overlay(alignment: .trailing) {
+            DualNavigationChrome(
+                frameCount: scene.frames.count,
+                currentIndex: currentIndexBinding,
+                range: $range,
+                mode: $mode
+            )
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .ignoresSafeArea()
@@ -86,6 +97,23 @@ struct SceneEditorScreen: View {
         .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
+        }
+        .fullScreenCover(isPresented: $showingCamera) {
+            CameraAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
+        }
+        .sheet(item: $scenePropsSheet) { sheet in
+            switch sheet {
+            case .edit:
+                EditSceneSheet(
+                    draft: editSceneDraft,
+                    onAddCustom: { scenePropsSheet = .customSize },
+                    onApply: applySceneProps
+                )
+            case .customSize:
+                CustomSceneSizeSheet { size in
+                    applySceneSize(size)
+                }
+            }
         }
     }
 
@@ -106,6 +134,37 @@ struct SceneEditorScreen: View {
     private func pickMenu(_ action: SideMenuAction) {
         print("menu: \(action.rawValue)")
         showingMenu = false
+        if action == .editScene {
+            scenePropsSheet = .edit
+        }
+        if action == .camera {
+            showingCamera = true
+        }
+    }
+
+    private var editSceneDraft: EditSceneDraft {
+        EditSceneDraft(
+            width: scene.width,
+            height: scene.height,
+            interframes: scene.interframes,
+            noInterpolation: scene.noInterpolation,
+            noInterpolationFrames: scene.noInterpolationFrames
+        )
+    }
+
+    private func applySceneProps(_ draft: EditSceneDraft) {
+        scene.width = draft.width
+        scene.height = draft.height
+        scene.interframes = draft.interframes
+        scene.noInterpolation = draft.noInterpolation
+        scene.noInterpolationFrames = draft.noInterpolationFrames
+        scenePropsSheet = nil
+    }
+
+    private func applySceneSize(_ size: SceneSize) {
+        scene.width = size.width
+        scene.height = size.height
+        scenePropsSheet = nil
     }
 
     private func insert(_ item: Item) {

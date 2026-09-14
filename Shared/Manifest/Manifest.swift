@@ -5,14 +5,37 @@ nonisolated final class Manifest: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "manifest.queue")
     private let lock = NSLock()
+    private let bootLock = NSLock()
+    private var bootReloadStarted = false
     private var packsByName: [String: Pack] = [:]
     private var itemsByFullName: [String: Item] = [:]
 
     private init() {}
 
+    func startBootReload() {
+        bootLock.lock()
+        defer { bootLock.unlock() }
+        if bootReloadStarted {
+            return
+        }
+        bootReloadStarted = true
+        BootLog.say("Manifest.startBootReload")
+        queue.async {
+            BootLog.say("Manifest.boot queue run")
+            _ = self.reloadAll()
+        }
+    }
+
+    func awaitBootReload() async -> Int {
+        startBootReload()
+        return await schedule { self.packs().count }
+    }
+
     func schedule<T>(_ task: @escaping () -> T) async -> T {
-        await withCheckedContinuation { continuation in
+        BootLog.say("Manifest.schedule enqueue")
+        return await withCheckedContinuation { continuation in
             queue.async {
+                BootLog.say("Manifest.schedule run")
                 continuation.resume(returning: task())
             }
         }
@@ -53,11 +76,17 @@ nonisolated final class Manifest: @unchecked Sendable {
 
     func reloadAll() -> Int {
         print("manifest: requestReload")
-        ExternalPack.unpackEmbeddedIfNeeded()
+        BootLog.say("reloadAll start")
+        let urls = ExternalPack.bundleArchives()
+        BootLog.say("reloadAll \(urls.count) bundle .atp")
         var loaded: [String: Pack] = [:]
-        for name in ExternalPack.installedPackNames() {
+        for url in urls {
+            let name = url.deletingPathExtension().lastPathComponent
             print("manifest: obtaining \(name)")
-            loaded[name] = obtainExternalPack(name)
+            let start = ProcessInfo.processInfo.systemUptime
+            loaded[name] = obtainBundlePack(url)
+            let ms = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            BootLog.say("obtain \(name) \(ms)ms items=\(loaded[name]!.items.count)")
         }
         onPacksReloaded(loaded)
         let count = packs().count
@@ -65,12 +94,13 @@ nonisolated final class Manifest: @unchecked Sendable {
         for pack in packs() {
             print("manifest:   \(pack.name) \"\(pack.title)\" items=\(pack.items.count)")
         }
+        BootLog.say("reloadAll done")
         return count
     }
 
     func reloadPack(_ name: String) -> Int {
         print("manifest: requestReloadPack \(name)")
-        let pack = obtainExternalPack(name)
+        let pack = obtainBundlePack(ExternalPack.bundleArchive(name))
         onPackUpdated(name, pack)
         print("manifest: updated \(name) \"\(pack.title)\" items=\(pack.items.count)")
         return packs().count
@@ -117,34 +147,29 @@ nonisolated final class Manifest: @unchecked Sendable {
         if !item.isAvailable {
             fatalError("Manifest item '\(fullname)' is locked")
         }
-        let url = ExternalPack.itemFile(packName: item.packName, systemName: item.systemName)
-        do {
-            return try Data(contentsOf: url)
-        } catch {
-            fatalError("Manifest could not read \(url.path): \(error)")
-        }
+        let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
+        return ZipStore.data(atiNamed: "\(item.systemName).ati", in: zip)
     }
 
-    private func obtainExternalPack(_ packName: String) -> Pack {
-        let dir = ExternalPack.packDir(packName)
-        let metaURL = dir.appendingPathComponent("meta.txt")
-        let manifestURL = dir.appendingPathComponent("manifest.xml")
-        if !FileManager.default.fileExists(atPath: metaURL.path) {
-            fatalError("Manifest pack '\(packName)' missing meta.txt")
+    func packLogo(_ packName: String) -> Data {
+        let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
+        return ZipStore.data(named: "logo.png", in: zip)
+    }
+
+    private func obtainBundlePack(_ url: URL) -> Pack {
+        let packName = url.deletingPathExtension().lastPathComponent
+        let zip = ExternalPack.mappedZip(url)
+        let meta = PackMeta.parse(ZipStore.data(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
+        if meta.mSysName != packName {
+            fatalError("Manifest \(url.lastPathComponent) meta.mSysName '\(meta.mSysName)' != '\(packName)'")
         }
-        if !FileManager.default.fileExists(atPath: manifestURL.path) {
-            fatalError("Manifest pack '\(packName)' missing manifest.xml")
-        }
-        let meta: PackMeta
-        let manifest: Data
-        do {
-            meta = PackMeta.parse(try Data(contentsOf: metaURL), source: metaURL.path)
-            manifest = try Data(contentsOf: manifestURL)
-        } catch {
-            fatalError("Manifest could not read pack '\(packName)': \(error)")
-        }
-        let translations = PackTranslator.load(packName: packName)
-        let parsed = ManifestXML.parse(manifest, packName: packName, translations: translations)
+        let translations = PackTranslator.load(from: zip, packName: packName)
+        let parsed = ManifestXML.parse(
+            ZipStore.data(named: "manifest.xml", in: zip),
+            packName: packName,
+            translations: translations,
+            archive: zip
+        )
         return Pack(
             name: packName,
             humanName: meta.mHumanName,
