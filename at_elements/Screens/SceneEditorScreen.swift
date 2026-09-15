@@ -17,6 +17,7 @@ struct SceneEditorScreen: View {
     @State private var showingBackground = false
     @State private var showingInsert = false
     @State private var showingEditUnit = false
+    @State private var showingEditFrame = false
     @State private var showingMenu = false
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
@@ -26,6 +27,10 @@ struct SceneEditorScreen: View {
     @State private var lastSavedName: String?
     @State private var saveToast = ""
     @State private var showingFBF = false
+    @State private var showingLeaveAlert = false
+    @State private var dismissAfterSave = false
+    @State private var savedDocument: Data
+    @Environment(\.dismiss) private var dismiss
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
         if scene.frames.isEmpty {
@@ -45,6 +50,7 @@ struct SceneEditorScreen: View {
             )
         )
         _selectedUnitName = State(initialValue: nil)
+        _savedDocument = State(initialValue: SceneSaver.documentBytes(scene: scene))
     }
 
     var body: some View {
@@ -54,9 +60,11 @@ struct SceneEditorScreen: View {
                     onPlay: { showingPreview = true },
                     onInsert: toggleInsert,
                     onEditUnit: toggleEditUnit,
+                    onEditFrame: toggleEditFrame,
                     onMenu: toggleMenu,
                     insertActivated: showingInsert,
                     editUnitActivated: showingEditUnit,
+                    editFrameActivated: showingEditFrame,
                     menuActivated: showingMenu
                 )
                 SkeletonCanvas(
@@ -114,8 +122,10 @@ struct SceneEditorScreen: View {
             if showingMenu {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
+                    .padding(.leading, MainPanel.width)
                     .onTapGesture { showingMenu = false }
                 SideMenu(onPick: pickMenu)
+                    .padding(.leading, MainPanel.width)
                     .transition(.move(edge: .leading))
             }
         }
@@ -128,11 +138,13 @@ struct SceneEditorScreen: View {
             )
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
+        .animation(.easeInOut(duration: 0.2), value: showingInsert)
+        .animation(.easeInOut(duration: 0.2), value: showingEditUnit)
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(
-                extraLeading: 0,
-                action: showingMenu ? { showingMenu = false } : nil
+                extraLeading: backExtraLeading,
+                action: goBack
             )
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -165,9 +177,16 @@ struct SceneEditorScreen: View {
             SaveProjectSheet(
                 name: $saveName,
                 error: $saveError,
-                onCancel: { showingSave = false },
+                onCancel: cancelSave,
                 onSave: confirmSave
             )
+        }
+        .alert(leaveAlertTitle, isPresented: $showingLeaveAlert) {
+            Button("Save") { saveFromLeave() }
+            Button("Don't Save", role: .destructive) { dismiss() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If you don't save, your changes will be lost.")
         }
         .sheet(isPresented: $showingFBF) {
             if let selectedUnit {
@@ -207,6 +226,7 @@ struct SceneEditorScreen: View {
         if showingMenu {
             showingInsert = false
             showingEditUnit = false
+            showingEditFrame = false
         }
     }
 
@@ -215,6 +235,7 @@ struct SceneEditorScreen: View {
         if showingInsert {
             showingMenu = false
             showingEditUnit = false
+            showingEditFrame = false
         }
     }
 
@@ -223,6 +244,16 @@ struct SceneEditorScreen: View {
         if showingEditUnit {
             showingMenu = false
             showingInsert = false
+            showingEditFrame = false
+        }
+    }
+
+    private func toggleEditFrame() {
+        showingEditFrame.toggle()
+        if showingEditFrame {
+            showingMenu = false
+            showingInsert = false
+            showingEditUnit = false
         }
     }
 
@@ -332,6 +363,7 @@ struct SceneEditorScreen: View {
         print("menu: \(action.rawValue)")
         showingMenu = false
         if action == .save {
+            dismissAfterSave = false
             saveError = ""
             saveName = lastSavedName ?? SceneSaver.generateName()
             showingSave = true
@@ -347,6 +379,55 @@ struct SceneEditorScreen: View {
         }
     }
 
+    private var backExtraLeading: CGFloat {
+        if showingMenu {
+            return SideMenu.width
+        }
+        if showingInsert {
+            return ItemChooserPanel.width
+        }
+        if showingEditUnit {
+            return selectedUnit == nil ? PresentUnitsPanel.width : UnitPropertiesPanel.width
+        }
+        return 0
+    }
+
+    private func goBack() {
+        if showingMenu {
+            showingMenu = false
+            return
+        }
+        if SceneSaver.documentBytes(scene: scene) == savedDocument {
+            dismiss()
+            return
+        }
+        showingLeaveAlert = true
+    }
+
+    private var leaveAlertTitle: String {
+        if let lastSavedName {
+            return "Do you want to save the changes to “\(lastSavedName)”?"
+        }
+        return "Do you want to save the changes to this scene?"
+    }
+
+    private func saveFromLeave() {
+        dismissAfterSave = true
+        if let lastSavedName {
+            saveName = lastSavedName
+            confirmSave()
+            return
+        }
+        saveError = ""
+        saveName = SceneSaver.generateName()
+        showingSave = true
+    }
+
+    private func cancelSave() {
+        dismissAfterSave = false
+        showingSave = false
+    }
+
     private func confirmSave() {
         if !SceneSaver.isGoodFileName(saveName) {
             saveError = "Illegal symbols"
@@ -360,10 +441,17 @@ struct SceneEditorScreen: View {
                 name: saveName
             )
             lastSavedName = saved
+            savedDocument = SceneSaver.documentBytes(scene: scene)
             showingSave = false
+            if dismissAfterSave {
+                dismissAfterSave = false
+                dismiss()
+                return
+            }
             showToast("The project has been saved as  \(saved)")
         } catch {
             showingSave = false
+            dismissAfterSave = false
             showToast("error")
         }
     }

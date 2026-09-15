@@ -91,6 +91,20 @@ enum SceneSaver {
         return name
     }
 
+    /// Saved document without thumbs/metadata — used to detect unsaved edits.
+    static func documentBytes(scene: StickmanScene) -> Data {
+        var bytes = SceneXML.serialize(scene)
+        let animations = scene.unitAnimations.values.sorted { $0.unitname < $1.unitname }
+        if !animations.isEmpty {
+            do {
+                bytes.append(try JSONEncoder().encode(animations))
+            } catch {
+                fatalError("SceneSaver documentBytes animations JSON: \(error)")
+            }
+        }
+        return bytes
+    }
+
     static func incomingName(from zip: Data) -> String {
         if ZipStore.contains("metadata.txt", in: zip) {
             let data = ZipStore.data(named: "metadata.txt", in: zip)

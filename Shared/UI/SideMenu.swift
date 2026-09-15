@@ -17,15 +17,12 @@ enum SideMenuAction: String {
 
 struct SideMenu: View {
     static let width: CGFloat = 200
-    /// Clears the floating back button (8pt + 44pt + 8pt gap).
-    static let topInset: CGFloat = 60
 
     var onPick: (SideMenuAction) -> Void
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Color.clear.frame(height: Self.topInset)
                 row(.save, "Save project", "square.and.arrow.down")
                 row(.export, "Export", "square.and.arrow.up")
                 divider

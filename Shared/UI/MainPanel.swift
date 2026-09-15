@@ -1,22 +1,26 @@
 import SwiftUI
 
 struct MainPanel: View {
-    static let width: CGFloat = 80
+    static let width: CGFloat = 100
     static let pane = Color(red: 0x24 / 255, green: 0x25 / 255, blue: 0x30 / 255)
     static let play = Color(red: 1, green: 0x90 / 255, blue: 0)
     static let insert = Color(red: 0x72 / 255, green: 0xbd / 255, blue: 0)
     static let insertActive = Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255)
     static let editUnit = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
     static let editUnitActive = Color(red: 0, green: 0x9a / 255, blue: 0x62 / 255)
+    static let editFrame = Color(red: 0x44 / 255, green: 0x9e / 255, blue: 0xc9 / 255)
+    static let undo = Color(red: 0, green: 0x9a / 255, blue: 0xc4 / 255)
 
     var onPlay: () -> Void = {}
     var playEnabled: Bool = true
     var onInsert: (() -> Void)? = nil
     var onEditUnit: (() -> Void)? = nil
+    var onEditFrame: (() -> Void)? = nil
     var onMenu: (() -> Void)? = nil
     var onReset: (() -> Void)? = nil
     var insertActivated = false
     var editUnitActivated = false
+    var editFrameActivated = false
     var menuActivated = false
 
     var body: some View {
@@ -28,7 +32,7 @@ struct MainPanel: View {
                         .scaledToFit()
                         .frame(width: 36, height: 36)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 6)
                         .background(menuActivated ? Color(white: 0.22) : Color.clear)
                         .contentShape(Rectangle())
                 }
@@ -55,10 +59,27 @@ struct MainPanel: View {
             if let onEditUnit {
                 systemButton(
                     systemName: "square.3.layers.3d",
-                    title: "EDIT\nUNIT",
+                    title: "EDIT UNIT",
                     color: editUnitActivated ? .white : Self.editUnit,
                     activated: editUnitActivated,
                     action: onEditUnit
+                )
+            }
+            if let onEditFrame {
+                chromeButton(
+                    icon: editFrameActivated ? Self.frameIconSel : Self.frameIcon,
+                    title: "EDIT FRAME",
+                    color: editFrameActivated ? .white : Self.editFrame,
+                    activated: editFrameActivated,
+                    activatedFill: Self.editFrame,
+                    action: onEditFrame
+                )
+                chromeButton(
+                    icon: Self.undoIcon,
+                    title: "UNDO",
+                    color: Self.undo,
+                    activated: false,
+                    action: {}
                 )
             }
             if let onReset {
@@ -83,6 +104,7 @@ struct MainPanel: View {
         color: Color,
         activated: Bool,
         enabled: Bool = true,
+        activatedFill: Color = insertActive,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -96,8 +118,8 @@ struct MainPanel: View {
                     .foregroundStyle(color)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(activated ? Self.insertActive : Color.clear)
+            .padding(.vertical, 5)
+            .background(activated ? activatedFill : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -121,11 +143,10 @@ struct MainPanel: View {
                 Text(title)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(color)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 5)
             .background(activated ? Self.editUnitActive : Color.clear)
             .contentShape(Rectangle())
         }
@@ -136,6 +157,9 @@ struct MainPanel: View {
     private static let playIcon = chromeImage("main_btn_play")
     private static let insertIcon = chromeImage("main_btn_insert")
     private static let insertIconSel = chromeImage("main_btn_insert_sel")
+    private static let frameIcon = chromeImage("main_btn_frames")
+    private static let frameIconSel = chromeImage("main_btn_frames_sel")
+    private static let undoIcon = chromeImage("main_btn_undo")
 
     private static func chromeImage(_ name: String) -> CGImage {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
