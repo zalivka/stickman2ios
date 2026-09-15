@@ -157,6 +157,8 @@ struct SkeletonCanvas: View {
     /// Live hold/selection flags — reference type so touch closures never see a stale copy.
     var editSession: SkeletonEditSession?
     var selectedPointId: Binding<Int?> = .constant(nil)
+    /// Scene-editor selection. `nil` means no unit is active.
+    var selectedUnitName: Binding<String?> = .constant(nil)
     /// Bumped when asset draw-order changes so the canvas redraws.
     var layerEpoch: Int = 0
     /// Android `toggleVacantPoints` — green circles over all nodes.
@@ -239,6 +241,7 @@ struct SkeletonCanvas: View {
                         onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
                         onEnded: { _ in endTouch() },
+                        onDoubleTap: { handleEmptyDoubleTap(at: $0, size: proxy.size) },
                         onPinchBegan: { endTouch() },
                         onPinch: { handlePinch(focus: $0, factor: $1) }
                     )
@@ -257,9 +260,7 @@ struct SkeletonCanvas: View {
                 freezeLayout(in: newSize)
             }
             .onChange(of: currentIndex) { _, _ in
-                if let current = layout {
-                    snapHandlers(to: current)
-                }
+                endTouch()
             }
             .onChange(of: boneCreateHoldFlag) { _, on in
                 if !on {
@@ -734,6 +735,7 @@ struct SkeletonCanvas: View {
     }
 
     private func drawHandlers(context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard mode != .editor || selectedUnitName.wrappedValue != nil else { return }
         if dragRef.handler != nil || dragRef.nodeId != nil { return }
         let side = CGFloat(HandlerArtwork.move.width) / UIScreen.main.scale
         context.withCGContext { cg in
@@ -774,7 +776,8 @@ struct SkeletonCanvas: View {
             return
         }
         if began {
-            if mode == .editor, let handle = hitHandler(at: location, layout: current) {
+            if mode == .editor, selectedUnitName.wrappedValue != nil,
+               let handle = hitHandler(at: location, layout: current) {
                 dragRef.handler = handle.kind
                 dragRef.handlerX = handle.x
                 dragRef.handlerY = handle.y
@@ -793,19 +796,28 @@ struct SkeletonCanvas: View {
                 }
             } else {
                 dragRef.handler = nil
-                dragRef.nodeId = hitNode(at: location, layout: current)
-                dragRef.panning = dragRef.nodeId == nil
-                if mode == .skeleton {
-                    selectedPointId.wrappedValue = dragRef.nodeId
-                }
-                if let id = dragRef.nodeId {
+                if mode == .editor, let hit = hitAnyUnit(at: location, layout: current) {
+                    selectedUnitName.wrappedValue = hit.name
+                    dragRef.nodeId = hit.pointId
                     let graph = current.graphPoint(screen: location)
-                    let node = unit.point(id: id)
+                    let node = hit.unit.point(id: hit.pointId)
                     dragRef.touchOffsetX = graph.x - node.x
                     dragRef.touchOffsetY = graph.y - node.y
                 } else {
-                    dragRef.touchOffsetX = 0
-                    dragRef.touchOffsetY = 0
+                    dragRef.nodeId = hitNode(at: location, layout: current)
+                    if let id = dragRef.nodeId {
+                        let graph = current.graphPoint(screen: location)
+                        let node = unit.point(id: id)
+                        dragRef.touchOffsetX = graph.x - node.x
+                        dragRef.touchOffsetY = graph.y - node.y
+                    } else {
+                        dragRef.touchOffsetX = 0
+                        dragRef.touchOffsetY = 0
+                    }
+                }
+                dragRef.panning = dragRef.nodeId == nil
+                if mode == .skeleton {
+                    selectedPointId.wrappedValue = dragRef.nodeId
                 }
             }
             dragRef.lastScreen = location
@@ -852,6 +864,15 @@ struct SkeletonCanvas: View {
         guard dragRef.panning, let last = dragRef.lastScreen else { return }
         layout = current.panned(dx: location.x - last.x, dy: location.y - last.y)
         dragRef.lastScreen = location
+    }
+
+    private func handleEmptyDoubleTap(at location: CGPoint, size: CGSize) {
+        guard mode == .editor else { return }
+        let current = resolvedLayout(size: size)
+        if hitAnyUnit(at: location, layout: current) == nil {
+            selectedUnitName.wrappedValue = nil
+            endTouch()
+        }
     }
 
     private func endTouch() {
@@ -929,17 +950,30 @@ struct SkeletonCanvas: View {
     }
 
     private func hitNode(at location: CGPoint, layout: SkeletonLayout, radius: CGFloat = Self.hitRadius) -> Int? {
-        var bestId: Int?
-        var bestDist = radius
-        for point in unit.points {
-            let center = layout.screenPoint(x: point.x, y: point.y)
-            let dist = hypot(location.x - center.x, location.y - center.y)
-            if dist <= bestDist {
-                bestDist = dist
-                bestId = point.id
+        hitAnyUnit(at: location, layout: layout, radius: radius, in: [unit])?.pointId
+    }
+
+    /// First node within `radius` in front-to-back draw order.
+    private func hitAnyUnit(
+        at location: CGPoint,
+        layout: SkeletonLayout,
+        radius: CGFloat = Self.hitRadius,
+        in candidates: [StickmanUnit]? = nil
+    ) -> (name: String, pointId: Int, unit: StickmanUnit)? {
+        let pool = candidates ?? (frameUnits.isEmpty ? [unit] : frameUnits)
+        for drawn in pool.sorted(by: {
+            if $0.arrange != $1.arrange { return $0.arrange > $1.arrange }
+            return $0.name > $1.name
+        }) {
+            for point in drawn.points {
+                let center = layout.screenPoint(x: point.x, y: point.y)
+                let dist = hypot(location.x - center.x, location.y - center.y)
+                if dist <= radius {
+                    return (drawn.name, point.id, drawn)
+                }
             }
         }
-        return bestId
+        return nil
     }
 }
 
@@ -1147,6 +1181,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
     var onBegan: (CGPoint) -> Void
     var onChanged: (CGPoint) -> Void
     var onEnded: (CGPoint) -> Void
+    var onDoubleTap: (CGPoint) -> Void = { _ in }
     var onPinchBegan: () -> Void
     var onPinch: (CGPoint, CGFloat) -> Void
 
@@ -1164,6 +1199,10 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         pan.cancelsTouchesInView = false
         view.pan = pan
         view.addGestureRecognizer(pan)
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.cancelsTouchesInView = false
+        view.addGestureRecognizer(doubleTap)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
         view.addGestureRecognizer(pinch)
         context.coordinator.apply(useRawTouches: useRawTouches, to: view)
@@ -1174,6 +1213,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         context.coordinator.onBegan = onBegan
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
+        context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onPinchBegan = onPinchBegan
         context.coordinator.onPinch = onPinch
         context.coordinator.apply(useRawTouches: useRawTouches, to: uiView)
@@ -1183,6 +1223,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         var onBegan: (CGPoint) -> Void = { _ in }
         var onChanged: (CGPoint) -> Void = { _ in }
         var onEnded: (CGPoint) -> Void = { _ in }
+        var onDoubleTap: (CGPoint) -> Void = { _ in }
         var onPinchBegan: () -> Void = {}
         var onPinch: (CGPoint, CGFloat) -> Void = { _, _ in }
         var useRawTouches = false
@@ -1209,6 +1250,10 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
             guard useRawTouches, rawActive else { return }
             rawActive = false
             onEnded(point)
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            onDoubleTap(gesture.location(in: gesture.view))
         }
 
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {

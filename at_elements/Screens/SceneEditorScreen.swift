@@ -16,9 +16,10 @@ struct SceneEditorScreen: View {
     @State private var showingCamera = false
     @State private var showingBackground = false
     @State private var showingInsert = false
+    @State private var showingEditUnit = false
     @State private var showingMenu = false
     @State private var scenePropsSheet: ScenePropsSheet?
-    @State private var selectedUnitName: String
+    @State private var selectedUnitName: String?
     @State private var showingSave = false
     @State private var saveName = ""
     @State private var saveError = ""
@@ -42,7 +43,7 @@ struct SceneEditorScreen: View {
                 frameCount: scene.frames.count
             )
         )
-        _selectedUnitName = State(initialValue: frame.units[0].name)
+        _selectedUnitName = State(initialValue: nil)
     }
 
     var body: some View {
@@ -51,8 +52,10 @@ struct SceneEditorScreen: View {
                 MainPanel(
                     onPlay: { showingPreview = true },
                     onInsert: toggleInsert,
+                    onEditUnit: toggleEditUnit,
                     onMenu: toggleMenu,
                     insertActivated: showingInsert,
+                    editUnitActivated: showingEditUnit,
                     menuActivated: showingMenu
                 )
                 SkeletonCanvas(
@@ -65,7 +68,8 @@ struct SceneEditorScreen: View {
                     cameraMove: scene.currentFrame.cameraMove,
                     sceneWidth: scene.width,
                     sceneHeight: scene.height,
-                    currentIndex: scene.currentIndex
+                    currentIndex: scene.currentIndex,
+                    selectedUnitName: $selectedUnitName
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
@@ -73,6 +77,34 @@ struct SceneEditorScreen: View {
             if showingInsert {
                 ItemChooserPanel(onPick: insert)
                     .padding(.leading, MainPanel.width)
+            }
+            if showingEditUnit {
+                Group {
+                    if let selectedUnit {
+                        UnitPropertiesPanel(
+                            unit: selectedUnit,
+                            assets: assets,
+                            onDeselect: { selectedUnitName = nil },
+                            onDelete: deleteSelectedUnit,
+                            onFlip: flipSelectedUnit,
+                            onDetach: detachSelectedUnit,
+                            onMoveForward: { moveSelectedUnit(forward: true) },
+                            onMoveBackward: { moveSelectedUnit(forward: false) },
+                            canMoveForward: canMoveSelectedUnit(forward: true),
+                            canMoveBackward: canMoveSelectedUnit(forward: false)
+                        )
+                    } else {
+                        PresentUnitsPanel(
+                            frameNumber: scene.currentIndex + 1,
+                            units: scene.currentFrame.units,
+                            selectedName: nil,
+                            assets: assets,
+                            onSelect: { selectedUnitName = $0 },
+                            onMove: movePresentUnits
+                        )
+                    }
+                }
+                .padding(.leading, MainPanel.width)
             }
             if showingMenu {
                 Color.black.opacity(0.35)
@@ -152,6 +184,7 @@ struct SceneEditorScreen: View {
         showingMenu.toggle()
         if showingMenu {
             showingInsert = false
+            showingEditUnit = false
         }
     }
 
@@ -159,6 +192,100 @@ struct SceneEditorScreen: View {
         showingInsert.toggle()
         if showingInsert {
             showingMenu = false
+            showingEditUnit = false
+        }
+    }
+
+    private func toggleEditUnit() {
+        showingEditUnit.toggle()
+        if showingEditUnit {
+            showingMenu = false
+            showingInsert = false
+        }
+    }
+
+    /// Android list is arrange-desc; after move, arrange = count-1-index.
+    private func movePresentUnits(from: IndexSet, to: Int) {
+        var names = scene.currentFrame.units
+            .sorted {
+                if $0.arrange != $1.arrange { return $0.arrange > $1.arrange }
+                return $0.name < $1.name
+            }
+            .map(\.name)
+        names.move(fromOffsets: from, toOffset: to)
+        let weights = Dictionary(uniqueKeysWithValues: names.enumerated().map { index, name in
+            (name, names.count - 1 - index)
+        })
+        for frameIndex in rearrangeFrames {
+            for i in scene.frames[frameIndex].units.indices {
+                let name = scene.frames[frameIndex].units[i].name
+                if let arrange = weights[name] {
+                    scene.frames[frameIndex].units[i].arrange = arrange
+                }
+            }
+        }
+    }
+
+    private var selectedUnit: StickmanUnit? {
+        guard let selectedUnitName else { return nil }
+        return scene.currentFrame.units.first { $0.name == selectedUnitName }
+    }
+
+    private func deleteSelectedUnit() {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen delete without selected unit")
+        }
+        for frameIndex in rearrangeFrames where scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) {
+            scene.frames[frameIndex].deleteConnectedUnit(named: selectedUnitName)
+        }
+        self.selectedUnitName = nil
+    }
+
+    private func flipSelectedUnit() {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen flip without selected unit")
+        }
+        for frameIndex in rearrangeFrames {
+            guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
+                continue
+            }
+            scene.frames[frameIndex].units[index].flipped.toggle()
+        }
+    }
+
+    private func detachSelectedUnit() {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen detach without selected unit")
+        }
+        for frameIndex in rearrangeFrames {
+            guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
+                continue
+            }
+            scene.frames[frameIndex].units[index].stripAttachment()
+            scene.frames[frameIndex].refreshAttachments()
+        }
+    }
+
+    private func canMoveSelectedUnit(forward: Bool) -> Bool {
+        guard let selectedUnitName else { return false }
+        return scene.currentFrame.canRearrange(unitNamed: selectedUnitName, forward: forward)
+    }
+
+    private func moveSelectedUnit(forward: Bool) {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen rearrange without selected unit")
+        }
+        for frameIndex in rearrangeFrames where scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) {
+            scene.frames[frameIndex].rearrange(unitNamed: selectedUnitName, forward: forward)
+        }
+    }
+
+    private var rearrangeFrames: [Int] {
+        switch mode {
+        case .range:
+            return Array(range)
+        case .frames:
+            return [scene.currentIndex]
         }
     }
 
@@ -263,6 +390,12 @@ struct SceneEditorScreen: View {
                     fatalError("SceneEditorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
                 }
                 scene.currentIndex = newIndex
+                let units = scene.frames[newIndex].units
+                if let selectedUnitName, units.contains(where: { $0.name == selectedUnitName }) {
+                    self.selectedUnitName = selectedUnitName
+                } else {
+                    selectedUnitName = nil
+                }
             }
         )
     }
@@ -274,7 +407,7 @@ struct SceneEditorScreen: View {
                 if frame.units.isEmpty {
                     fatalError("SceneEditorScreen frame \(frame.id) has no units")
                 }
-                if let unit = frame.units.first(where: { $0.name == selectedUnitName }) {
+                if let selectedUnitName, let unit = frame.units.first(where: { $0.name == selectedUnitName }) {
                     return unit
                 }
                 return frame.units[0]
@@ -285,17 +418,18 @@ struct SceneEditorScreen: View {
                 if units.isEmpty {
                     fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) has no units")
                 }
-                if let index = units.firstIndex(where: { $0.name == selectedUnitName }) {
-                    scene.frames[frameIndex].units[index] = newUnit
-                    selectedUnitName = newUnit.name
-                    return
-                }
                 if let index = units.firstIndex(where: { $0.name == newUnit.name }) {
                     scene.frames[frameIndex].units[index] = newUnit
                     selectedUnitName = newUnit.name
                     return
                 }
-                fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) missing unit '\(selectedUnitName)'")
+                if let activeName = selectedUnitName,
+                   let index = units.firstIndex(where: { $0.name == activeName }) {
+                    scene.frames[frameIndex].units[index] = newUnit
+                    selectedUnitName = newUnit.name
+                    return
+                }
+                fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) missing unit '\(newUnit.name)'")
             }
         )
     }

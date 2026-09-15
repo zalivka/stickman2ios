@@ -68,3 +68,11 @@ The skeleton editor needs one finger holding **New** (`HoldTouchPad` in `Shared/
 **A clear representable is invisible to hit-testing.** Give the hold view a tiny `backgroundColor` alpha (0.01) and override `hitTest` to return `self` inside `bounds`; a `.background` modifier is not enough, the pad has to overlay the button's visuals directly. Without this the hold fires only sometimes.
 
 Shared editor state (hold mode, selected point) lives in `SkeletonEditSession`, a class. Touch callbacks fire outside the SwiftUI update cycle, so a value type snapshotted into a closure reads stale.
+
+## Frame next/prev: SwiftUI tap + long-press, then UIButton overflow
+
+`DualNavigationChrome` next/prev must do Android's `ImageButton` pair: tap = one frame, long-press = page jump. Stacking `.onTapGesture` and `.onLongPressGesture` on the same SwiftUI view makes taps miss. The long-press `pressing:` callback claims the touch; a release before 0.35s fires neither tap nor long-press.
+
+Use a `UIButton` (`touchUpInside` + `UILongPressGestureRecognizer`). Property is `minimumPressDuration`, not SwiftUI's `minimumDuration`. If the long-press begins, swallow the following `touchUpInside` so you do not also step one frame.
+
+Do not put that `UIButton` in a 60×60 SwiftUI frame and `setImage` the chrome PNG at `UIScreen.main.scale`. `UIViewRepresentable` does not clip; the button's intrinsic size is the image in points and the artwork paints over `SeekFramesBar`. Size the `UIImage` so it displays at `barWidth / 1.5` (40pt), keep the control in the original 40+8+8 slot, and `clipsToBounds`.

@@ -102,16 +102,80 @@ private struct FrameNavButton: View {
     var tap: () -> Void
     var longPress: () -> Void
 
-    @State private var isPressed = false
-
     var body: some View {
-        Image(decorative: isPressed ? pressed : idle, scale: UIScreen.main.scale)
-            .resizable()
-            .scaledToFit()
-            .frame(width: SeekFramesBar.barWidth / 1.5, height: SeekFramesBar.barWidth / 1.5)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: tap)
-            .onLongPressGesture(minimumDuration: 0.35, pressing: { isPressed = $0 }, perform: longPress)
-            .padding(8)
+        FrameNavUIButton(idle: idle, pressed: pressed, tap: tap, longPress: longPress)
+            .frame(width: Self.artwork + 16, height: Self.artwork + 16)
+            .clipped()
+            .accessibilityAddTraits(.isButton)
+    }
+
+    static let artwork = SeekFramesBar.barWidth / 1.5
+}
+
+/// Android `ImageButton` next/prev: click and long-click must not share a SwiftUI gesture.
+private struct FrameNavUIButton: UIViewRepresentable {
+    let idle: CGImage
+    let pressed: CGImage
+    var tap: () -> Void
+    var longPress: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.adjustsImageWhenHighlighted = false
+        button.clipsToBounds = true
+        button.imageView?.contentMode = .scaleAspectFit
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
+        let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.held(_:)))
+        hold.minimumPressDuration = 0.35
+        button.addGestureRecognizer(hold)
+        apply(button, context: context)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        apply(button, context: context)
+    }
+
+    private func apply(_ button: UIButton, context: Context) {
+        context.coordinator.tap = tap
+        context.coordinator.longPress = longPress
+        let side = FrameNavButton.artwork
+        let idleImage = UIImage(cgImage: idle, scale: CGFloat(idle.width) / side, orientation: .up)
+        let pressedImage = UIImage(cgImage: pressed, scale: CGFloat(pressed.width) / side, orientation: .up)
+        button.setImage(idleImage, for: .normal)
+        button.setImage(pressedImage, for: .highlighted)
+        button.setImage(pressedImage, for: [.highlighted, .focused])
+    }
+
+    final class Coordinator: NSObject {
+        var tap: () -> Void = {}
+        var longPress: () -> Void = {}
+        private var consumedByHold = false
+
+        @objc func tapped() {
+            if consumedByHold {
+                consumedByHold = false
+                return
+            }
+            tap()
+        }
+
+        @objc func held(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                consumedByHold = true
+                longPress()
+            case .cancelled, .failed:
+                consumedByHold = false
+            default:
+                break
+            }
+        }
     }
 }

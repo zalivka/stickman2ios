@@ -408,6 +408,40 @@ struct StickmanFrame {
         slaves.populate(units: units)
     }
 
+    mutating func deleteConnectedUnit(named name: String) {
+        guard let victim = units.first(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+        }
+        refreshAttachments()
+        let names = Set([victim.name] + slaves.allSlaves(of: victim.name))
+        units.removeAll { names.contains($0.name) }
+        refreshAttachments()
+    }
+
+    func canRearrange(unitNamed name: String, forward: Bool) -> Bool {
+        guard let unit = units.first(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+        }
+        let boundary = forward ? units.map(\.arrange).max() : units.map(\.arrange).min()
+        guard let boundary else {
+            fatalError("StickmanFrame \(id) has no units")
+        }
+        return forward ? unit.arrange < boundary : unit.arrange > boundary
+    }
+
+    mutating func rearrange(unitNamed name: String, forward: Bool) {
+        guard let index = units.firstIndex(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+        }
+        guard canRearrange(unitNamed: name, forward: forward) else { return }
+        let oldArrange = units[index].arrange
+        let newArrange = oldArrange + (forward ? 1 : -1)
+        if let swapIndex = units.firstIndex(where: { $0.arrange == newArrange }) {
+            units[swapIndex].arrange = oldArrange
+        }
+        units[index].arrange = newArrange
+    }
+
     mutating func moveUnitToMaster(named name: String) {
         guard let index = units.firstIndex(where: { $0.name == name }) else {
             fatalError("StickmanFrame \(id) missing unit '\(name)'")

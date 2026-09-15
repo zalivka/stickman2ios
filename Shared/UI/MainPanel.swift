@@ -6,13 +6,17 @@ struct MainPanel: View {
     static let play = Color(red: 1, green: 0x90 / 255, blue: 0)
     static let insert = Color(red: 0x72 / 255, green: 0xbd / 255, blue: 0)
     static let insertActive = Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255)
+    static let editUnit = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
+    static let editUnitActive = Color(red: 0, green: 0x9a / 255, blue: 0x62 / 255)
 
     var onPlay: () -> Void = {}
     var playEnabled: Bool = true
     var onInsert: (() -> Void)? = nil
+    var onEditUnit: (() -> Void)? = nil
     var onMenu: (() -> Void)? = nil
     var onReset: (() -> Void)? = nil
     var insertActivated = false
+    var editUnitActivated = false
     var menuActivated = false
 
     var body: some View {
@@ -46,6 +50,15 @@ struct MainPanel: View {
                     color: insertActivated ? .white : Self.insert,
                     activated: insertActivated,
                     action: onInsert
+                )
+            }
+            if let onEditUnit {
+                systemButton(
+                    systemName: "square.3.layers.3d",
+                    title: "EDIT\nUNIT",
+                    color: editUnitActivated ? .white : Self.editUnit,
+                    activated: editUnitActivated,
+                    action: onEditUnit
                 )
             }
             if let onReset {
@@ -96,6 +109,7 @@ struct MainPanel: View {
         systemName: String,
         title: String,
         color: Color,
+        activated: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -107,9 +121,12 @@ struct MainPanel: View {
                 Text(title)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(color)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
+            .background(activated ? Self.editUnitActive : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
