@@ -5,9 +5,12 @@ struct UnitPropertiesPanel: View {
     static let width: CGFloat = 86
     private static let pane = MainPanel.pane
     private static let label = Color(white: 0.82)
+    private static let activeGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
 
     var unit: StickmanUnit
     var assets: UnitAssets
+    var availableStates: [Int]
+    var animationActive: Bool
     var onDeselect: () -> Void
     var onDelete: () -> Void
     var onFlip: () -> Void
@@ -16,8 +19,27 @@ struct UnitPropertiesPanel: View {
     var onMoveBackward: () -> Void
     var canMoveForward: Bool
     var canMoveBackward: Bool
+    var onSelectState: (Int) -> Void
+    var onOpenAnimation: () -> Void
+
+    @State private var showingStates = false
 
     var body: some View {
+        ZStack {
+            actions
+            if showingStates {
+                statesOverlay
+            }
+        }
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+        .background(Self.pane)
+        .onChange(of: unit.name) { _, _ in
+            showingStates = false
+        }
+    }
+
+    private var actions: some View {
         ScrollView {
             VStack(spacing: 8) {
                 Text(unit.name)
@@ -40,6 +62,11 @@ struct UnitPropertiesPanel: View {
                 .padding(.bottom, 4)
                 .accessibilityLabel("Deselect \(unit.name)")
 
+                if availableStates.count > 1 {
+                    actionButton("States", icon: "props_state") {
+                        showingStates = true
+                    }
+                }
                 actionButton("Delete", icon: "props_delete", action: onDelete)
                 actionButton("Flip", icon: "props_flip", action: onFlip)
                 if SlavesRegistry.isEnslaved(unit) {
@@ -62,9 +89,69 @@ struct UnitPropertiesPanel: View {
             .padding(.horizontal, 6)
             .padding(.bottom, 12)
         }
-        .frame(width: Self.width)
-        .frame(maxHeight: .infinity)
+    }
+
+    private var statesOverlay: some View {
+        VStack(spacing: 0) {
+            Button {
+                showingStates = false
+            } label: {
+                Image(decorative: Self.icon("props_apply"), scale: 2)
+                    .frame(width: 36, height: 36)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Apply")
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    if !animationActive {
+                        ForEach(availableStates, id: \.self) { state in
+                            stateRow(state)
+                        }
+                    }
+                    animateRow
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.pane)
+    }
+
+    private func stateRow(_ state: Int) -> some View {
+        let active = unit.assetsState == state
+        return Button {
+            onSelectState(state)
+        } label: {
+            ZStack {
+                Image(decorative: Self.icon(active ? "filled_frame" : "empty_frame"), scale: 2)
+                    .frame(width: 44, height: 44)
+                Text("\(state)")
+                    .font(.system(size: 22))
+                    .foregroundStyle(active ? Self.activeGreen : .white)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("State \(state)")
+        .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+
+    private var animateRow: some View {
+        Button(action: onOpenAnimation) {
+            Image(decorative: Self.icon("animation_cogs"), scale: 2)
+                .frame(width: 44, height: 44)
+                .frame(maxWidth: .infinity)
+                .padding(10)
+                .background(animationActive ? Self.activeGreen : Color.clear)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Animate")
     }
 
     private var thumb: CGImage {

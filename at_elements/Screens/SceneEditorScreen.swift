@@ -25,6 +25,7 @@ struct SceneEditorScreen: View {
     @State private var saveError = ""
     @State private var lastSavedName: String?
     @State private var saveToast = ""
+    @State private var showingFBF = false
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
         if scene.frames.isEmpty {
@@ -84,6 +85,8 @@ struct SceneEditorScreen: View {
                         UnitPropertiesPanel(
                             unit: selectedUnit,
                             assets: assets,
+                            availableStates: assets.states(for: selectedUnit.name),
+                            animationActive: fbfActive(for: selectedUnit.name),
                             onDeselect: { selectedUnitName = nil },
                             onDelete: deleteSelectedUnit,
                             onFlip: flipSelectedUnit,
@@ -91,7 +94,9 @@ struct SceneEditorScreen: View {
                             onMoveForward: { moveSelectedUnit(forward: true) },
                             onMoveBackward: { moveSelectedUnit(forward: false) },
                             canMoveForward: canMoveSelectedUnit(forward: true),
-                            canMoveBackward: canMoveSelectedUnit(forward: false)
+                            canMoveBackward: canMoveSelectedUnit(forward: false),
+                            onSelectState: setSelectedUnitState,
+                            onOpenAnimation: { showingFBF = true }
                         )
                     } else {
                         PresentUnitsPanel(
@@ -163,6 +168,23 @@ struct SceneEditorScreen: View {
                 onCancel: { showingSave = false },
                 onSave: confirmSave
             )
+        }
+        .sheet(isPresented: $showingFBF) {
+            if let selectedUnit {
+                FBFAnimationSheet(
+                    unitName: selectedUnit.name,
+                    scene: scene,
+                    assets: assets,
+                    unit: selectedUnit,
+                    existing: scene.unitAnimations[selectedUnit.name]
+                ) { next in
+                    if let next {
+                        scene.unitAnimations[selectedUnit.name] = next
+                    } else {
+                        scene.unitAnimations.removeValue(forKey: selectedUnit.name)
+                    }
+                }
+            }
         }
         .overlay {
             if !saveToast.isEmpty {
@@ -239,6 +261,23 @@ struct SceneEditorScreen: View {
             scene.frames[frameIndex].deleteConnectedUnit(named: selectedUnitName)
         }
         self.selectedUnitName = nil
+    }
+
+    private func setSelectedUnitState(_ state: Int) {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen set state without selected unit")
+        }
+        for frameIndex in rearrangeFrames {
+            guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
+                continue
+            }
+            scene.frames[frameIndex].units[index].assetsState = state
+        }
+    }
+
+    private func fbfActive(for name: String) -> Bool {
+        guard let animation = scene.unitAnimations[name] else { return false }
+        return animation.inRange(scene: scene, index: scene.currentIndex)
     }
 
     private func flipSelectedUnit() {

@@ -125,6 +125,65 @@ final class UnitAssets {
         return states[state] ?? states[Self.stateDefault]
     }
 
+    /// Android `AssetsOpsImpl.getAssetsBoundingPoints` — bitmap corners in scene space.
+    func assetCornerPoints(for unit: StickmanUnit, state: Int) -> [CGPoint] {
+        let name = Self.removeNumber(unit.name)
+        var corners: [CGPoint] = []
+        for edge in unit.edges {
+            let key = EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: unit.flipped)
+            guard let asset = getDrawable(key, state: state) else { continue }
+            let start = unit.point(id: edge.from)
+            let end = unit.point(id: edge.to)
+            let angle = atan2(end.y - start.y, end.x - start.x)
+            let mirror = unit.flipped && !asset.nativeFlipped
+            let scale = unit.scale
+            let xOffset = asset.xOffset * scale
+            let yOffset = (mirror ? -asset.yOffset : asset.yOffset) * scale
+            let yScale = mirror ? -scale : scale
+            let width = CGFloat(asset.bitmap.width)
+            let height = CGFloat(asset.bitmap.height)
+            let locals: [CGPoint] = [
+                CGPoint(x: xOffset, y: yOffset),
+                CGPoint(x: xOffset + width * scale, y: yOffset),
+                CGPoint(x: xOffset + width * scale, y: yOffset + height * yScale),
+                CGPoint(x: xOffset, y: yOffset + height * yScale)
+            ]
+            let cosine = cos(angle)
+            let sine = sin(angle)
+            for local in locals {
+                corners.append(
+                    CGPoint(
+                        x: start.x + local.x * cosine - local.y * sine,
+                        y: start.y + local.x * sine + local.y * cosine
+                    )
+                )
+            }
+        }
+        return corners
+    }
+
+    /// Skeleton joints plus every state's bitmaps — the box the FBF preview must fit.
+    func combinedBounds(for unit: StickmanUnit) -> CGRect {
+        if unit.points.isEmpty {
+            fatalError("UnitAssets combinedBounds '\(unit.name)' has no points")
+        }
+        var xs = unit.points.map(\.x)
+        var ys = unit.points.map(\.y)
+        let scan = states(for: unit.name)
+        let statesToScan = scan.isEmpty ? [unit.assetsState] : scan
+        for state in statesToScan {
+            for corner in assetCornerPoints(for: unit, state: state) {
+                xs.append(corner.x)
+                ys.append(corner.y)
+            }
+        }
+        let minX = xs.min()!
+        let maxX = xs.max()!
+        let minY = ys.min()!
+        let maxY = ys.max()!
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
     func getEdgeWeight(unitName: String, startId: Int, endId: Int, state: Int, flipped: Bool) -> Int {
         let key = EdgeKey(unitName: unitName, start: startId, end: endId, flipped: flipped)
         return getDrawable(key, state: state)?.weight ?? -1
