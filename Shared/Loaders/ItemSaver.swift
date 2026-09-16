@@ -23,18 +23,26 @@ enum ItemSaver {
         ]
 
         let rows = assets.exportRows(unitName: unit.name)
+        let livePngs = assets.pngFiles(unitName: unit.name)
+        let liveNames = Set(livePngs.map(\.name))
         if !rows.isEmpty {
-            let packed = Set(ZipStore.names(in: source))
-            for row in rows where !packed.contains(row.bmName) {
-                fatalError("ItemSaver '\(fullName)' edge \(row.start)-\(row.end) bm '\(row.bmName)' missing from archive")
+            if livePngs.isEmpty {
+                fatalError("ItemSaver '\(fullName)' has asset rows but no live PNGs")
+            }
+            for row in rows where !liveNames.contains(row.bmName) {
+                fatalError("ItemSaver '\(fullName)' edge \(row.start)-\(row.end) bm '\(row.bmName)' has no live PNG")
             }
             files.append((name: "assets.xml", data: AssetsXML.serialize(rows: rows, fullName: fullName)))
+            files.append(contentsOf: livePngs)
         } else if ZipStore.contains("assets.xml", in: source) {
             fatalError("ItemSaver '\(fullName)' live assets empty but source has assets.xml")
         }
 
-        // Bone art, thumb, poster and audio are untouched by skeleton editing, so they ride along as is.
+        // Bone art is encoded from live bitmaps so Edit/Apply survives save.
         for entry in ZipStore.names(in: source) where !regenerated.contains(entry) {
+            if liveNames.contains(entry) {
+                continue
+            }
             if entry.hasSuffix(".name") || entry.hasSuffix("/") {
                 continue
             }

@@ -1,3 +1,4 @@
+import BonePaper
 import SwiftUI
 
 struct SkeletonScreen: View {
@@ -11,7 +12,7 @@ struct SkeletonScreen: View {
     let source: Source
     @State private var scene: StickmanScene?
     @State private var assets: UnitAssets?
-    /// The archive the item came from. Saving reuses its art entries verbatim.
+    /// The archive the item came from. Saving copies non-bone entries; bone PNGs come from live bitmaps.
     @State private var sourceZip: Data?
     @State private var toolsPanel: SkeletonToolsPanel = .bones
     @State private var showingMenu = false
@@ -20,6 +21,7 @@ struct SkeletonScreen: View {
     @State private var layerEpoch = 0
     @State private var exposeVacantPoints = false
     @State private var showingPreview = false
+    @State private var bonePaperEdit: BonePaperEdit?
     @State private var editSession = SkeletonEditSession()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
@@ -67,6 +69,8 @@ struct SkeletonScreen: View {
                         toolsPanel = next
                     },
                     menuActivated: showingMenu,
+                    editEnabled: canEditBone,
+                    onEdit: openBonePaper,
                     onBack: {
                         if showingMenu {
                             showingMenu = false
@@ -139,6 +143,16 @@ struct SkeletonScreen: View {
         .fullScreenCover(isPresented: $showingPreview) {
             previewScreen
         }
+        .fullScreenCover(item: $bonePaperEdit) { session in
+            BonePaperScreen(
+                source: session.source,
+                boneStart: session.boneStart,
+                boneTip: session.boneTip,
+                onApply: { export in
+                    applyBonePaper(bmName: session.bmName, export: export)
+                }
+            )
+        }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -155,6 +169,67 @@ struct SkeletonScreen: View {
         guard let assets, let unit = optionalUnit, let id = selectedPointId else { return nil }
         guard let edge = unit.upperEdge(of: id) else { return nil }
         return assets.bmName(forEdge: edge.from, end: edge.to, unitName: unit.name)
+    }
+
+    private var canEditBone: Bool {
+        guard let unit = optionalUnit, let id = selectedPointId else { return false }
+        return unit.upperEdge(of: id) != nil
+    }
+
+    private struct BonePaperEdit: Identifiable {
+        let id = UUID()
+        let source: CGImage
+        let boneStart: CGPoint
+        let boneTip: CGPoint
+        let bmName: String
+    }
+
+    private func openBonePaper() {
+        guard let unit = optionalUnit, let assets else {
+            fatalError("SkeletonScreen '\(title)' edit with no unit")
+        }
+        guard let id = selectedPointId, let edge = unit.upperEdge(of: id) else {
+            fatalError("SkeletonScreen '\(title)' edit with no selected edge")
+        }
+        let from = unit.point(id: edge.from)
+        let to = unit.point(id: edge.to)
+        if unit.scale <= 0 {
+            fatalError("SkeletonScreen '\(title)' scale is \(unit.scale)")
+        }
+        // PNG offsets are item-pixel units. Scene points already include unit.scale
+        // (Android skeleton editor stores unscaled model coords, so getLength() is 1:1).
+        let length = hypot(to.x - from.x, to.y - from.y) / unit.scale
+        let asset = assets.ensureDrawable(
+            start: edge.from,
+            end: edge.to,
+            unitName: unit.name,
+            length: length
+        )
+        if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
+            fatalError("SkeletonScreen '\(title)' bone '\(asset.bmName)' size \(asset.bitmap.width)x\(asset.bitmap.height)")
+        }
+        let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
+        let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
+        layerEpoch += 1
+        bonePaperEdit = BonePaperEdit(
+            source: asset.bitmap,
+            boneStart: start,
+            boneTip: tip,
+            bmName: asset.bmName
+        )
+    }
+
+    private func applyBonePaper(bmName: String, export: BonePaperExport) {
+        guard let assets else {
+            fatalError("SkeletonScreen '\(title)' apply with no assets")
+        }
+        assets.replaceBitmap(
+            bmName: bmName,
+            image: export.image,
+            extraLeft: export.extraLeft,
+            extraTop: export.extraTop
+        )
+        layerEpoch += 1
     }
 
     private func setHoldMode(_ on: Bool) {

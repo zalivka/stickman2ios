@@ -76,6 +76,8 @@ struct SkeletonLeftPanel: View {
     var onMenu: () -> Void
     var onSelect: (SkeletonToolsPanel) -> Void
     var menuActivated: Bool
+    var editEnabled: Bool
+    var onEdit: () -> Void
     var onBack: () -> Void
 
     var body: some View {
@@ -99,8 +101,11 @@ struct SkeletonLeftPanel: View {
                 toggle("BONES", accent: SkeletonChrome.bonesAccent, selected: panel == .bones) {
                     onSelect(panel == .bones ? .none : .bones)
                 }
-                toggle("DRAW", accent: SkeletonChrome.drawAccent, selected: panel == .draw) {
-                    onSelect(panel == .draw ? .none : .draw)
+                VStack(spacing: 8) {
+                    toggle("DRAW", accent: SkeletonChrome.drawAccent, selected: panel == .draw) {
+                        onSelect(panel == .draw ? .none : .draw)
+                    }
+                    editButton
                 }
             }
             .padding(.top, 8)
@@ -112,6 +117,28 @@ struct SkeletonLeftPanel: View {
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(SkeletonChrome.pane)
+    }
+
+    private var editButton: some View {
+        Button(action: onEdit) {
+            VStack(spacing: 2) {
+                Image(decorative: Self.editIcon, scale: 3)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                Text("Edit")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(Color(white: 0.35))
+            .opacity(editEnabled ? 1 : 0.35)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!editEnabled)
+        .accessibilityLabel("Edit")
     }
 
     private func toggle(_ title: String, accent: Color, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -133,6 +160,7 @@ struct SkeletonLeftPanel: View {
     }
 
     private static let navIcon: CGImage = chromeImage("main_btn_nav")
+    private static let editIcon: CGImage = chromeImage("skel_edit_draw")
 }
 
 struct SkeletonSecondaryPanel: View {

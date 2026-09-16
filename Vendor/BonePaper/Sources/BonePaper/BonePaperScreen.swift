@@ -2,14 +2,36 @@ import SwiftUI
 
 public struct BonePaperScreen: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var document = BonePaperDocument()
+    @StateObject private var document: BonePaperDocument
     @State private var tool: BonePaperTool = .pen
     @State private var color: Color = .black
-    @State private var penSize: CGFloat = 14
-    @State private var eraserSize: CGFloat = 14
+    @State private var brushSize: CGFloat = 14
+    @State private var opacity: CGFloat = 1
     @State private var reveal: BonePaperReveal = .none
 
-    public init() {}
+    private let boneStart: CGPoint?
+    private let boneTip: CGPoint?
+    private let onApply: ((BonePaperExport) -> Void)?
+
+    public init() {
+        self.init(source: nil, boneStart: nil, boneTip: nil, onApply: nil)
+    }
+
+    public init(
+        source: CGImage?,
+        boneStart: CGPoint?,
+        boneTip: CGPoint?,
+        onApply: ((BonePaperExport) -> Void)?
+    ) {
+        let width = source?.width ?? BonePaperDocument.defaultSide
+        let height = source?.height ?? BonePaperDocument.defaultSide
+        _document = StateObject(
+            wrappedValue: BonePaperDocument(width: width, height: height, source: source)
+        )
+        self.boneStart = boneStart
+        self.boneTip = boneTip
+        self.onApply = onApply
+    }
 
     public var body: some View {
         ZStack {
@@ -18,28 +40,35 @@ public struct BonePaperScreen: View {
                 document: document,
                 tool: tool,
                 color: UIColor(color),
-                brushSize: tool == .eraser ? eraserSize : penSize
+                brushSize: brushSize,
+                opacity: opacity,
+                boneStart: boneStart,
+                boneTip: boneTip
             )
             .ignoresSafeArea()
-            .overlay(alignment: .top) {
-                topActions
+            .overlay(alignment: .topLeading) {
+                BonePaperBackUndo(
+                    canUndo: document.canUndo,
+                    onBack: { dismiss() },
+                    onUndo: document.undo
+                )
             }
-            .overlay(alignment: .bottomLeading) {
-                BonePaperDrawTools(
+            .overlay(alignment: .topTrailing) {
+                BonePaperApplyTools(
                     tool: $tool,
                     color: $color,
-                    penSize: $penSize,
-                    eraserSize: $eraserSize,
-                    reveal: $reveal
+                    reveal: $reveal,
+                    onApply: apply
                 )
             }
-            .overlay(alignment: .bottomTrailing) {
-                BonePaperHistoryButtons(
-                    canUndo: document.canUndo,
-                    canRedo: document.canRedo,
-                    onUndo: document.undo,
-                    onRedo: document.redo
-                )
+            .overlay(alignment: .bottomLeading) {
+                if tool != .pan {
+                    BonePaperStrokeControls(
+                        brushSize: $brushSize,
+                        opacity: $opacity,
+                        color: color
+                    )
+                }
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -48,30 +77,8 @@ public struct BonePaperScreen: View {
         .persistentSystemOverlays(.hidden)
     }
 
-    private var topActions: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.white))
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            Spacer()
-            Button("Done") { dismiss() }
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-                .background(Color(red: 0.20, green: 0.78, blue: 0.35))
-                .clipShape(Capsule())
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 20)
-        .padding(.top, 8)
+    private func apply() {
+        onApply?(document.export())
+        dismiss()
     }
 }

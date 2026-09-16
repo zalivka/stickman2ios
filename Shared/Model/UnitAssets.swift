@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import UIKit
 
 final class UnitAssets {
     static let stateDefault = 0
@@ -246,7 +247,106 @@ final class UnitAssets {
         edgeAssets[key] = [Self.stateDefault: asset]
     }
 
-    /// Live edge rows for save — includes edges attached during this session.
+    /// FastPainter empty frame: square `2*length`, pad so the bone sits on the mid-line.
+    func ensureDrawable(
+        start: Int,
+        end: Int,
+        unitName: String,
+        length: CGFloat
+    ) -> EdgeAsset {
+        let name = Self.removeNumber(unitName)
+        let key = EdgeKey(unitName: name, start: start, end: end, flipped: false)
+        if let existing = getDrawable(key, state: Self.stateDefault) {
+            return existing
+        }
+        let safe = max(length, 1)
+        let side = min(1024, max(2, Int(ceil(safe * 2))))
+        let bitmap = Self.emptyBitmap(width: side, height: side)
+        let xPad = max(0, (CGFloat(side) - safe) / 2)
+        let nextWeight = (edgeAssets
+            .filter { $0.key.unitName == name }
+            .flatMap { $0.value.values.map(\.weight) }
+            .max() ?? -1) + 1
+        let asset = EdgeAsset(
+            unitName: name,
+            start: start,
+            end: end,
+            xOffset: -xPad,
+            yOffset: -CGFloat(side) / 2,
+            weight: nextWeight,
+            state: Self.stateDefault,
+            nativeFlipped: false,
+            bmName: uniqueBmName(start: start, end: end),
+            bitmap: bitmap,
+            svgName: nil,
+            commandScale: nil
+        )
+        edgeAssets[key] = [Self.stateDefault: asset]
+        return asset
+    }
+
+    func replaceBitmap(bmName: String, image: CGImage, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) {
+        if bmName.isEmpty {
+            fatalError("UnitAssets replaceBitmap empty bmName")
+        }
+        if image.width < 1 || image.height < 1 {
+            fatalError("UnitAssets replaceBitmap '\(bmName)' size \(image.width)x\(image.height)")
+        }
+        var found = false
+        for (key, states) in edgeAssets {
+            var next = states
+            var changed = false
+            for (state, asset) in states where asset.bmName == bmName {
+                var updated = asset
+                updated.bitmap = image
+                updated.xOffset -= extraLeft
+                updated.yOffset -= extraTop
+                next[state] = updated
+                changed = true
+                found = true
+            }
+            if changed {
+                edgeAssets[key] = next
+            }
+        }
+        if !found {
+            fatalError("UnitAssets replaceBitmap unknown bm '\(bmName)'")
+        }
+    }
+
+    func pngFiles(unitName: String) -> [(name: String, data: Data)] {
+        let name = Self.removeNumber(unitName)
+        var seen: Set<String> = []
+        var files: [(name: String, data: Data)] = []
+        for (key, states) in edgeAssets where key.unitName == name {
+            for asset in states.values {
+                if seen.contains(asset.bmName) { continue }
+                seen.insert(asset.bmName)
+                files.append((name: asset.bmName, data: PNG.data(from: asset.bitmap, name: asset.bmName)))
+            }
+        }
+        return files.sorted { $0.name < $1.name }
+    }
+
+    private func uniqueBmName(start: Int, end: Int) -> String {
+        var used: Set<String> = []
+        for states in edgeAssets.values {
+            for asset in states.values {
+                used.insert(asset.bmName)
+            }
+        }
+        let base = "bone_\(start)_\(end).png"
+        if !used.contains(base) {
+            return base
+        }
+        var suffix = 2
+        while used.contains("bone_\(start)_\(end)_\(suffix).png") {
+            suffix += 1
+        }
+        return "bone_\(start)_\(end)_\(suffix).png"
+    }
+
+    /// Live edge rows for save — includes edges attached or painted during this session.
     func exportRows(unitName: String) -> [EdgeAssetRow] {
         let name = Self.removeNumber(unitName)
         var rows: [EdgeAssetRow] = []
@@ -341,6 +441,28 @@ final class UnitAssets {
     static func removeNumber(_ name: String) -> String {
         guard let hash = name.firstIndex(of: "#") else { return name }
         return String(name[..<hash])
+    }
+
+    private static func emptyBitmap(width: Int, height: Int) -> CGImage {
+        if width < 1 || height < 1 {
+            fatalError("UnitAssets emptyBitmap \(width)x\(height)")
+        }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            fatalError("UnitAssets emptyBitmap could not create \(width)x\(height)")
+        }
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else {
+            fatalError("UnitAssets emptyBitmap \(width)x\(height) makeImage failed")
+        }
+        return image
     }
 
     private func install(_ rows: [EdgeAssetRow], zip: Data) {
@@ -453,6 +575,16 @@ private enum PNG {
             fatalError("UnitAssets '\(name)' is not a PNG")
         }
         return image
+    }
+
+    static func data(from image: CGImage, name: String) -> Data {
+        if image.width < 1 || image.height < 1 {
+            fatalError("UnitAssets '\(name)' encode size \(image.width)x\(image.height)")
+        }
+        guard let data = UIImage(cgImage: image).pngData(), !data.isEmpty else {
+            fatalError("UnitAssets '\(name)' PNG encode failed")
+        }
+        return data
     }
 }
 
