@@ -125,23 +125,63 @@ struct BonePaperStrokeControls: View {
     @Binding var brushSize: CGFloat
     @Binding var opacity: CGFloat
     var color: Color
+    var onSeeking: (Bool) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            BonePaperWidthSeek(value: $brushSize, color: color)
+            BonePaperWidthSeek(value: $brushSize, color: color, onSeeking: onSeeking)
                 .frame(width: 32, height: 180)
-            BonePaperOpacitySeek(value: $opacity, color: color)
+            BonePaperOpacitySeek(value: $opacity, color: color, onSeeking: onSeeking)
                 .frame(width: 150, height: 28)
-                .padding(.bottom, 8)
         }
-        .padding(.leading, 12)
-        .padding(.bottom, 16)
+    }
+}
+
+struct BonePaperStrokePreview: View {
+    var brushSize: CGFloat
+    var opacity: CGFloat
+    var color: Color
+    var zoom: CGFloat
+
+    private static let step: CGFloat = 75
+
+    var body: some View {
+        let screenStroke = max(brushSize * max(zoom, 0.01), 1)
+        let pad = screenStroke / 2
+        VStack(spacing: 6) {
+            Text("W: \(Int(brushSize.rounded()))  O: \(Int((opacity * 100).rounded()))%")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.black)
+            curve
+                .stroke(
+                    color.opacity(opacity),
+                    style: StrokeStyle(lineWidth: screenStroke, lineCap: .round, lineJoin: .round)
+                )
+                .frame(width: Self.step * 3, height: Self.step * 2)
+                .padding(pad)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white)
+    }
+
+    private var curve: Path {
+        let step = Self.step
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: step))
+        path.addCurve(
+            to: CGPoint(x: step * 3, y: step),
+            control1: CGPoint(x: step, y: 0),
+            control2: CGPoint(x: step * 2, y: step * 2)
+        )
+        return path
     }
 }
 
 struct BonePaperWidthSeek: View {
     @Binding var value: CGFloat
     var color: Color
+    var onSeeking: (Bool) -> Void
 
     private static let minTrack: CGFloat = 1
     private static let maxTrack: CGFloat = 12
@@ -172,11 +212,16 @@ struct BonePaperWidthSeek: View {
             }
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0).onChanged { drag in
-                    let t = 1 - min(max(drag.location.y / h, 0), 1)
-                    value = BonePaperBrush.sizeRange.lowerBound
-                        + t * (BonePaperBrush.sizeRange.upperBound - BonePaperBrush.sizeRange.lowerBound)
-                }
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        onSeeking(true)
+                        let t = 1 - min(max(drag.location.y / h, 0), 1)
+                        value = BonePaperBrush.sizeRange.lowerBound
+                            + t * (BonePaperBrush.sizeRange.upperBound - BonePaperBrush.sizeRange.lowerBound)
+                    }
+                    .onEnded { _ in
+                        onSeeking(false)
+                    }
             )
             .accessibilityLabel("Width")
             .accessibilityValue("\(Int(value.rounded()))")
@@ -197,6 +242,7 @@ struct BonePaperWidthSeek: View {
 struct BonePaperOpacitySeek: View {
     @Binding var value: CGFloat
     var color: Color
+    var onSeeking: (Bool) -> Void
 
     private static let inner = Color(red: 1, green: 0xF7 / 255, blue: 0xE8 / 255)
 
@@ -228,11 +274,16 @@ struct BonePaperOpacitySeek: View {
             .frame(width: w, height: h)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0).onChanged { drag in
-                    let u = min(max(drag.location.x / w, 0), 1)
-                    value = BonePaperBrush.opacityRange.lowerBound
-                        + u * (BonePaperBrush.opacityRange.upperBound - BonePaperBrush.opacityRange.lowerBound)
-                }
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        onSeeking(true)
+                        let u = min(max(drag.location.x / w, 0), 1)
+                        value = BonePaperBrush.opacityRange.lowerBound
+                            + u * (BonePaperBrush.opacityRange.upperBound - BonePaperBrush.opacityRange.lowerBound)
+                    }
+                    .onEnded { _ in
+                        onSeeking(false)
+                    }
             )
             .accessibilityLabel("Opacity")
         }

@@ -17,7 +17,7 @@ struct FullscreenBackButton: View {
                 .contentShape(Circle())
         }
         .accessibilityLabel("Back")
-        .padding(.leading, besideMainPanel ? MainPanel.width + extraLeading + 8 : 8)
+        .padding(.leading, (besideMainPanel ? MainPanel.width : 0) + extraLeading + 8)
         .padding(.top, 8)
     }
 }

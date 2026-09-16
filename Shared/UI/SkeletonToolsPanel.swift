@@ -78,7 +78,6 @@ struct SkeletonLeftPanel: View {
     var menuActivated: Bool
     var editEnabled: Bool
     var onEdit: () -> Void
-    var onBack: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -112,7 +111,7 @@ struct SkeletonLeftPanel: View {
 
             Spacer(minLength: 0)
 
-            SkeletonBackButton(action: onBack)
+            undoButton
         }
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
@@ -125,20 +124,29 @@ struct SkeletonLeftPanel: View {
                 Image(decorative: Self.editIcon, scale: 3)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 28, height: 28)
+                    .frame(width: 42, height: 42)
                 Text("Edit")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
             }
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
-            .background(Color(white: 0.35))
             .opacity(editEnabled ? 1 : 0.35)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!editEnabled)
         .accessibilityLabel("Edit")
+    }
+
+    private var undoButton: some View {
+        Image(decorative: Self.undoIcon, scale: 3)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 36, height: 36)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .accessibilityLabel("Undo")
     }
 
     private func toggle(_ title: String, accent: Color, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -161,6 +169,7 @@ struct SkeletonLeftPanel: View {
 
     private static let navIcon: CGImage = chromeImage("main_btn_nav")
     private static let editIcon: CGImage = chromeImage("skel_edit_draw")
+    private static let undoIcon: CGImage = chromeImage("skel_btn_undo")
 }
 
 struct SkeletonSecondaryPanel: View {

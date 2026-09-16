@@ -70,14 +70,7 @@ struct SkeletonScreen: View {
                     },
                     menuActivated: showingMenu,
                     editEnabled: canEditBone,
-                    onEdit: openBonePaper,
-                    onBack: {
-                        if showingMenu {
-                            showingMenu = false
-                        } else {
-                            dismiss()
-                        }
-                    }
+                    onEdit: openBonePaper
                 )
                 if toolsPanel == .bones {
                     SkeletonSecondaryPanel(
@@ -125,6 +118,19 @@ struct SkeletonScreen: View {
                 .transition(.move(edge: .leading))
             }
         }
+        .overlay(alignment: .topLeading) {
+            FullscreenBackButton(
+                besideMainPanel: false,
+                extraLeading: SkeletonChrome.leadingWidth(panel: toolsPanel),
+                action: {
+                    if showingMenu {
+                        showingMenu = false
+                    } else {
+                        dismiss()
+                    }
+                }
+            )
+        }
         .overlay(alignment: .trailing) {
             if scene != nil, assets != nil {
                 BonesGalleryPanel(
@@ -148,6 +154,7 @@ struct SkeletonScreen: View {
                 source: session.source,
                 boneStart: session.boneStart,
                 boneTip: session.boneTip,
+                onion: session.onion,
                 onApply: { export in
                     applyBonePaper(bmName: session.bmName, export: export)
                 }
@@ -181,6 +188,7 @@ struct SkeletonScreen: View {
         let source: CGImage
         let boneStart: CGPoint
         let boneTip: CGPoint
+        let onion: CGImage?
         let bmName: String
     }
 
@@ -210,11 +218,22 @@ struct SkeletonScreen: View {
         }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
         let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
+        let onion = SkeletonOnion.worldOverlay(
+            unit: unit,
+            assets: assets,
+            excludeFrom: edge.from,
+            excludeTo: edge.to,
+            worldSize: BonePaperScreen.worldSide,
+            pngWidth: asset.bitmap.width,
+            pngHeight: asset.bitmap.height,
+            boneStartPNG: start
+        )
         layerEpoch += 1
         bonePaperEdit = BonePaperEdit(
             source: asset.bitmap,
             boneStart: start,
             boneTip: tip,
+            onion: onion,
             bmName: asset.bmName
         )
     }

@@ -9,6 +9,8 @@ struct BonePaperCanvas: UIViewRepresentable {
     var opacity: CGFloat
     var boneStart: CGPoint?
     var boneTip: CGPoint?
+    var onion: CGImage?
+    var zoom: Binding<CGFloat>
 
     func makeUIView(context: Context) -> BonePaperScrollView {
         let scroll = BonePaperScrollView()
@@ -28,6 +30,8 @@ struct BonePaperCanvas: UIViewRepresentable {
         scroll.paper.opacity = opacity
         scroll.paper.boneStart = boneStart
         scroll.paper.boneTip = boneTip
+        scroll.paper.onion = onion
+        scroll.onZoom = { zoom.wrappedValue = $0 }
         scroll.setPanMode(tool == .pan)
         scroll.layoutPaper(side: CGFloat(document.worldSize))
         scroll.paper.show(document)
@@ -36,6 +40,7 @@ struct BonePaperCanvas: UIViewRepresentable {
 
 final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
     let paper = BonePaperDrawView()
+    var onZoom: ((CGFloat) -> Void)?
     private var didFit = false
     private var paperSide: CGFloat = 0
 
@@ -49,7 +54,7 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
         panGestureRecognizer.minimumNumberOfTouches = 2
         pinchGestureRecognizer?.isEnabled = true
         bouncesZoom = true
-        backgroundColor = .clear
+        backgroundColor = BonePaperDrawView.paneGray
         contentInsetAdjustmentBehavior = .never
     }
 
@@ -81,6 +86,7 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
             didFit = true
             fitDrawing()
             paper.setZoom(zoomScale)
+            onZoom?(zoomScale)
             return
         }
     }
@@ -92,6 +98,7 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         paper.setZoom(zoomScale)
         centerPaper()
+        onZoom?(zoomScale)
     }
 
     private func fitDrawing() {
@@ -155,8 +162,10 @@ final class BonePaperDrawView: UIView {
     var opacity: CGFloat = 1
     var boneStart: CGPoint?
     var boneTip: CGPoint?
+    var onion: CGImage?
 
     private let checker = UIView()
+    private let onionView = UIImageView()
     private let bitmap = UIImageView()
     private let frameLayer = CAShapeLayer()
     private let boneLayer = CAShapeLayer()
@@ -168,9 +177,12 @@ final class BonePaperDrawView: UIView {
         super.init(frame: frame)
         isMultipleTouchEnabled = false
         isOpaque = true
-        backgroundColor = .clear
+        backgroundColor = Self.paneGray
         checker.isUserInteractionEnabled = false
         checker.backgroundColor = Self.checkerColor
+        onionView.isUserInteractionEnabled = false
+        onionView.contentMode = .scaleToFill
+        onionView.backgroundColor = .clear
         bitmap.isUserInteractionEnabled = false
         bitmap.contentMode = .scaleToFill
         bitmap.backgroundColor = .clear
@@ -181,6 +193,7 @@ final class BonePaperDrawView: UIView {
         boneLayer.strokeColor = UIColor(red: 0, green: 0.75, blue: 1, alpha: 1).cgColor
         boneLayer.lineWidth = 3
         addSubview(checker)
+        addSubview(onionView)
         addSubview(bitmap)
         layer.addSublayer(frameLayer)
         layer.addSublayer(boneLayer)
@@ -194,6 +207,7 @@ final class BonePaperDrawView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         checker.frame = bounds
+        onionView.frame = bounds
     }
 
     func setZoom(_ zoom: CGFloat) {
@@ -205,6 +219,14 @@ final class BonePaperDrawView: UIView {
     }
 
     func show(_ document: BonePaperDocument) {
+        onionView.frame = bounds
+        if let onion {
+            onionView.image = UIImage(cgImage: onion)
+            onionView.isHidden = false
+        } else {
+            onionView.image = nil
+            onionView.isHidden = true
+        }
         let rect = bitmapRect(document)
         bitmap.frame = rect
         bitmap.image = UIImage(cgImage: document.preview)
@@ -299,6 +321,8 @@ final class BonePaperDrawView: UIView {
         )
     }
 
+    static let paneGray = UIColor(white: 0.78, alpha: 1)
+
     private static let checkerColor: UIColor = {
         let cell: CGFloat = 16
         let size = CGSize(width: cell * 2, height: cell * 2)
@@ -306,7 +330,7 @@ final class BonePaperDrawView: UIView {
         format.scale = 1
         format.opaque = true
         let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
-            UIColor(white: 0.93, alpha: 1).setFill()
+            paneGray.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
             UIColor(white: 0.86, alpha: 1).setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: cell, height: cell))
