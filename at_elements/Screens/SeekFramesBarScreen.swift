@@ -1,3 +1,4 @@
+import BonePaper
 import SwiftUI
 
 struct SeekFramesBarScreen: View, RangeDialogPresenting {
@@ -30,6 +31,10 @@ struct SeekFramesBarScreen: View, RangeDialogPresenting {
                     .buttonStyle(.borderedProminent)
                     NavigationLink("Custom Items") {
                         CustomItemsListScreen()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    NavigationLink("Draw") {
+                        BonePaperScreen()
                     }
                     .buttonStyle(.borderedProminent)
                 }

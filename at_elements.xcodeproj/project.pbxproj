@@ -10,6 +10,7 @@
 		743A52BE3054CBF6000CC4A9 /* RotatingTriangleWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 743A52B33054CBF6000CC4A9 /* RotatingTriangleWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
 		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
+		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -99,6 +100,7 @@
 			files = (
 				74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */,
 				74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */,
+				74BP00033054D200000CC4A9 /* BonePaper in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -165,6 +167,7 @@
 			packageProductDependencies = (
 				74KF00023054D000000CC4A9 /* Kingfisher */,
 				74FC00023054D100000CC4A9 /* FlexColorPicker */,
+				74BP00023054D200000CC4A9 /* BonePaper */,
 			);
 			productName = at_elements;
 			productReference = 743A529F3054CBF6000CC4A9 /* at_elements.app */;
@@ -223,6 +226,7 @@
 			packageReferences = (
 				74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */,
+				74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 743A52A03054CBF6000CC4A9 /* Products */;
@@ -564,6 +568,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/FlexColorPicker;
 		};
+		74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/BonePaper;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -582,6 +590,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */;
 			productName = FlexColorPicker;
+		};
+		74BP00023054D200000CC4A9 /* BonePaper */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */;
+			productName = BonePaper;
 		};
 		74KF00023054D000000CC4A9 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
