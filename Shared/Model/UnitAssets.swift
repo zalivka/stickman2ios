@@ -309,6 +309,63 @@ final class UnitAssets {
         return asset
     }
 
+    /// Android `setBonePictureId(NO_PICTURE)` — edge stays, artwork unlinks. Unused pictures go to the gallery.
+    func clearEdgeArtwork(start: Int, end: Int, unitName: String) {
+        let name = Self.removeNumber(unitName)
+        var removed: EdgeAsset?
+        edgeAssets = edgeAssets.filter { key, states in
+            let sameUnit = key.unitName == name
+            let sameEnds = (key.start == start && key.end == end) || (key.start == end && key.end == start)
+            if sameUnit && sameEnds {
+                removed = states[Self.stateDefault] ?? states.values.first
+                return false
+            }
+            return true
+        }
+        guard let asset = removed else { return }
+        let stillUsed = edgeAssets.values.contains { states in
+            states.values.contains { $0.bmName == asset.bmName }
+        }
+        if !stillUsed {
+            var loose = asset
+            loose.start = -1
+            loose.end = -1
+            looseBones[asset.bmName] = loose
+        }
+    }
+
+    /// Android `PictureFrame.applyModifier`: `xpad -= dx` (`xOffset` is `-xpad`).
+    func applyShift(bmName: String, dx: CGFloat, dy: CGFloat) {
+        if bmName.isEmpty {
+            fatalError("UnitAssets applyShift empty bmName")
+        }
+        var found = false
+        for (key, states) in edgeAssets {
+            var next = states
+            var changed = false
+            for (state, asset) in states where asset.bmName == bmName {
+                var updated = asset
+                updated.xOffset += dx
+                updated.yOffset += dy
+                next[state] = updated
+                changed = true
+                found = true
+            }
+            if changed {
+                edgeAssets[key] = next
+            }
+        }
+        if var loose = looseBones[bmName] {
+            loose.xOffset += dx
+            loose.yOffset += dy
+            looseBones[bmName] = loose
+            found = true
+        }
+        if !found {
+            fatalError("UnitAssets applyShift unknown bm '\(bmName)'")
+        }
+    }
+
     func replaceBitmap(bmName: String, image: CGImage, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) {
         if bmName.isEmpty {
             fatalError("UnitAssets replaceBitmap empty bmName")

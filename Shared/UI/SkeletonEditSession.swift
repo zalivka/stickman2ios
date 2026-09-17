@@ -4,6 +4,7 @@ import Foundation
 final class SkeletonEditSession {
     let undo = SkeletonUndo()
     var boneCreateHoldMode = false
+    var shiftHoldMode = false
     var selectedPointId: Int?
     /// When true, canvas draws green vacant-point circles (Android `toggleVacantPoints`).
     var exposeVacantPoints = false
@@ -12,6 +13,11 @@ final class SkeletonEditSession {
 
     func setHoldMode(_ on: Bool) {
         boneCreateHoldMode = on
+        revision += 1
+    }
+
+    func setShiftHold(_ on: Bool) {
+        shiftHoldMode = on
         revision += 1
     }
 

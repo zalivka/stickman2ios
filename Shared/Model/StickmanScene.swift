@@ -1,6 +1,6 @@
 import CoreGraphics
 
-enum Attachable {
+enum Attachable: Hashable {
     case none
     case master
     case slave
@@ -106,6 +106,30 @@ struct StickmanUnit {
         let remove = Set([id] + descendants(of: id))
         points.removeAll { remove.contains($0.id) }
         link()
+    }
+
+    /// Android `EditPointDialog` Apply: attachable + invisible (`fixed`). Slave is base-only.
+    mutating func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) {
+        guard let index = points.firstIndex(where: { $0.id == id }) else {
+            fatalError("StickmanUnit '\(name)' missing point \(id)")
+        }
+        let isBase = points[index].isBase
+        if attachable == .slave && !isBase {
+            fatalError("StickmanUnit '\(name)' slave only on base, got point \(id)")
+        }
+        points[index].fixed = isBase ? false : fixed
+        points[index].attachable = attachable
+    }
+
+    /// Android `Frame.canBeDragged` — Invisible points and enslaved bases are not grab handles.
+    func canBeDragged(_ point: StickmanPoint) -> Bool {
+        if point.fixed {
+            return false
+        }
+        if point.isBase && SlavesRegistry.isEnslaved(self) {
+            return false
+        }
+        return true
     }
 
     /// Parent→child edge that ends at `id`, if any.

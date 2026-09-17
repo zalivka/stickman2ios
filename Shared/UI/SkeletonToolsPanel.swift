@@ -19,6 +19,8 @@ enum SkeletonChrome {
     static let boneNew = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
     static let boneNewPressed = Color(red: 0x4a / 255, green: 0x6b / 255, blue: 0x18 / 255)
     static let holdBanner = Color(red: 1, green: 0xaf / 255, blue: 0x3b / 255)
+    static let shiftIdle = Color(red: 0x43 / 255, green: 0x43 / 255, blue: 0x43 / 255)
+    static let shiftPressed = Color(red: 0x82 / 255, green: 0x82 / 255, blue: 0x82 / 255)
     static let galleryPhoneWidth: CGFloat = 100
     static let galleryPadWidth: CGFloat = 180
     static let galleryRowHeight: CGFloat = 80
@@ -58,16 +60,35 @@ struct SkeletonBackButton: View {
 }
 
 struct SkeletonPreviewPanel: View {
+    @Binding var canvasPane: Color
     var onBack: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
+            VStack(spacing: 14) {
+                previewBgButton(.white, label: "White background")
+                previewBgButton(SkeletonCanvas.pane, label: "Grey background")
+                previewBgButton(.black, label: "Black background")
+            }
+            .padding(.top, 16)
             Spacer(minLength: 0)
             SkeletonBackButton(action: onBack)
         }
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(SkeletonChrome.pane)
+    }
+
+    private func previewBgButton(_ color: Color, label: String) -> some View {
+        Button {
+            canvasPane = color
+        } label: {
+            color
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 
@@ -213,18 +234,28 @@ struct SkeletonSecondaryPanel: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            accent.frame(width: SkeletonChrome.stripeWidth)
+            accent
+                .frame(width: SkeletonChrome.stripeWidth)
+                .frame(maxHeight: .infinity)
             Group {
                 switch content {
                 case .empty:
                     SkeletonChrome.pane
-                case .bones(let onBoneHoldStart, let onBoneHoldEnd, let onDelete, let onMoveDown, let onMoveUp):
+                case .bones(let onBoneHoldStart, let onBoneHoldEnd, let onProps, let canProps, let onDelete, let onMoveDown, let onMoveUp):
                     SkeletonBonesTools(
                         onBoneHoldStart: onBoneHoldStart,
                         onBoneHoldEnd: onBoneHoldEnd,
+                        onProps: onProps,
+                        canProps: canProps,
                         onDelete: onDelete,
                         onMoveDown: onMoveDown,
                         onMoveUp: onMoveUp
+                    )
+                case .draw(let onShiftHoldStart, let onShiftHoldEnd, let onClear):
+                    SkeletonDrawTools(
+                        onShiftHoldStart: onShiftHoldStart,
+                        onShiftHoldEnd: onShiftHoldEnd,
+                        onClear: onClear
                     )
                 }
             }
@@ -241,9 +272,16 @@ enum SkeletonSecondaryContent {
     case bones(
         onBoneHoldStart: () -> Void,
         onBoneHoldEnd: () -> Void,
+        onProps: () -> Void,
+        canProps: Bool,
         onDelete: () -> Void,
         onMoveDown: () -> Void,
         onMoveUp: () -> Void
+    )
+    case draw(
+        onShiftHoldStart: () -> Void,
+        onShiftHoldEnd: () -> Void,
+        onClear: () -> Void
     )
 }
 
@@ -251,6 +289,8 @@ enum SkeletonSecondaryContent {
 struct SkeletonBonesTools: View {
     var onBoneHoldStart: () -> Void
     var onBoneHoldEnd: () -> Void
+    var onProps: () -> Void
+    var canProps: Bool
     var onDelete: () -> Void
     var onMoveDown: () -> Void
     var onMoveUp: () -> Void
@@ -259,7 +299,7 @@ struct SkeletonBonesTools: View {
     var body: some View {
         VStack(spacing: 0) {
             boneNewButton
-            toolButton(title: "Props", icon: "skel_edit_point_active", action: {})
+            toolButton(title: "Props", icon: "skel_edit_point_active", enabled: canProps, action: onProps)
             toolButton(title: "Delete", icon: "skel_btn_del_active", action: onDelete)
             toolButton(title: "Down", icon: "bone_down_active", action: onMoveDown)
             toolButton(title: "Up", icon: "bone_up_active", action: onMoveUp)
@@ -302,7 +342,7 @@ struct SkeletonBonesTools: View {
         .accessibilityLabel("Hold to add a bone")
     }
 
-    private func toolButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func toolButton(title: String, icon: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Image(decorative: Self.icon(icon), scale: 3)
@@ -317,9 +357,11 @@ struct SkeletonBonesTools: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(enabled ? 1 : 0.35)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     private static let plusIcon: CGImage = chromeImage("plus_icon")
@@ -327,6 +369,87 @@ struct SkeletonBonesTools: View {
     private static func icon(_ name: String) -> CGImage {
         chromeImage(name)
     }
+}
+
+/// Android `skeleton_draw_tools`: Shift (hold) and Clear at the bottom.
+struct SkeletonDrawTools: View {
+    var onShiftHoldStart: () -> Void
+    var onShiftHoldEnd: () -> Void
+    var onClear: () -> Void
+    @State private var shiftPressed = false
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    clearButton
+                    shiftButton
+                }
+                .frame(maxWidth: .infinity)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+    }
+
+    private var shiftButton: some View {
+        ZStack {
+            VStack(spacing: 3) {
+                ZStack {
+                    Circle()
+                        .fill(shiftPressed ? SkeletonChrome.shiftPressed : SkeletonChrome.shiftIdle)
+                        .frame(width: 48, height: 48)
+                    Image(decorative: Self.shiftIcon, scale: 3)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                }
+                Text("Shift")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+            }
+            HoldTouchPad(
+                onBegan: {
+                    shiftPressed = true
+                    onShiftHoldStart()
+                },
+                onEnded: {
+                    shiftPressed = false
+                    onShiftHoldEnd()
+                }
+            )
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
+        .contentShape(Rectangle())
+        .accessibilityLabel("Hold to shift the bone picture")
+    }
+
+    private var clearButton: some View {
+        Button(action: onClear) {
+            VStack(spacing: 2) {
+                Image(decorative: Self.clearIcon, scale: 3)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                Text("Clear")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear bone artwork")
+    }
+
+    private static let shiftIcon: CGImage = chromeImage("skel_edit_shift")
+    private static let clearIcon: CGImage = chromeImage("v3remove")
 }
 
 struct SkeletonSideMenu: View {
@@ -338,9 +461,7 @@ struct SkeletonSideMenu: View {
         VStack(alignment: .leading, spacing: 0) {
             row("Save as", icon: "square.and.arrow.down", action: onSaveAs)
             row("Preview", icon: "eye", action: onPreview)
-            row("Audio", icon: "speaker.wave.2", action: onPick)
             row("Settings", icon: "gearshape", action: onPick)
-            row("Help", icon: "questionmark.circle", action: onPick)
             Spacer(minLength: 0)
         }
         .frame(width: SideMenu.width)

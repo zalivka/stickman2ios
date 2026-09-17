@@ -17,6 +17,8 @@ struct SkeletonScreen: View {
     @State private var toolsPanel: SkeletonToolsPanel = .bones
     @State private var showingMenu = false
     @State private var boneCreateHoldMode = false
+    @State private var shiftHoldMode = false
+    @State private var toast = ""
     @State private var selectedPointId: Int?
     @State private var layerEpoch = 0
     @State private var exposeVacantPoints = false
@@ -25,6 +27,7 @@ struct SkeletonScreen: View {
     @State private var editSession = SkeletonEditSession()
     @State private var canUndo = false
     @State private var canRedo = false
+    @State private var pointProps: PointPropsEdit?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
@@ -56,7 +59,8 @@ struct SkeletonScreen: View {
                     selectedPointId: $selectedPointId,
                     layerEpoch: layerEpoch,
                     exposeVacantPoints: exposeVacantPoints,
-                    onPrepareUndo: { prepareUndo() }
+                    onPrepareUndo: { prepareUndo() },
+                    onApplyBoneShift: applyBoneShift
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -68,6 +72,9 @@ struct SkeletonScreen: View {
                     onSelect: { next in
                         if next != .bones {
                             setHoldMode(false)
+                        }
+                        if next != .draw {
+                            setShiftHold(false)
                         }
                         toolsPanel = next
                     },
@@ -85,22 +92,32 @@ struct SkeletonScreen: View {
                         content: .bones(
                             onBoneHoldStart: { setHoldMode(true) },
                             onBoneHoldEnd: { setHoldMode(false) },
+                            onProps: openPointProps,
+                            canProps: selectedPointId != nil,
                             onDelete: deleteSelected,
                             onMoveDown: { moveSelected(up: false) },
                             onMoveUp: { moveSelected(up: true) }
                         )
                     )
                 } else if toolsPanel == .draw {
-                    SkeletonSecondaryPanel(accent: SkeletonChrome.drawAccent)
+                    SkeletonSecondaryPanel(
+                        accent: SkeletonChrome.drawAccent,
+                        content: .draw(
+                            onShiftHoldStart: { setShiftHold(true) },
+                            onShiftHoldEnd: { setShiftHold(false) },
+                            onClear: clearArtwork
+                        )
+                    )
                 }
                 // Keep the open canvas area pass-through for touches under this chrome stack.
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            if boneCreateHoldMode {
-                Text("Hold the button and drag from a point to add a bone")
+            if let banner = holdBannerText {
+                Text(banner)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 14)
@@ -110,6 +127,19 @@ struct SkeletonScreen: View {
                     .padding(.leading, SkeletonChrome.leadingWidth(panel: toolsPanel))
                     .padding(.trailing, SkeletonChrome.galleryWidth(horizontalSizeClass: horizontalSizeClass))
                     .frame(maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+            }
+
+            if !toast.isEmpty {
+                Text(toast)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.bottom, 48)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .allowsHitTesting(false)
             }
 
@@ -167,6 +197,15 @@ struct SkeletonScreen: View {
                 }
             )
         }
+        .sheet(item: $pointProps) { draft in
+            EditPointDialog(
+                isBase: draft.isBase,
+                attachable: draft.attachable,
+                fixed: draft.fixed
+            ) { attachable, fixed in
+                applyPointProps(id: draft.pointId, attachable: attachable, fixed: fixed)
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -197,6 +236,14 @@ struct SkeletonScreen: View {
         let boneTip: CGPoint
         let onion: CGImage?
         let bmName: String
+    }
+
+    private struct PointPropsEdit: Identifiable {
+        var id: Int { pointId }
+        let pointId: Int
+        let isBase: Bool
+        let attachable: Attachable
+        let fixed: Bool
     }
 
     private func openBonePaper() {
@@ -276,9 +323,59 @@ struct SkeletonScreen: View {
         layerEpoch += 1
     }
 
+    private var holdBannerText: String? {
+        if boneCreateHoldMode {
+            return "Hold the button and drag from a point to add a bone"
+        }
+        if shiftHoldMode {
+            return "Hold the button and drag the bone picture"
+        }
+        return nil
+    }
+
     private func setHoldMode(_ on: Bool) {
         editSession.boneCreateHoldMode = on
         boneCreateHoldMode = on
+    }
+
+    private func setShiftHold(_ on: Bool) {
+        editSession.shiftHoldMode = on
+        shiftHoldMode = on
+    }
+
+    private func clearArtwork() {
+        guard let unit = optionalUnit, let assets else {
+            fatalError("SkeletonScreen '\(title)' clear with no unit")
+        }
+        guard let id = selectedPointId, let edge = unit.upperEdge(of: id) else {
+            showToast("Select a point")
+            return
+        }
+        prepareUndo(includeAssets: true)
+        assets.clearEdgeArtwork(start: edge.from, end: edge.to, unitName: unit.name)
+        layerEpoch += 1
+    }
+
+    private func applyBoneShift(from: Int, to: Int, dx: CGFloat, dy: CGFloat) {
+        guard let unit = optionalUnit, let assets else {
+            fatalError("SkeletonScreen '\(title)' shift with no unit")
+        }
+        guard let bmName = assets.bmName(forEdge: from, end: to, unitName: unit.name) else {
+            return
+        }
+        prepareUndo(includeAssets: true)
+        assets.applyShift(bmName: bmName, dx: dx, dy: dy)
+        layerEpoch += 1
+    }
+
+    private func showToast(_ text: String) {
+        toast = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if toast == text {
+                toast = ""
+            }
+        }
     }
 
     private func attachBone(_ bmName: String) {
@@ -313,6 +410,29 @@ struct SkeletonScreen: View {
                 editSession.setExposeVacantPoints(on)
             }
         }
+    }
+
+    private func openPointProps() {
+        guard let unit = optionalUnit, let id = selectedPointId else {
+            return
+        }
+        let point = unit.point(id: id)
+        pointProps = PointPropsEdit(
+            pointId: id,
+            isBase: point.isBase,
+            attachable: point.attachable,
+            fixed: point.fixed
+        )
+    }
+
+    private func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) {
+        guard var unit = optionalUnit else {
+            fatalError("SkeletonScreen '\(title)' point props with no unit")
+        }
+        prepareUndo()
+        unit.applyPointProps(id: id, attachable: attachable, fixed: fixed)
+        writeUnit(unit)
+        layerEpoch += 1
     }
 
     private func deleteSelected() {

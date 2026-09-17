@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SkeletonPreviewScreen: View {
     @State private var unit: StickmanUnit
+    @State private var canvasPane = SkeletonCanvas.pane
     var assets: UnitAssets
     var sceneWidth: CGFloat
     var sceneHeight: CGFloat
@@ -21,13 +22,15 @@ struct SkeletonPreviewScreen: View {
                 assets: assets,
                 sceneWidth: sceneWidth,
                 sceneHeight: sceneHeight,
+                sceneFill: canvasPane,
+                canvasPane: canvasPane,
                 mode: .editor
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            SkeletonPreviewPanel(onBack: { dismiss() })
+            SkeletonPreviewPanel(canvasPane: $canvasPane, onBack: { dismiss() })
         }
-        .background(SkeletonCanvas.pane)
+        .background(canvasPane)
         .ignoresSafeArea()
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)

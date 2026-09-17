@@ -120,6 +120,7 @@ struct SkeletonCanvas: View {
     static let boneCommon = Color(red: 0, green: 0xb2 / 255, blue: 1)
     static let boneSlave = Color(red: 1, green: 0x26 / 255, blue: 0)
     static let boneMaster = Color(red: 0x88 / 255, green: 0xe2 / 255, blue: 0x0d / 255)
+    static let boneInvisible = Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255)
     static let boneNodeRadius: CGFloat = 4
     static let boneEdgeWidth: CGFloat = 3
     static let boneBaseRingRadius: CGFloat = 8.5
@@ -152,6 +153,7 @@ struct SkeletonCanvas: View {
     var sceneHeight: CGFloat
     var currentIndex: Int = 0
     var sceneFill: Color = Self.sceneFill
+    var canvasPane: Color = Self.pane
     var mode: SkeletonCanvasMode = .editor
     var showSkeleton: Bool = true
     /// Live hold/selection flags — reference type so touch closures never see a stale copy.
@@ -164,6 +166,7 @@ struct SkeletonCanvas: View {
     /// Android `toggleVacantPoints` — green circles over all nodes.
     var exposeVacantPoints: Bool = false
     var onPrepareUndo: (() -> Void)? = nil
+    var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
@@ -175,6 +178,8 @@ struct SkeletonCanvas: View {
     @State private var dragRef = DragRef()
     @State private var boneCreateStartId: Int?
     @State private var boneCreateEnd: CGPoint?
+    @State private var boneModDx: CGFloat = 0
+    @State private var boneModDy: CGFloat = 0
 
     private final class DragRef {
         var nodeId: Int?
@@ -198,7 +203,7 @@ struct SkeletonCanvas: View {
                 let layout = resolvedLayout(size: size)
                 switch mode {
                 case .editor, .camera, .background:
-                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.pane))
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(canvasPane))
                 case .skeleton:
                     drawCheckerboard(context: &context, size: size, layout: layout)
                 case .preview:
@@ -269,11 +274,24 @@ struct SkeletonCanvas: View {
                     resetBoneCreateGesture()
                 }
             }
+            .onChange(of: shiftHoldFlag) { _, on in
+                if on {
+                    boneModDx = 0
+                    boneModDy = 0
+                } else {
+                    commitBoneShift()
+                    cancelShiftDrag()
+                }
+            }
         }
     }
 
     private var boneCreateHoldFlag: Bool {
         editSession?.boneCreateHoldMode ?? false
+    }
+
+    private var shiftHoldFlag: Bool {
+        editSession?.shiftHoldMode ?? false
     }
 
     private var cameraChangeHandler: (PictureMove) -> Void {
@@ -405,6 +423,9 @@ struct SkeletonCanvas: View {
             )
         }
         for point in drawn.points {
+            if !bones, !drawn.canBeDragged(point) {
+                continue
+            }
             let center = layout.screenPoint(x: point.x, y: point.y)
             let isSelected = bones && point.id == selectedId
             let color: Color
@@ -433,10 +454,13 @@ struct SkeletonCanvas: View {
     }
 
     private static func boneColor(_ point: StickmanPoint) -> Color {
+        if point.fixed {
+            return boneInvisible
+        }
         switch point.attachable {
-        case .none: boneCommon
-        case .slave: boneSlave
-        case .master: boneMaster
+        case .none: return boneCommon
+        case .slave: return boneSlave
+        case .master: return boneMaster
         }
     }
 
@@ -475,6 +499,9 @@ struct SkeletonCanvas: View {
         let radius = Self.hitRadius
         let color = Color.cyan.opacity(180 / 255)
         for point in drawn.points {
+            if !drawn.canBeDragged(point) {
+                continue
+            }
             let center = layout.screenPoint(x: point.x, y: point.y)
             let rect = CGRect(
                 x: center.x - radius,
@@ -540,7 +567,8 @@ struct SkeletonCanvas: View {
             // the unflipped bitmap (scale y, negate y_offset). Looking up a flipped
             // key and drawing as-is left dino head/torso upside-down.
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
-            let yOffset = (mirror ? -bone.asset.yOffset : bone.asset.yOffset) * drawn.scale
+            let live = liveShift(for: bone.asset)
+            let yOffset = (mirror ? -(bone.asset.yOffset + live.dy) : bone.asset.yOffset + live.dy) * drawn.scale
             context.drawLayer { ctx in
                 ctx.translateBy(
                     x: layout.originX - layout.minX * layout.scale,
@@ -551,7 +579,7 @@ struct SkeletonCanvas: View {
                 ctx.rotate(by: Angle(radians: angle))
                 ctx.translateBy(x: -bone.start.x, y: -bone.start.y)
                 ctx.translateBy(
-                    x: bone.start.x + bone.asset.xOffset * drawn.scale,
+                    x: bone.start.x + (bone.asset.xOffset + live.dx) * drawn.scale,
                     y: bone.start.y + yOffset
                 )
                 ctx.scaleBy(x: drawn.scale, y: mirror ? -drawn.scale : drawn.scale)
@@ -773,6 +801,10 @@ struct SkeletonCanvas: View {
     private func handleDrag(at location: CGPoint, size: CGSize, began: Bool) {
         touchScreen = location
         let current = resolvedLayout(size: size)
+        if mode == .skeleton, shiftHoldFlag {
+            handleShift(at: location, layout: current, began: began)
+            return
+        }
         if mode == .skeleton, boneCreateHoldFlag {
             handleBoneCreate(at: location, layout: current, began: began)
             return
@@ -882,6 +914,12 @@ struct SkeletonCanvas: View {
     }
 
     private func endTouch() {
+        if mode == .skeleton, shiftHoldFlag || boneModDx != 0 || boneModDy != 0 {
+            commitBoneShift()
+            touchScreen = nil
+            dragRef.lastScreen = nil
+            return
+        }
         if mode == .skeleton, boneCreateHoldFlag || boneCreateStartId != nil {
             commitBoneCreate()
             touchScreen = nil
@@ -898,6 +936,96 @@ struct SkeletonCanvas: View {
         if let current = layout {
             snapHandlers(to: current)
         }
+    }
+
+    private func liveShift(for asset: UnitAssets.EdgeAsset) -> (dx: CGFloat, dy: CGFloat) {
+        guard shiftHoldFlag || boneModDx != 0 || boneModDy != 0 else {
+            return (0, 0)
+        }
+        guard let id = selectedPointId.wrappedValue, let edge = unit.upperEdge(of: id) else {
+            return (0, 0)
+        }
+        let same = (asset.start == edge.from && asset.end == edge.to)
+            || (asset.start == edge.to && asset.end == edge.from)
+        return same ? (boneModDx, boneModDy) : (0, 0)
+    }
+
+    private func handleShift(at location: CGPoint, layout: SkeletonLayout, began: Bool) {
+        if began {
+            dragRef.lastScreen = location
+            return
+        }
+        guard let last = dragRef.lastScreen else { return }
+        guard let id = selectedPointId.wrappedValue, let edge = unit.upperEdge(of: id) else {
+            dragRef.lastScreen = location
+            return
+        }
+        if unit.scale <= 0 {
+            fatalError("SkeletonCanvas shift with scale \(unit.scale)")
+        }
+        let from = unit.point(id: edge.from)
+        let to = unit.point(id: edge.to)
+        let edgeVec = CGPoint(x: to.x - from.x, y: to.y - from.y)
+        let edgeLen2 = edgeVec.x * edgeVec.x + edgeVec.y * edgeVec.y
+        if edgeLen2 == 0 {
+            dragRef.lastScreen = location
+            return
+        }
+        let prev = layout.graphPoint(screen: last)
+        let now = layout.graphPoint(screen: location)
+        let move = CGPoint(x: now.x - prev.x, y: now.y - prev.y)
+        let ortho = CGPoint(x: edgeVec.y, y: -edgeVec.x)
+        let onX = Self.project(move, onto: edgeVec)
+        let onY = Self.project(move, onto: ortho)
+        var dx = hypot(onX.x, onX.y) * Self.signum(onX.x)
+        var dy = hypot(onY.x, onY.y) * Self.signum(onY.y)
+        if edgeVec.x < 0 {
+            dx *= -1
+            dy *= -1
+        }
+        boneModDx += dx / unit.scale
+        boneModDy += dy / unit.scale
+        dragRef.lastScreen = location
+    }
+
+    private func commitBoneShift() {
+        let dx = boneModDx
+        let dy = boneModDy
+        boneModDx = 0
+        boneModDy = 0
+        dragRef.lastScreen = nil
+        if dx == 0, dy == 0 {
+            return
+        }
+        guard let id = selectedPointId.wrappedValue, let edge = unit.upperEdge(of: id) else {
+            return
+        }
+        guard let onApplyBoneShift else {
+            fatalError("SkeletonCanvas shift apply missing onApplyBoneShift")
+        }
+        onApplyBoneShift(edge.from, edge.to, dx, dy)
+    }
+
+    private func cancelShiftDrag() {
+        dragRef.nodeId = nil
+        dragRef.panning = false
+        dragRef.lastScreen = nil
+        dragRef.undoPushed = false
+    }
+
+    private static func project(_ vector: CGPoint, onto axis: CGPoint) -> CGPoint {
+        let mag2 = axis.x * axis.x + axis.y * axis.y
+        if mag2 == 0 {
+            return .zero
+        }
+        let k = (vector.x * axis.x + vector.y * axis.y) / mag2
+        return CGPoint(x: axis.x * k, y: axis.y * k)
+    }
+
+    private static func signum(_ value: CGFloat) -> CGFloat {
+        if value > 0 { return 1 }
+        if value < 0 { return -1 }
+        return 0
     }
 
     private func handleBoneCreate(at location: CGPoint, layout: SkeletonLayout, began: Bool) {
@@ -974,6 +1102,9 @@ struct SkeletonCanvas: View {
             return $0.name > $1.name
         }) {
             for point in drawn.points {
+                if mode != .skeleton, !drawn.canBeDragged(point) {
+                    continue
+                }
                 let center = layout.screenPoint(x: point.x, y: point.y)
                 let dist = hypot(location.x - center.x, location.y - center.y)
                 if dist <= radius {
