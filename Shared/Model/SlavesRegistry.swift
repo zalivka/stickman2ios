@@ -61,6 +61,36 @@ nonisolated struct SlavesRegistry {
         return result
     }
 
+    static func rootMaster(of unit: StickmanUnit, in units: [StickmanUnit]) -> StickmanUnit {
+        var current = unit
+        var seen: Set<String> = []
+        while let attachment = attachment(of: current) {
+            if seen.contains(current.name) {
+                fatalError("SlavesRegistry cycle at '\(current.name)'")
+            }
+            seen.insert(current.name)
+            guard let master = units.first(where: { $0.name == attachment.masterName }) else {
+                fatalError("SlavesRegistry missing master '\(attachment.masterName)' for '\(current.name)'")
+            }
+            current = master
+        }
+        return current
+    }
+
+    /// Android `getAllConnected` — root master plus every descendant slave.
+    static func allConnected(of unit: StickmanUnit, in units: [StickmanUnit]) -> [StickmanUnit] {
+        var registry = SlavesRegistry()
+        registry.populate(units: units)
+        let root = rootMaster(of: unit, in: units)
+        let names = [root.name] + registry.allSlaves(of: root.name)
+        return names.map { name in
+            guard let match = units.first(where: { $0.name == name }) else {
+                fatalError("SlavesRegistry connected missing '\(name)'")
+            }
+            return match
+        }
+    }
+
     static func slaveDepth(_ unit: StickmanUnit, in units: [StickmanUnit]) -> Int {
         var depth = 0
         var current = unit

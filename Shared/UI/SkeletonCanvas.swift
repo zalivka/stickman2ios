@@ -244,7 +244,7 @@ struct SkeletonCanvas: View {
             .overlay {
                 if mode == .editor || mode == .skeleton {
                     SkeletonTouchOverlay(
-                        useRawTouches: mode == .skeleton,
+                        useRawTouches: true,
                         onBegan: { handleDrag(at: $0, size: proxy.size, began: true) },
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
                         onEnded: { _ in endTouch() },
@@ -777,15 +777,16 @@ struct SkeletonCanvas: View {
                 case .scale: icon = HandlerArtwork.scale
                 }
                 let center = layout.screenPoint(x: handle.x, y: handle.y)
+                cg.saveGState()
+                cg.translateBy(x: center.x, y: center.y)
+                if handle.kind == .rotate || handle.kind == .scale {
+                    cg.scaleBy(x: -1, y: 1)
+                }
                 cg.draw(
                     icon,
-                    in: CGRect(
-                        x: center.x - side / 2,
-                        y: center.y - side / 2,
-                        width: side,
-                        height: side
-                    )
+                    in: CGRect(x: -side / 2, y: -side / 2, width: side, height: side)
                 )
+                cg.restoreGState()
             }
         }
     }
@@ -1341,6 +1342,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap))
         doubleTap.numberOfTapsRequired = 2
         doubleTap.cancelsTouchesInView = false
+        doubleTap.delaysTouchesEnded = false
         view.addGestureRecognizer(doubleTap)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
         view.addGestureRecognizer(pinch)
@@ -1367,9 +1369,11 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         var onPinch: (CGPoint, CGFloat) -> Void = { _, _ in }
         var useRawTouches = false
         private var rawActive = false
+        weak var host: TouchForwardView?
 
         func apply(useRawTouches: Bool, to view: TouchForwardView) {
             self.useRawTouches = useRawTouches
+            host = view
             view.pan?.isEnabled = !useRawTouches
             view.forwardsTouches = useRawTouches
         }
@@ -1392,6 +1396,11 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         }
 
         @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            host?.finishTracking()
+            if rawActive {
+                rawActive = false
+                onEnded(gesture.location(in: gesture.view))
+            }
             onDoubleTap(gesture.location(in: gesture.view))
         }
 
@@ -1441,7 +1450,16 @@ private final class TouchForwardView: UIView {
     private var tracking: UITouch?
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard forwardsTouches, tracking == nil, let touch = touches.first else {
+        guard forwardsTouches, let touch = touches.first else {
+            super.touchesBegan(touches, with: event)
+            return
+        }
+        if let current = tracking, !Self.isLive(current) {
+            let point = current.location(in: self)
+            tracking = nil
+            coordinator?.rawEnded(point)
+        }
+        if tracking != nil {
             super.touchesBegan(touches, with: event)
             return
         }
@@ -1475,5 +1493,18 @@ private final class TouchForwardView: UIView {
         let point = tracking.location(in: self)
         self.tracking = nil
         coordinator?.rawEnded(point)
+    }
+
+    func finishTracking() {
+        tracking = nil
+    }
+
+    private static func isLive(_ touch: UITouch) -> Bool {
+        switch touch.phase {
+        case .ended, .cancelled:
+            return false
+        default:
+            return true
+        }
     }
 }

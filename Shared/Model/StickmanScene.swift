@@ -207,6 +207,21 @@ struct StickmanUnit {
         }
     }
 
+    /// Android `Unit.flipBones` — mirror X across `axisX`. Free unit keeps its base.
+    mutating func flipBones(around axisX: CGFloat) {
+        let keepBase = !SlavesRegistry.isEnslaved(self)
+        for i in points.indices {
+            if points[i].isBase && keepBase {
+                continue
+            }
+            points[i].x = axisX + (axisX - points[i].x)
+        }
+    }
+
+    mutating func flipBitmaps() {
+        flipped.toggle()
+    }
+
     mutating func placeInScene(width: CGFloat, height: CGFloat, scale factor: CGFloat) {
         if width <= 0 || height <= 0 {
             fatalError("StickmanUnit '\(name)' scene size \(width)x\(height)")
@@ -432,6 +447,24 @@ struct StickmanFrame {
         slaves.populate(units: units)
     }
 
+    /// Android `Unit.flip` — mirror this unit and its slaves across this unit's base X.
+    mutating func flipUnit(named name: String) {
+        guard let source = units.first(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) flip missing '\(name)'")
+        }
+        refreshAttachments()
+        let axisX = source.basePoint().x
+        let names = [name] + slaves.allSlaves(of: name)
+        for slaveName in names {
+            guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
+                fatalError("StickmanFrame \(id) flip missing slave '\(slaveName)'")
+            }
+            units[index].flipBones(around: axisX)
+            units[index].flipBitmaps()
+        }
+        refreshAttachments()
+    }
+
     mutating func deleteConnectedUnit(named name: String) {
         guard let victim = units.first(where: { $0.name == name }) else {
             fatalError("StickmanFrame \(id) missing unit '\(name)'")
@@ -481,6 +514,45 @@ struct StickmanFrame {
 
     func uniqueName(for name: String) -> String {
         UnitName.unique(base: name, existing: units.map(\.name))
+    }
+
+    func clone() -> StickmanFrame {
+        var copy = self
+        copy.refreshAttachments()
+        return copy
+    }
+
+    /// Android `UnitPaster.pasteOnFrame` — unique names, masters first, arrange on top.
+    mutating func pasteStructure(_ structure: [StickmanUnit]) {
+        if structure.isEmpty {
+            fatalError("StickmanFrame \(id) pasteStructure empty")
+        }
+        let offset = units.map(\.arrange).max() ?? 0
+        let ordered = structure.sorted {
+            SlavesRegistry.slaveDepth($0, in: structure) < SlavesRegistry.slaveDepth($1, in: structure)
+        }
+        var existing = units.map(\.name)
+        var rename: [String: String] = [:]
+        for unit in ordered {
+            let next = UnitName.unique(base: unit.name, existing: existing)
+            rename[unit.name] = next
+            existing.append(next)
+        }
+        for var unit in ordered {
+            let oldName = unit.name
+            guard let newName = rename[oldName] else {
+                fatalError("StickmanFrame \(id) paste missing rename for '\(oldName)'")
+            }
+            unit.name = newName
+            unit.arrange += offset
+            if let baseIndex = unit.points.firstIndex(where: \.isBase),
+               let master = unit.points[baseIndex].attachedMasterName,
+               let mapped = rename[master] {
+                unit.points[baseIndex].attachedMasterName = mapped
+            }
+            units.append(unit)
+        }
+        refreshAttachments()
     }
 
     mutating func addCopy(_ src: StickmanUnit, name: String, at point: CGPoint, scale: CGFloat) {
@@ -544,5 +616,117 @@ struct StickmanScene {
             fatalError("StickmanScene currentIndex \(currentIndex) out of \(frames.count)")
         }
         return frames[currentIndex]
+    }
+
+    func nextFrameId() -> Int {
+        (frames.map(\.id).max() ?? -1) + 1
+    }
+
+    func canDeleteFrames(at indices: [Int]) -> Bool {
+        if indices.isEmpty {
+            return false
+        }
+        return frames.count - Set(indices).count > 0
+    }
+
+    /// Android `Scene.addFrame` — clone last, otherwise nlerp midpoint. Moves current to the new frame.
+    mutating func addFrame() {
+        if frames.isEmpty {
+            fatalError("StickmanScene addFrame has no frames")
+        }
+        if currentIndex < 0 || currentIndex >= frames.count {
+            fatalError("StickmanScene addFrame currentIndex \(currentIndex) out of \(frames.count)")
+        }
+        var created: StickmanFrame
+        if currentIndex == frames.count - 1 {
+            created = frames[currentIndex].clone()
+        } else {
+            let generated = NlerpInterpolator.interpolate(
+                from: frames[currentIndex],
+                to: frames[currentIndex + 1],
+                duration: 2
+            )
+            if generated.count < 2 {
+                fatalError("StickmanScene addFrame interpolator returned \(generated.count)")
+            }
+            created = generated[1]
+        }
+        created.id = nextFrameId()
+        created.refreshAttachments()
+        if created.units.isEmpty {
+            fatalError("StickmanScene addFrame produced no units")
+        }
+        frames.insert(created, at: currentIndex + 1)
+        currentIndex += 1
+    }
+
+    /// Android `Scene.removeFrames` — cannot delete every frame. Lands on the neighbor Android picks.
+    mutating func removeFrames(at indices: [Int]) {
+        let unique = Array(Set(indices)).sorted()
+        if unique.isEmpty {
+            fatalError("StickmanScene removeFrames empty")
+        }
+        if !canDeleteFrames(at: unique) {
+            fatalError("StickmanScene cannot delete all \(frames.count) frames")
+        }
+        for index in unique where index < 0 || index >= frames.count {
+            fatalError("StickmanScene removeFrames \(index) out of \(frames.count)")
+        }
+        let minDeleted = unique[0]
+        let maxDeleted = unique[unique.count - 1]
+        let landingOld = minDeleted == 0 ? maxDeleted + 1 : minDeleted - 1
+        if landingOld < 0 || landingOld >= frames.count {
+            fatalError("StickmanScene removeFrames landing \(landingOld) out of \(frames.count)")
+        }
+        if unique.contains(landingOld) {
+            fatalError("StickmanScene removeFrames landing \(landingOld) is deleted")
+        }
+        let landingId = frames[landingOld].id
+        var drop = Set(unique)
+        frames = frames.enumerated().compactMap { drop.contains($0.offset) ? nil : $0.element }
+        guard let next = frames.firstIndex(where: { $0.id == landingId }) else {
+            fatalError("StickmanScene removeFrames lost landing id \(landingId)")
+        }
+        currentIndex = next
+    }
+
+    /// Android `Scene.pasteFrames` — insert after current, or at start when current is 0.
+    @discardableResult
+    mutating func pasteFrames(
+        _ source: [StickmanFrame],
+        animations incoming: [String: FBFAnimation]
+    ) -> [Int] {
+        if source.isEmpty {
+            fatalError("StickmanScene pasteFrames empty")
+        }
+        let insertAt = currentIndex == 0 ? 0 : currentIndex + 1
+        var oldToNew: [Int: Int] = [:]
+        var inserted: [Int] = []
+        var cursor = insertAt
+        for original in source {
+            var frame = original.clone()
+            let newId = nextFrameId()
+            oldToNew[original.id] = newId
+            frame.id = newId
+            frame.refreshAttachments()
+            frames.insert(frame, at: cursor)
+            inserted.append(cursor)
+            cursor += 1
+        }
+        for (name, animation) in incoming {
+            if unitAnimations[name] != nil {
+                continue
+            }
+            var copy = animation
+            if !copy.hasNoRange {
+                guard let start = oldToNew[animation.startFrameId], let end = oldToNew[animation.endFrameId] else {
+                    continue
+                }
+                copy.startFrameId = start
+                copy.endFrameId = end
+            }
+            unitAnimations[name] = copy
+        }
+        return inserted
     }
 }

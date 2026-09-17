@@ -3,7 +3,8 @@ import SwiftUI
 /// Android UNIT panel — actions for the active scene unit.
 struct UnitPropertiesPanel: View {
     static let width: CGFloat = 86
-    private static let pane = MainPanel.pane
+    static let pane = Color(red: 0x20 / 255, green: 0x20 / 255, blue: 0x20 / 255)
+    static let accent = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
     private static let label = Color(white: 0.82)
     private static let activeGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
 
@@ -21,19 +22,25 @@ struct UnitPropertiesPanel: View {
     var canMoveBackward: Bool
     var onSelectState: (Int) -> Void
     var onOpenAnimation: () -> Void
+    var onCopy: () -> Void
 
     @State private var showingStates = false
 
     var body: some View {
-        ZStack {
-            actions
-            if showingStates {
-                statesOverlay
+        HStack(spacing: 0) {
+            Self.accent
+                .frame(width: 2)
+            ZStack {
+                actions
+                if showingStates {
+                    statesOverlay
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Self.pane)
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(Self.pane)
         .onChange(of: unit.name) { _, _ in
             showingStates = false
         }
@@ -41,7 +48,7 @@ struct UnitPropertiesPanel: View {
 
     private var actions: some View {
         ScrollView {
-            VStack(spacing: 8) {
+            VStack(spacing: 8 / 1.5) {
                 Text(unit.name)
                     .font(.system(size: 12))
                     .foregroundStyle(.white)
@@ -85,6 +92,7 @@ struct UnitPropertiesPanel: View {
                     enabled: canMoveBackward,
                     action: onMoveBackward
                 )
+                actionButton("Copy", icon: "props_copy", action: onCopy)
             }
             .padding(.horizontal, 6)
             .padding(.bottom, 12)
@@ -97,7 +105,7 @@ struct UnitPropertiesPanel: View {
                 showingStates = false
             } label: {
                 Image(decorative: Self.icon("props_apply"), scale: 2)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 45, height: 45)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .contentShape(Rectangle())
@@ -166,15 +174,15 @@ struct UnitPropertiesPanel: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
+            VStack(spacing: 6 / 1.5) {
                 Image(decorative: Self.icon(icon), scale: 2)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 45, height: 45)
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundStyle(Self.label)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 8 / 1.5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

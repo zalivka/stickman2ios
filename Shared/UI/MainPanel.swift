@@ -57,11 +57,12 @@ struct MainPanel: View {
                 )
             }
             if let onEditUnit {
-                systemButton(
-                    systemName: "square.3.layers.3d",
+                chromeButton(
+                    icon: editUnitActivated ? Self.propsIconSel : Self.propsIcon,
                     title: "EDIT UNIT",
                     color: editUnitActivated ? .white : Self.editUnit,
                     activated: editUnitActivated,
+                    activatedFill: Self.editUnitActive,
                     action: onEditUnit
                 )
             }
@@ -157,6 +158,8 @@ struct MainPanel: View {
     private static let playIcon = chromeImage("main_btn_play")
     private static let insertIcon = chromeImage("main_btn_insert")
     private static let insertIconSel = chromeImage("main_btn_insert_sel")
+    private static let propsIcon = chromeImage("main_btn_props")
+    private static let propsIconSel = chromeImage("main_btn_props_sel")
     private static let frameIcon = chromeImage("main_btn_frames")
     private static let frameIconSel = chromeImage("main_btn_frames_sel")
     private static let undoIcon = chromeImage("main_btn_undo")

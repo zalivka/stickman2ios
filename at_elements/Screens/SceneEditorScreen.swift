@@ -30,6 +30,7 @@ struct SceneEditorScreen: View {
     @State private var showingLeaveAlert = false
     @State private var dismissAfterSave = false
     @State private var savedDocument: Data
+    @StateObject private var clipboard = CopyPasteBuffer()
     @Environment(\.dismiss) private var dismiss
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
@@ -87,6 +88,17 @@ struct SceneEditorScreen: View {
                 ItemChooserPanel(onPick: insert)
                     .padding(.leading, MainPanel.width)
             }
+            if showingEditFrame {
+                FrameOpsPanel(
+                    canDelete: scene.canDeleteFrames(at: rearrangeFrames),
+                    canPaste: clipboard.hasFrames,
+                    onAdd: addFrame,
+                    onDelete: deleteSelectedFrames,
+                    onCopy: copySelectedFrames,
+                    onPaste: pasteFrames
+                )
+                .padding(.leading, MainPanel.width)
+            }
             if showingEditUnit {
                 Group {
                     if let selectedUnit {
@@ -104,7 +116,8 @@ struct SceneEditorScreen: View {
                             canMoveForward: canMoveSelectedUnit(forward: true),
                             canMoveBackward: canMoveSelectedUnit(forward: false),
                             onSelectState: setSelectedUnitState,
-                            onOpenAnimation: { showingFBF = true }
+                            onOpenAnimation: { showingFBF = true },
+                            onCopy: copySelectedUnit
                         )
                     } else {
                         PresentUnitsPanel(
@@ -113,7 +126,9 @@ struct SceneEditorScreen: View {
                             selectedName: nil,
                             assets: assets,
                             onSelect: { selectedUnitName = $0 },
-                            onMove: movePresentUnits
+                            onMove: movePresentUnits,
+                            canPaste: clipboard.hasUnits,
+                            onPaste: pasteUnits
                         )
                     }
                 }
@@ -140,6 +155,7 @@ struct SceneEditorScreen: View {
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .animation(.easeInOut(duration: 0.2), value: showingInsert)
         .animation(.easeInOut(duration: 0.2), value: showingEditUnit)
+        .animation(.easeInOut(duration: 0.2), value: showingEditFrame)
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(
@@ -316,10 +332,10 @@ struct SceneEditorScreen: View {
             fatalError("SceneEditorScreen flip without selected unit")
         }
         for frameIndex in rearrangeFrames {
-            guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
+            guard scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) else {
                 continue
             }
-            scene.frames[frameIndex].units[index].flipped.toggle()
+            scene.frames[frameIndex].flipUnit(named: selectedUnitName)
         }
     }
 
@@ -359,6 +375,69 @@ struct SceneEditorScreen: View {
         }
     }
 
+    private func addFrame() {
+        scene.addFrame()
+        collapseRangeToCurrent()
+    }
+
+    private func deleteSelectedFrames() {
+        if !scene.canDeleteFrames(at: rearrangeFrames) {
+            return
+        }
+        scene.removeFrames(at: rearrangeFrames)
+        collapseRangeToCurrent()
+        selectedUnitName = nil
+    }
+
+    private func copySelectedFrames() {
+        let indices = rearrangeFrames
+        clipboard.copyFrames(from: scene, indices: indices)
+        showToast("Copied \(indices.count) frames")
+    }
+
+    private func pasteFrames() {
+        if !clipboard.hasFrames {
+            return
+        }
+        clipboard.pasteFrames(into: &scene)
+        clampRange()
+    }
+
+    private func copySelectedUnit() {
+        guard let selectedUnit else {
+            fatalError("SceneEditorScreen copy unit with no selection")
+        }
+        let connected = SlavesRegistry.allConnected(of: selectedUnit, in: scene.currentFrame.units)
+        clipboard.copyUnits(connected)
+        selectedUnitName = nil
+    }
+
+    private func pasteUnits() {
+        if !clipboard.hasUnits {
+            return
+        }
+        clipboard.pasteUnits(into: &scene, at: rearrangeFrames)
+    }
+
+    private func collapseRangeToCurrent() {
+        let index = scene.currentIndex
+        range = index...index
+        clampRange()
+    }
+
+    private func clampRange() {
+        let last = scene.frames.count - 1
+        if last < 0 {
+            fatalError("SceneEditorScreen clampRange empty scene")
+        }
+        if scene.currentIndex < 0 || scene.currentIndex > last {
+            fatalError("SceneEditorScreen currentIndex \(scene.currentIndex) out of \(scene.frames.count)")
+        }
+        let low = min(max(range.lowerBound, 0), last)
+        let high = min(max(range.upperBound, 0), last)
+        range = min(low, high)...max(low, high)
+    }
+
     private func pickMenu(_ action: SideMenuAction) {
         print("menu: \(action.rawValue)")
         showingMenu = false
@@ -388,6 +467,9 @@ struct SceneEditorScreen: View {
         }
         if showingEditUnit {
             return selectedUnit == nil ? PresentUnitsPanel.width : UnitPropertiesPanel.width
+        }
+        if showingEditFrame {
+            return FrameOpsPanel.width
         }
         return 0
     }
