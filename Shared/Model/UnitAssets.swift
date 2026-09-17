@@ -4,6 +4,8 @@ import UIKit
 
 final class UnitAssets {
     static let stateDefault = 0
+    /// Android `Constants.DEFAULT_LENGTH` — gallery new-bone hint and attach length.
+    static let defaultBoneLength: CGFloat = 200
 
     struct EdgeKey: Hashable {
         var unitName = ""
@@ -52,12 +54,28 @@ final class UnitAssets {
     }
 
     private var edgeAssets: [EdgeKey: [Int: EdgeAsset]] = [:]
+    /// Unattached gallery pictures (Android bone-picture repo rows with no edge yet).
+    private var looseBones: [String: EdgeAsset] = [:]
     private var restModel: [String: [Int: CGFloat]] = [:]
     private var archives: [String: StoredArchive] = [:]
 
     struct StoredArchive {
         var entryName: String
         var zip: Data
+    }
+
+    struct Snapshot {
+        var edgeAssets: [EdgeKey: [Int: EdgeAsset]]
+        var looseBones: [String: EdgeAsset]
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(edgeAssets: edgeAssets, looseBones: looseBones)
+    }
+
+    func restore(_ snapshot: Snapshot) {
+        edgeAssets = snapshot.edgeAssets
+        looseBones = snapshot.looseBones
     }
 
     func hasAssetsFor(unitName: String) -> Bool {
@@ -205,6 +223,10 @@ final class UnitAssets {
                 byBm[asset.bmName] = Seen(bmName: asset.bmName, thumb: asset.bitmap, weight: asset.weight)
             }
         }
+        for asset in looseBones.values where asset.unitName == name {
+            if byBm[asset.bmName] != nil { continue }
+            byBm[asset.bmName] = Seen(bmName: asset.bmName, thumb: asset.bitmap, weight: asset.weight)
+        }
         return byBm.values
             .sorted {
                 if $0.weight != $1.weight { return $0.weight < $1.weight }
@@ -228,10 +250,6 @@ final class UnitAssets {
         guard let template = firstAsset(bmName: bmName, unitName: name) else {
             fatalError("UnitAssets attachBone unknown bm '\(bmName)' for '\(name)'")
         }
-        let nextWeight = (edgeAssets
-            .filter { $0.key.unitName == name }
-            .flatMap { $0.value.values.map(\.weight) }
-            .max() ?? -1) + 1
         let key = EdgeKey(
             unitName: name,
             start: start,
@@ -242,9 +260,30 @@ final class UnitAssets {
         asset.unitName = name
         asset.start = start
         asset.end = end
-        asset.weight = nextWeight
+        asset.weight = nextWeight(unitName: name)
         asset.state = Self.stateDefault
         edgeAssets[key] = [Self.stateDefault: asset]
+        looseBones.removeValue(forKey: bmName)
+    }
+
+    /// Android `BonePictureFactory.createEmpty` + `Constants.DEFAULT_LENGTH` Kurwa hint.
+    func createEmptyGalleryBone(unitName: String, length: CGFloat = defaultBoneLength) -> EdgeAsset {
+        if length <= 0 {
+            fatalError("UnitAssets gallery bone length is \(length)")
+        }
+        let name = Self.removeNumber(unitName)
+        let asset = makeEmptyAsset(
+            unitName: name,
+            start: -1,
+            end: -1,
+            length: length,
+            bmName: uniqueGalleryBmName()
+        )
+        if looseBones[asset.bmName] != nil {
+            fatalError("UnitAssets duplicate loose bm '\(asset.bmName)'")
+        }
+        looseBones[asset.bmName] = asset
+        return asset
     }
 
     /// FastPainter empty frame: square `2*length`, pad so the bone sits on the mid-line.
@@ -259,27 +298,12 @@ final class UnitAssets {
         if let existing = getDrawable(key, state: Self.stateDefault) {
             return existing
         }
-        let safe = max(length, 1)
-        let side = min(1024, max(2, Int(ceil(safe * 2))))
-        let bitmap = Self.emptyBitmap(width: side, height: side)
-        let xPad = max(0, (CGFloat(side) - safe) / 2)
-        let nextWeight = (edgeAssets
-            .filter { $0.key.unitName == name }
-            .flatMap { $0.value.values.map(\.weight) }
-            .max() ?? -1) + 1
-        let asset = EdgeAsset(
+        let asset = makeEmptyAsset(
             unitName: name,
             start: start,
             end: end,
-            xOffset: -xPad,
-            yOffset: -CGFloat(side) / 2,
-            weight: nextWeight,
-            state: Self.stateDefault,
-            nativeFlipped: false,
-            bmName: uniqueBmName(start: start, end: end),
-            bitmap: bitmap,
-            svgName: nil,
-            commandScale: nil
+            length: length,
+            bmName: uniqueBmName(start: start, end: end)
         )
         edgeAssets[key] = [Self.stateDefault: asset]
         return asset
@@ -309,6 +333,13 @@ final class UnitAssets {
                 edgeAssets[key] = next
             }
         }
+        if var loose = looseBones[bmName] {
+            loose.bitmap = image
+            loose.xOffset -= extraLeft
+            loose.yOffset -= extraTop
+            looseBones[bmName] = loose
+            found = true
+        }
         if !found {
             fatalError("UnitAssets replaceBitmap unknown bm '\(bmName)'")
         }
@@ -328,13 +359,57 @@ final class UnitAssets {
         return files.sorted { $0.name < $1.name }
     }
 
-    private func uniqueBmName(start: Int, end: Int) -> String {
-        var used: Set<String> = []
+    private func makeEmptyAsset(
+        unitName: String,
+        start: Int,
+        end: Int,
+        length: CGFloat,
+        bmName: String
+    ) -> EdgeAsset {
+        let safe = max(length, 1)
+        let side = min(1024, max(2, Int(ceil(safe * 2))))
+        let bitmap = Self.emptyBitmap(width: side, height: side)
+        let xPad = max(0, (CGFloat(side) - safe) / 2)
+        return EdgeAsset(
+            unitName: unitName,
+            start: start,
+            end: end,
+            xOffset: -xPad,
+            yOffset: -CGFloat(side) / 2,
+            weight: nextWeight(unitName: unitName),
+            state: Self.stateDefault,
+            nativeFlipped: false,
+            bmName: bmName,
+            bitmap: bitmap,
+            svgName: nil,
+            commandScale: nil
+        )
+    }
+
+    private func nextWeight(unitName: String) -> Int {
+        let edgeMax = edgeAssets
+            .filter { $0.key.unitName == unitName }
+            .flatMap { $0.value.values.map(\.weight) }
+            .max() ?? -1
+        let looseMax = looseBones.values
+            .filter { $0.unitName == unitName }
+            .map(\.weight)
+            .max() ?? -1
+        return max(edgeMax, looseMax) + 1
+    }
+
+    private func usedBmNames() -> Set<String> {
+        var used = Set(looseBones.keys)
         for states in edgeAssets.values {
             for asset in states.values {
                 used.insert(asset.bmName)
             }
         }
+        return used
+    }
+
+    private func uniqueBmName(start: Int, end: Int) -> String {
+        let used = usedBmNames()
         let base = "bone_\(start)_\(end).png"
         if !used.contains(base) {
             return base
@@ -344,6 +419,19 @@ final class UnitAssets {
             suffix += 1
         }
         return "bone_\(start)_\(end)_\(suffix).png"
+    }
+
+    private func uniqueGalleryBmName() -> String {
+        let used = usedBmNames()
+        let base = "bone_new.png"
+        if !used.contains(base) {
+            return base
+        }
+        var suffix = 2
+        while used.contains("bone_new_\(suffix).png") {
+            suffix += 1
+        }
+        return "bone_new_\(suffix).png"
     }
 
     /// Live edge rows for save — includes edges attached or painted during this session.
@@ -383,6 +471,9 @@ final class UnitAssets {
             if let match = states.values.first(where: { $0.bmName == bmName }) {
                 return match
             }
+        }
+        if let loose = looseBones[bmName], loose.unitName == unitName {
+            return loose
         }
         return nil
     }

@@ -23,6 +23,8 @@ struct SkeletonScreen: View {
     @State private var showingPreview = false
     @State private var bonePaperEdit: BonePaperEdit?
     @State private var editSession = SkeletonEditSession()
+    @State private var canUndo = false
+    @State private var canRedo = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
@@ -53,7 +55,8 @@ struct SkeletonScreen: View {
                     editSession: editSession,
                     selectedPointId: $selectedPointId,
                     layerEpoch: layerEpoch,
-                    exposeVacantPoints: exposeVacantPoints
+                    exposeVacantPoints: exposeVacantPoints,
+                    onPrepareUndo: { prepareUndo() }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -70,7 +73,11 @@ struct SkeletonScreen: View {
                     },
                     menuActivated: showingMenu,
                     editEnabled: canEditBone,
-                    onEdit: openBonePaper
+                    onEdit: openBonePaper,
+                    canUndo: canUndo,
+                    onUndo: performUndo,
+                    canRedo: canRedo,
+                    onRedo: performRedo
                 )
                 if toolsPanel == .bones {
                     SkeletonSecondaryPanel(
@@ -136,7 +143,7 @@ struct SkeletonScreen: View {
                 BonesGalleryPanel(
                     bones: galleryBones,
                     highlightedBmName: highlightedBmName,
-                    onNewBone: {},
+                    onNewBone: createNewGalleryBone,
                     onAttach: attachBone
                 )
             }
@@ -213,11 +220,7 @@ struct SkeletonScreen: View {
             unitName: unit.name,
             length: length
         )
-        if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
-            fatalError("SkeletonScreen '\(title)' bone '\(asset.bmName)' size \(asset.bitmap.width)x\(asset.bitmap.height)")
-        }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
-        let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
         let onion = SkeletonOnion.worldOverlay(
             unit: unit,
             assets: assets,
@@ -229,6 +232,27 @@ struct SkeletonScreen: View {
             boneStartPNG: start
         )
         layerEpoch += 1
+        presentBonePaper(asset: asset, length: length, onion: onion)
+    }
+
+    /// Android gallery NEW BONE: dummy picture at `DEFAULT_LENGTH`, then Kurwa with pen.
+    private func createNewGalleryBone() {
+        guard let unit = optionalUnit, let assets else {
+            fatalError("SkeletonScreen '\(title)' new bone with no unit")
+        }
+        prepareUndo(includeAssets: true)
+        let length = UnitAssets.defaultBoneLength
+        let asset = assets.createEmptyGalleryBone(unitName: unit.name, length: length)
+        layerEpoch += 1
+        presentBonePaper(asset: asset, length: length, onion: nil)
+    }
+
+    private func presentBonePaper(asset: UnitAssets.EdgeAsset, length: CGFloat, onion: CGImage?) {
+        if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
+            fatalError("SkeletonScreen '\(title)' bone '\(asset.bmName)' size \(asset.bitmap.width)x\(asset.bitmap.height)")
+        }
+        let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
+        let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
         bonePaperEdit = BonePaperEdit(
             source: asset.bitmap,
             boneStart: start,
@@ -242,6 +266,7 @@ struct SkeletonScreen: View {
         guard let assets else {
             fatalError("SkeletonScreen '\(title)' apply with no assets")
         }
+        prepareUndo(includeAssets: true)
         assets.replaceBitmap(
             bmName: bmName,
             image: export.image,
@@ -262,7 +287,8 @@ struct SkeletonScreen: View {
             pulseVacantPoints()
             return
         }
-        let newId = unit.addGalleryBonePoint(parentId: parentId, length: 200)
+        prepareUndo(includeAssets: true)
+        let newId = unit.addGalleryBonePoint(parentId: parentId, length: UnitAssets.defaultBoneLength)
         assets.attachBone(bmName: bmName, toEdge: parentId, end: newId, unitName: unit.name)
         writeUnit(unit)
         selectedPointId = newId
@@ -294,6 +320,7 @@ struct SkeletonScreen: View {
         if unit.point(id: id).isBase {
             return
         }
+        prepareUndo(includeAssets: true)
         unit.deletePointSubtree(id: id)
         selectedPointId = nil
         writeUnit(unit)
@@ -303,6 +330,7 @@ struct SkeletonScreen: View {
     private func moveSelected(up: Bool) {
         guard let unit = optionalUnit, let id = selectedPointId, let assets else { return }
         guard let edge = unit.upperEdge(of: id) else { return }
+        prepareUndo(includeAssets: true)
         if assets.moveEdgeOrder(unitName: unit.name, start: edge.from, end: edge.to, moveUp: up) {
             layerEpoch += 1
         }
@@ -311,6 +339,86 @@ struct SkeletonScreen: View {
     private var optionalUnit: StickmanUnit? {
         guard let scene, !scene.currentFrame.units.isEmpty else { return nil }
         return scene.currentFrame.units[0]
+    }
+
+    private func captureUndoEntry(includeAssets: Bool) -> SkeletonUndo.Entry? {
+        guard let unit = optionalUnit else {
+            return nil
+        }
+        let snap: UnitAssets.Snapshot?
+        if includeAssets {
+            guard let assets else {
+                return nil
+            }
+            snap = assets.snapshot()
+        } else {
+            snap = nil
+        }
+        return SkeletonUndo.Entry(unit: unit, selectedPointId: selectedPointId, assets: snap)
+    }
+
+    private func applyUndoEntry(_ entry: SkeletonUndo.Entry) {
+        if let snap = entry.assets {
+            guard let assets else {
+                fatalError("SkeletonScreen '\(title)' undo with no assets")
+            }
+            assets.restore(snap)
+        }
+        writeUnit(entry.unit)
+        selectedPointId = entry.selectedPointId
+        editSession.select(entry.selectedPointId)
+        layerEpoch += 1
+    }
+
+    private func prepareUndo(includeAssets: Bool = false) {
+        guard let entry = captureUndoEntry(includeAssets: includeAssets) else {
+            return
+        }
+        editSession.undo.push(unit: entry.unit, selectedPointId: entry.selectedPointId, assets: entry.assets)
+        refreshUndoChrome(async: true)
+    }
+
+    private func performUndo() {
+        guard let previous = editSession.undo.peek() else {
+            return
+        }
+        guard let current = captureUndoEntry(includeAssets: previous.assets != nil) else {
+            return
+        }
+        _ = editSession.undo.pop()
+        editSession.undo.setRedo(current)
+        applyUndoEntry(previous)
+        refreshUndoChrome(async: false)
+    }
+
+    private func performRedo() {
+        guard let next = editSession.undo.takeRedo() else {
+            return
+        }
+        guard let current = captureUndoEntry(includeAssets: next.assets != nil) else {
+            editSession.undo.setRedo(next)
+            return
+        }
+        editSession.undo.push(unit: current.unit, selectedPointId: current.selectedPointId, assets: current.assets)
+        applyUndoEntry(next)
+        refreshUndoChrome(async: false)
+    }
+
+    private func refreshUndoChrome(async: Bool) {
+        let nextUndo = editSession.undo.canUndo
+        let nextRedo = editSession.undo.canRedo
+        if canUndo == nextUndo && canRedo == nextRedo {
+            return
+        }
+        let apply = {
+            canUndo = nextUndo
+            canRedo = nextRedo
+        }
+        if async {
+            DispatchQueue.main.async(execute: apply)
+        } else {
+            apply()
+        }
     }
 
     private func writeUnit(_ unit: StickmanUnit) {

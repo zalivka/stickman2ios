@@ -78,6 +78,10 @@ struct SkeletonLeftPanel: View {
     var menuActivated: Bool
     var editEnabled: Bool
     var onEdit: () -> Void
+    var canUndo: Bool
+    var onUndo: () -> Void
+    var canRedo: Bool
+    var onRedo: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,6 +115,7 @@ struct SkeletonLeftPanel: View {
 
             Spacer(minLength: 0)
 
+            redoButton
             undoButton
         }
         .frame(width: SkeletonChrome.sidebarWidth)
@@ -139,14 +144,43 @@ struct SkeletonLeftPanel: View {
         .accessibilityLabel("Edit")
     }
 
-    private var undoButton: some View {
-        Image(decorative: Self.undoIcon, scale: 3)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 36, height: 36)
+    private var redoButton: some View {
+        Button(action: onRedo) {
+            VStack(spacing: 2) {
+                Image(uiImage: UIImage(cgImage: Self.undoIcon).withRenderingMode(.alwaysTemplate))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(Self.redoPink)
+                    .scaleEffect(x: -1, y: 1)
+                Text("Redo")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+            }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .accessibilityLabel("Undo")
+            .padding(.vertical, 6)
+            .opacity(canRedo ? 1 : 0.35)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canRedo)
+        .accessibilityLabel("Redo")
+    }
+
+    private var undoButton: some View {
+        Button(action: onUndo) {
+            Image(decorative: Self.undoIcon, scale: 3)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 36, height: 36)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .opacity(canUndo ? 1 : 0.35)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canUndo)
+        .accessibilityLabel("Undo")
     }
 
     private func toggle(_ title: String, accent: Color, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -170,6 +204,7 @@ struct SkeletonLeftPanel: View {
     private static let navIcon: CGImage = chromeImage("main_btn_nav")
     private static let editIcon: CGImage = chromeImage("skel_edit_draw")
     private static let undoIcon: CGImage = chromeImage("skel_btn_undo")
+    private static let redoPink = Color(red: 1, green: 0.35, blue: 0.72)
 }
 
 struct SkeletonSecondaryPanel: View {

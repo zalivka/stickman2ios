@@ -163,6 +163,7 @@ struct SkeletonCanvas: View {
     var layerEpoch: Int = 0
     /// Android `toggleVacantPoints` — green circles over all nodes.
     var exposeVacantPoints: Bool = false
+    var onPrepareUndo: (() -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
@@ -187,6 +188,7 @@ struct SkeletonCanvas: View {
         var touchOffsetX: CGFloat = 0
         var touchOffsetY: CGFloat = 0
         var panning = false
+        var undoPushed = false
     }
 
     var body: some View {
@@ -818,6 +820,10 @@ struct SkeletonCanvas: View {
                 dragRef.panning = dragRef.nodeId == nil
                 if mode == .skeleton {
                     selectedPointId.wrappedValue = dragRef.nodeId
+                    if dragRef.nodeId != nil, !dragRef.undoPushed {
+                        dragRef.undoPushed = true
+                        onPrepareUndo?()
+                    }
                 }
             }
             dragRef.lastScreen = location
@@ -886,6 +892,7 @@ struct SkeletonCanvas: View {
         dragRef.handler = nil
         dragRef.lastScreen = nil
         dragRef.panning = false
+        dragRef.undoPushed = false
         dragRef.touchOffsetX = 0
         dragRef.touchOffsetY = 0
         if let current = layout {
@@ -926,6 +933,7 @@ struct SkeletonCanvas: View {
         if drag < minDrag {
             return
         }
+        onPrepareUndo?()
         let newId = unit.addPointWithEdge(parentId: startId, destX: end.x, destY: end.y)
         selectedPointId.wrappedValue = newId
     }

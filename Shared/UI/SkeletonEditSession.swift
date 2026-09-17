@@ -2,6 +2,7 @@ import Foundation
 
 /// Shared mutable editor session so canvas touch callbacks always see live hold/selection state.
 final class SkeletonEditSession {
+    let undo = SkeletonUndo()
     var boneCreateHoldMode = false
     var selectedPointId: Int?
     /// When true, canvas draws green vacant-point circles (Android `toggleVacantPoints`).
