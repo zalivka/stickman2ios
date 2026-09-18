@@ -11,6 +11,9 @@ struct FullscreenPreviewScreen: View {
     @State private var percent = 0
     @State private var generation = UUID()
 
+    private static let frameNumber = Color(red: 0xfd / 255, green: 0xda / 255, blue: 0x0d / 255)
+    private static let frameNumberBack = Color(white: 0.16, opacity: 0.88)
+
     private enum Phase {
         case generating, playing, paused, finished
     }
@@ -19,15 +22,15 @@ struct FullscreenPreviewScreen: View {
         ZStack {
             if let movie {
                 canvas(movie)
-                HStack(spacing: 0) {
-                    if phase != .generating {
+                if phase == .finished {
+                    ReplayOverlay(text: overlayText, onTap: tapOverlay)
+                }
+                if phase != .generating {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
                         PreviewSeekBar(progress: progressBinding)
                             .frame(maxHeight: .infinity)
-                    }
-                    if phase == .finished {
-                        ReplayOverlay(text: overlayText, onTap: tapOverlay)
-                    } else {
-                        Color.clear.allowsHitTesting(false)
+                            .padding(16)
                     }
                 }
             } else {
@@ -41,7 +44,14 @@ struct FullscreenPreviewScreen: View {
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(besideMainPanel: false)
-                .padding(.leading, phase != .generating && movie != nil ? PreviewSeekBar.width : 0)
+        }
+        .overlay(alignment: .bottomLeading) {
+            if let movie, phase != .generating {
+                originFrameBadge(current: movie.currentFrame.originFrameIndex + 1)
+                    .padding(.leading, 16)
+                    .padding(.bottom, 20)
+                    .allowsHitTesting(false)
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -52,6 +62,24 @@ struct FullscreenPreviewScreen: View {
             guard phase == .playing else { return }
             tick()
         }
+    }
+
+    private func originFrameBadge(current: Int) -> some View {
+        if source.frames.isEmpty {
+            fatalError("FullscreenPreviewScreen origin badge has no source frames")
+        }
+        let digits = String(source.frames.count).count
+        let probe = String(repeating: "8", count: digits)
+        return ZStack {
+            Text(probe)
+                .hidden()
+            Text("\(current)")
+        }
+        .font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
+        .foregroundStyle(Self.frameNumber)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Self.frameNumberBack, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var overlayText: String {

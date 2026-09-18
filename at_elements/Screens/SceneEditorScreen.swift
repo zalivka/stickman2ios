@@ -31,6 +31,7 @@ struct SceneEditorScreen: View {
     @State private var dismissAfterSave = false
     @State private var savedDocument: Data
     @StateObject private var clipboard = CopyPasteBuffer()
+    @StateObject private var undo = SceneUndo()
     @Environment(\.dismiss) private var dismiss
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
@@ -62,6 +63,8 @@ struct SceneEditorScreen: View {
                     onInsert: toggleInsert,
                     onEditUnit: toggleEditUnit,
                     onEditFrame: toggleEditFrame,
+                    onUndo: performUndo,
+                    undoEnabled: undo.canUndo,
                     onMenu: toggleMenu,
                     insertActivated: showingInsert,
                     editUnitActivated: showingEditUnit,
@@ -79,7 +82,8 @@ struct SceneEditorScreen: View {
                     sceneWidth: scene.width,
                     sceneHeight: scene.height,
                     currentIndex: scene.currentIndex,
-                    selectedUnitName: $selectedUnitName
+                    selectedUnitName: $selectedUnitName,
+                    onPrepareUndo: prepareSelectionUndo
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
@@ -149,13 +153,24 @@ struct SceneEditorScreen: View {
                 frameCount: scene.frames.count,
                 currentIndex: currentIndexBinding,
                 range: $range,
-                mode: $mode
+                mode: $mode,
+                onEnterRange: {
+                    undo.commitEnteringRange(from: scene, indices: Array(range))
+                },
+                onLeaveRange: {
+                    undo.clearRangeBaseline()
+                }
             )
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .animation(.easeInOut(duration: 0.2), value: showingInsert)
         .animation(.easeInOut(duration: 0.2), value: showingEditUnit)
         .animation(.easeInOut(duration: 0.2), value: showingEditFrame)
+        .onChange(of: range) { _, _ in
+            if mode == .range {
+                undo.commitEnteringRange(from: scene, indices: Array(range))
+            }
+        }
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(
@@ -275,6 +290,7 @@ struct SceneEditorScreen: View {
 
     /// Android list is arrange-desc; after move, arrange = count-1-index.
     private func movePresentUnits(from: IndexSet, to: Int) {
+        prepareSelectionUndo()
         var names = scene.currentFrame.units
             .sorted {
                 if $0.arrange != $1.arrange { return $0.arrange > $1.arrange }
@@ -304,6 +320,7 @@ struct SceneEditorScreen: View {
         guard let selectedUnitName else {
             fatalError("SceneEditorScreen delete without selected unit")
         }
+        prepareSelectionUndo()
         for frameIndex in rearrangeFrames where scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) {
             scene.frames[frameIndex].deleteConnectedUnit(named: selectedUnitName)
         }
@@ -314,6 +331,7 @@ struct SceneEditorScreen: View {
         guard let selectedUnitName else {
             fatalError("SceneEditorScreen set state without selected unit")
         }
+        prepareSelectionUndo()
         for frameIndex in rearrangeFrames {
             guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
                 continue
@@ -331,6 +349,7 @@ struct SceneEditorScreen: View {
         guard let selectedUnitName else {
             fatalError("SceneEditorScreen flip without selected unit")
         }
+        prepareSelectionUndo()
         for frameIndex in rearrangeFrames {
             guard scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) else {
                 continue
@@ -343,6 +362,7 @@ struct SceneEditorScreen: View {
         guard let selectedUnitName else {
             fatalError("SceneEditorScreen detach without selected unit")
         }
+        prepareSelectionUndo()
         for frameIndex in rearrangeFrames {
             guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
                 continue
@@ -361,6 +381,7 @@ struct SceneEditorScreen: View {
         guard let selectedUnitName else {
             fatalError("SceneEditorScreen rearrange without selected unit")
         }
+        prepareSelectionUndo()
         for frameIndex in rearrangeFrames where scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) {
             scene.frames[frameIndex].rearrange(unitNamed: selectedUnitName, forward: forward)
         }
@@ -376,15 +397,33 @@ struct SceneEditorScreen: View {
     }
 
     private func addFrame() {
+        let currentIndex = scene.currentIndex
+        let animations = scene.unitAnimations
         scene.addFrame()
+        undo.commitFramesInserted(
+            ids: [scene.currentFrame.id],
+            currentIndex: currentIndex,
+            animations: animations
+        )
         collapseRangeToCurrent()
     }
 
     private func deleteSelectedFrames() {
-        if !scene.canDeleteFrames(at: rearrangeFrames) {
+        let indices = rearrangeFrames
+        if !scene.canDeleteFrames(at: indices) {
             return
         }
-        scene.removeFrames(at: rearrangeFrames)
+        let deleted = indices.map { scene.frames[$0].clone() }
+        let at = indices.min()!
+        let currentIndex = scene.currentIndex
+        let animations = scene.unitAnimations
+        scene.removeFrames(at: indices)
+        undo.commitFramesDeleted(
+            frames: deleted,
+            at: at,
+            currentIndex: currentIndex,
+            animations: animations
+        )
         collapseRangeToCurrent()
         selectedUnitName = nil
     }
@@ -399,7 +438,15 @@ struct SceneEditorScreen: View {
         if !clipboard.hasFrames {
             return
         }
-        clipboard.pasteFrames(into: &scene)
+        let currentIndex = scene.currentIndex
+        let animations = scene.unitAnimations
+        let inserted = clipboard.pasteFrames(into: &scene)
+        let ids = inserted.map { scene.frames[$0].id }
+        undo.commitFramesInserted(
+            ids: ids,
+            currentIndex: currentIndex,
+            animations: animations
+        )
         clampRange()
     }
 
@@ -416,7 +463,20 @@ struct SceneEditorScreen: View {
         if !clipboard.hasUnits {
             return
         }
+        prepareSelectionUndo()
         clipboard.pasteUnits(into: &scene, at: rearrangeFrames)
+    }
+
+    private func prepareSelectionUndo() {
+        undo.commitSelection(from: scene, indices: rearrangeFrames)
+    }
+
+    private func performUndo() {
+        if !undo.canUndo {
+            return
+        }
+        undo.restore(into: &scene)
+        clampRange()
     }
 
     private func collapseRangeToCurrent() {
@@ -574,6 +634,7 @@ struct SceneEditorScreen: View {
     }
 
     private func insert(_ item: Item) {
+        prepareSelectionUndo()
         selectedUnitName = InstantiateUnit.insert(
             item: item,
             into: &scene,

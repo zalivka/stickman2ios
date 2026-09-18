@@ -6,6 +6,8 @@ struct DualNavigationChrome: View {
     @Binding var currentIndex: Int
     @Binding var range: ClosedRange<Int>
     @Binding var mode: DualNavigation.Mode
+    var onEnterRange: (() -> Void)? = nil
+    var onLeaveRange: (() -> Void)? = nil
 
     @State private var barHeight: CGFloat = 0
 
@@ -66,10 +68,12 @@ struct DualNavigationChrome: View {
     private func enterRange() {
         range = DualNavigation.defaultRange(current: currentIndex, frameCount: frameCount)
         mode = .range
+        onEnterRange?()
     }
 
     private func enterFrames() {
         mode = .frames
+        onLeaveRange?()
     }
 
     private func navButton(idle: CGImage, pressed: CGImage, tap: @escaping () -> Void, longPress: @escaping () -> Void) -> some View {

@@ -19,6 +19,5 @@ struct PreviewSeekBar: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .frame(width: Self.width)
-        .padding(.bottom, 10)
     }
 }

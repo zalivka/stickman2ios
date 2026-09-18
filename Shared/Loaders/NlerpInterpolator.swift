@@ -127,6 +127,7 @@ enum NlerpInterpolator {
             alpha: unit1.alpha,
             arrange: unit1.arrange,
             flipped: unit1.flipped,
+            assetsState: unit1.assetsState,
             unitType: unit1.unitType,
             bubble: unit1.bubble
         )

@@ -16,6 +16,8 @@ struct MainPanel: View {
     var onInsert: (() -> Void)? = nil
     var onEditUnit: (() -> Void)? = nil
     var onEditFrame: (() -> Void)? = nil
+    var onUndo: (() -> Void)? = nil
+    var undoEnabled: Bool = false
     var onMenu: (() -> Void)? = nil
     var onReset: (() -> Void)? = nil
     var insertActivated = false
@@ -80,7 +82,8 @@ struct MainPanel: View {
                     title: "UNDO",
                     color: Self.undo,
                     activated: false,
-                    action: {}
+                    enabled: undoEnabled,
+                    action: onUndo ?? {}
                 )
             }
             if let onReset {

@@ -859,6 +859,10 @@ struct SkeletonCanvas: View {
                     }
                 }
             }
+            if mode == .editor, (dragRef.handler != nil || dragRef.nodeId != nil), !dragRef.undoPushed {
+                dragRef.undoPushed = true
+                onPrepareUndo?()
+            }
             dragRef.lastScreen = location
         }
         if let kind = dragRef.handler {
