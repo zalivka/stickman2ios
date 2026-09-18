@@ -13,6 +13,7 @@ struct SceneEditorScreen: View {
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
+    @State private var showingJpegs = false
     @State private var showingCamera = false
     @State private var showingBackground = false
     @State private var showingInsert = false
@@ -183,6 +184,9 @@ struct SceneEditorScreen: View {
         .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
+        }
+        .fullScreenCover(isPresented: $showingJpegs) {
+            JpegsScreen(source: scene, assets: assets, backgrounds: backgrounds)
         }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
@@ -515,6 +519,9 @@ struct SceneEditorScreen: View {
         }
         if action == .background {
             showingBackground = true
+        }
+        if action == .export {
+            showingJpegs = true
         }
     }
 

@@ -5,44 +5,42 @@ enum SideMenuAction: String {
     case export
     case createItems
     case editScene
-    case audio
     case background
     case camera
-    case speedEffects
     case debug
-    case buy
     case settings
-    case tutorials
 }
 
 struct SideMenu: View {
     static let width: CGFloat = 200
+    private static let accent = Color(white: 0.92)
 
     var onPick: (SideMenuAction) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                row(.save, "Save project", "square.and.arrow.down")
-                row(.export, "Export", "square.and.arrow.up")
-                divider
-                row(.createItems, "Create items", "plus.square")
-                row(.editScene, "Edit scene", "slider.horizontal.3")
-                row(.audio, "Add audio", "speaker.wave.2")
-                row(.background, "Background", "photo")
-                row(.camera, "Camera view", "camera")
-                row(.speedEffects, "Speed effects", "speedometer")
-                row(.debug, "Debug", "ladybug")
-                divider
-                row(.buy, "Unlock PRO *", "star")
-                row(.settings, "App settings", "gearshape")
-                row(.tutorials, "Tutorials", "questionmark.circle")
+        HStack(spacing: 0) {
+            Self.accent
+                .frame(width: 2)
+            ScrollView {
+                VStack(spacing: 0) {
+                    row(.save, "Save project", "square.and.arrow.down")
+                    row(.export, "Export", "square.and.arrow.up")
+                    divider
+                    row(.createItems, "Create items", "plus.square")
+                    row(.editScene, "Edit scene", "slider.horizontal.3")
+                    row(.background, "Background", "photo")
+                    row(.camera, "Camera view", "camera")
+                    row(.debug, "Debug", "ladybug")
+                    divider
+                    row(.settings, "App settings", "gearshape")
+                }
+                .padding(.bottom, 8)
             }
-            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(MainPanel.pane)
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(MainPanel.pane)
         .accessibilityIdentifier("side menu")
     }
 
