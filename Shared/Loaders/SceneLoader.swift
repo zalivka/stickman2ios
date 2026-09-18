@@ -54,27 +54,14 @@ enum SceneLoader {
         var scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
         scene.unitAnimations = loadAnimations(zip: zip, names: names, resource: resource)
         // GOTCHA (doc/gotchas.md): pack items live at pack/items/name.ati, not zip root.
+        // Android does not embed native (no-dot) pack items; those come from the bundled .atp.
         let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }
-        if items.isEmpty {
-            fatalError("SceneLoader '\(resource).ats' has no .ati")
-        }
         let assets = UnitAssets()
         for item in items {
             assets.loadItemFromArchive(ZipStore.data(named: item, in: zip), entryName: item)
         }
-        for frame in scene.frames {
-            for unit in frame.units {
-                let name = UnitAssets.removeNumber(unit.name)
-                if !assets.hasAssetsFor(unitName: name) {
-                    fatalError("SceneLoader assets missing unit '\(name)'")
-                }
-                let file = ownName(name) + ".ati"
-                if !items.contains(where: { itemFileName($0) == file }) {
-                    fatalError("SceneLoader '\(resource).ats' missing '\(file)' for '\(unit.name)'")
-                }
-            }
-        }
-        let backgrounds = loadBackgrounds(scene: scene, zip: zip, names: names, resource: resource)
+        ensureAssets(scene: scene, assets: assets, resource: resource)
+        let backgrounds = loadBackgrounds(scene: &scene, zip: zip, names: names, resource: resource)
         return (scene, assets, backgrounds)
     }
 
@@ -97,21 +84,40 @@ enum SceneLoader {
             if animation.period < 1 {
                 fatalError("SceneLoader '\(resource).ats' FBF '\(animation.unitname)' period is \(animation.period)")
             }
-            if result[animation.unitname] != nil {
-                fatalError("SceneLoader '\(resource).ats' duplicate FBF '\(animation.unitname)'")
+            let unitname = PackAlias.resolveUnitName(animation.unitname)
+            if result[unitname] != nil {
+                fatalError("SceneLoader '\(resource).ats' duplicate FBF '\(unitname)'")
             }
-            result[animation.unitname] = animation
+            var mapped = animation
+            mapped.unitname = unitname
+            result[unitname] = mapped
         }
         return result
     }
 
     private static func loadBackgrounds(
-        scene: StickmanScene,
+        scene: inout StickmanScene,
         zip: Data,
         names: [String],
         resource: String
     ) -> BackgroundAssets {
         let backgrounds = BackgroundAssets()
+        // GOTCHA (doc/gotchas.md): old demos (demo_space, demo_fight) put bg.png at zip root
+        // and omit bg_name. Android wraps that PNG as usermade and stamps every frame.
+        if names.contains("bg.png") {
+            let png = ZipStore.data(named: "bg.png", in: zip)
+            let image = BackgroundAssets.decode(png, name: "bg.png")
+            let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
+            let bgName = "usermade:\(own)"
+            backgrounds.install(
+                name: bgName,
+                image: image,
+                archive: ZipStore.archive([(name: "bg.png", data: png)])
+            )
+            for i in scene.frames.indices {
+                scene.frames[i].bgName = bgName
+            }
+        }
         var seen: Set<String> = []
         for frame in scene.frames {
             guard let bgName = frame.bgName else { continue }
@@ -121,6 +127,9 @@ enum SceneLoader {
             }
             if seen.contains(bgName) { continue }
             seen.insert(bgName)
+            if backgrounds.hasImage(for: bgName) {
+                continue
+            }
             let own = ownName(bgName)
             let entry = "_bgs/\(own).zip"
             if !names.contains(entry) {
@@ -145,11 +154,28 @@ enum SceneLoader {
         return backgrounds
     }
 
-    private static func itemFileName(_ path: String) -> String {
-        guard let slash = path.lastIndex(of: "/") else {
-            return path
+    private static func ensureAssets(scene: StickmanScene, assets: UnitAssets, resource: String) {
+        var seen = Set<String>()
+        for frame in scene.frames {
+            for unit in frame.units {
+                let name = UnitAssets.removeNumber(unit.name)
+                if seen.contains(name) {
+                    continue
+                }
+                seen.insert(name)
+                if assets.hasAssetsFor(unitName: name) {
+                    continue
+                }
+                let zip = Manifest.shared.itemZip(fullname: name)
+                assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: name))
+                if !assets.hasAssetsFor(unitName: name) {
+                    fatalError("SceneLoader assets missing unit '\(name)'")
+                }
+            }
         }
-        return String(path[path.index(after: slash)...])
+        if seen.isEmpty {
+            fatalError("SceneLoader '\(resource).ats' has no units")
+        }
     }
 
     static func ownName(_ unitName: String) -> String {
@@ -379,8 +405,8 @@ enum SceneXML {
                 guard let idText = attributes["id"], let id = Int(idText) else {
                     fatalError("SceneLoader frame missing id")
                 }
-                // GOTCHA (doc/gotchas.md): older frames omit bg_name / bg;
-                // Android keeps #ffffff and identity PictureMove.
+                // GOTCHA (doc/gotchas.md): older frames omit bg_name; Android Frame
+                // defaults to #ffffff. Root zip bg.png is applied after parse.
                 let bgName: String
                 if let text = attributes["bg_name"], !text.isEmpty {
                     bgName = text
@@ -429,7 +455,7 @@ enum SceneXML {
                 guard let arrangeText = attributes["arrange"], let arrange = Int(arrangeText) else {
                     fatalError("SceneLoader unit '\(name)' missing arrange")
                 }
-                unitName = name
+                unitName = PackAlias.resolveUnitName(name)
                 unitScale = CGFloat(scale)
                 unitAlpha = CGFloat(alpha)
                 unitArrange = arrange

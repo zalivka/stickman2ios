@@ -482,7 +482,7 @@ enum ModelXML {
             attributes: [String: String] = [:]
         ) {
             if elementName == "unit" {
-                unitName = attributes["name"]
+                unitName = attributes["name"].map(PackAlias.resolveUnitName)
                 return
             }
             if elementName != "point" { return }

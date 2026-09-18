@@ -33,7 +33,9 @@ Android extracts every zip entry ending in `.ati`, including `pack/items/name.at
 
 ## Missing frame `bg_name` / `bg`
 
-Older scenes omit `bg_name` and sometimes `bg=`. Android `Frame` defaults to `#ffffff` and identity `PictureMove`. Do not fatal on a missing attr; still fatal on an unknown non-empty `bg_name`. Solid colors are Android `Color.parseColor`: `#rrggbb` or `#aarrggbb` (`demo_faces` uses `#ff202020`). Bitmap backgrounds are `_bgs/<own>.zip` + `bg_name="usermade:<own>"`, not a root `bg.png`.
+Older scenes omit `bg_name` and sometimes `bg=`. Android `Frame` defaults to `#ffffff` and identity `PictureMove`. Do not fatal on a missing attr; still fatal on an unknown non-empty `bg_name`. Solid colors are Android `Color.parseColor`: `#rrggbb` or `#aarrggbb` (`demo_faces` uses `#ff202020`). Bitmap backgrounds are `_bgs/<own>.zip` + `bg_name="usermade:<own>"`.
+
+Some demos (`demo_space`, `demo_fight`) still use the pre-`bg_name` layout: root `bg.png` and `bg="1.0 0.0 0.0 0.0"` (that `bg=` is PictureMove, not a color). Android `SceneHelper` wraps the PNG as `usermade:<millis>` and stamps every frame. Do the same on load; do not leave those frames as `#ffffff`.
 
 ## Speech bubble is plain text
 

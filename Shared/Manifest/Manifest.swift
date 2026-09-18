@@ -131,7 +131,7 @@ nonisolated final class Manifest: @unchecked Sendable {
     }
 
     func findItem(fullname: String) -> Item? {
-        let key = UnitAssets.removeNumber(fullname)
+        let key = PackAlias.resolveUnitName(UnitAssets.removeNumber(fullname))
         lock.lock()
         defer { lock.unlock() }
         if let item = itemsByFullName[key] {

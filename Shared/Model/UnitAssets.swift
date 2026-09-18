@@ -799,7 +799,7 @@ enum AssetsXML {
             attributes: [String: String] = [:]
         ) {
             if elementName == "unit" {
-                unitName = attributes["name"]
+                unitName = attributes["name"].map(PackAlias.resolveUnitName)
                 return
             }
             if elementName != "edgeAsset" { return }

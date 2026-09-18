@@ -3,7 +3,7 @@ import CoreGraphics
 enum ItemConstructor {
     static func spider() -> StickmanUnit {
         var unit = StickmanUnit(
-            name: "newstickman:spider",
+            name: "zalivka.newstickman:spider",
             points: [
                 StickmanPoint(id: 1, x: 0, y: 0, isBase: true, parentId: nil),
                 StickmanPoint(id: 2, x: 213, y: -4, isBase: false, parentId: 1),
