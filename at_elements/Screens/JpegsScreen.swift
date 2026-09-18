@@ -11,12 +11,13 @@ struct JpegsScreen: View {
     @State private var fileCount = 0
     @State private var currentIndex = 0
     @State private var generation = UUID()
+    @State private var toast = ""
 
     private static let frameNumber = Color(red: 0xfd / 255, green: 0xda / 255, blue: 0x0d / 255)
     private static let frameNumberBack = Color(white: 0.16, opacity: 0.88)
 
     private enum Phase {
-        case generating, ready
+        case generating, ready, assembling
     }
 
     var body: some View {
@@ -34,18 +35,48 @@ struct JpegsScreen: View {
             if phase == .generating {
                 ReplayOverlay(text: "JPEGS… \(percent)%", onTap: {})
             }
+            if phase == .assembling {
+                ReplayOverlay(text: "VIDEO…", onTap: {})
+            }
         }
         .background(SkeletonCanvas.previewBackdrop)
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(besideMainPanel: false)
         }
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topTrailing) {
             if phase == .ready {
+                Button("video", action: startVideo)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 16)
+                    .frame(height: 44)
+                    .background(Capsule().fill(Color.white))
+                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                    .padding(.trailing, PreviewSeekBar.width + 16)
+                    .padding(.top, 8)
+            }
+        }
+        .overlay(alignment: .top) {
+            if phase == .ready || phase == .assembling {
                 Text("JPEGS")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.top, 18)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            if !toast.isEmpty {
+                Text(toast)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.bottom, 48)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .allowsHitTesting(false)
             }
         }
@@ -131,6 +162,39 @@ struct JpegsScreen: View {
         )
     }
 
+    private func startVideo() {
+        if phase != .ready {
+            return
+        }
+        if fileCount < 1 {
+            fatalError("JpegsScreen video with no files")
+        }
+        let token = generation
+        phase = .assembling
+        JpegVideoAssembler.assemble(frameCount: fileCount) { result in
+            DispatchQueue.main.async {
+                guard generation == token else { return }
+                phase = .ready
+                switch result {
+                case .success:
+                    showToast("Video saved")
+                case .failure:
+                    showToast("error")
+                }
+            }
+        }
+    }
+
+    private func showToast(_ text: String) {
+        toast = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if toast == text {
+                toast = ""
+            }
+        }
+    }
+
     private func startWrite() {
         let token = UUID()
         generation = token
@@ -160,6 +224,8 @@ struct JpegsScreen: View {
 
     private func dismissWrite() {
         generation = UUID()
+        JpegVideoAssembler.cancel()
         phase = .generating
+        toast = ""
     }
 }
