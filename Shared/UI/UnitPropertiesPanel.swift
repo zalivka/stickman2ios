@@ -23,6 +23,7 @@ struct UnitPropertiesPanel: View {
     var onSelectState: (Int) -> Void
     var onOpenAnimation: () -> Void
     var onCopy: () -> Void
+    var onSetText: (() -> Void)? = nil
 
     @State private var showingStates = false
 
@@ -73,6 +74,14 @@ struct UnitPropertiesPanel: View {
                     actionButton("States", icon: "props_state") {
                         showingStates = true
                     }
+                }
+                if unit.unitType == .bubble {
+                    actionButton("Set text", icon: "props_text", action: {
+                        guard let onSetText else {
+                            fatalError("UnitPropertiesPanel bubble '\(unit.name)' missing onSetText")
+                        }
+                        onSetText()
+                    })
                 }
                 actionButton("Delete", icon: "props_delete", action: onDelete)
                 actionButton("Flip", icon: "props_flip", action: onFlip)

@@ -352,7 +352,7 @@ struct SkeletonCanvas: View {
         let angle = atan2(end.y - start.y, end.x - start.x)
         let rgba = bubble.rgba
         let text = Text(bubble.text)
-            .font(.system(size: bubble.fontSize))
+            .font(StickmanFonts.font(key: bubble.font, size: bubble.fontSize))
             .foregroundColor(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
         context.drawLayer { ctx in
             ctx.translateBy(

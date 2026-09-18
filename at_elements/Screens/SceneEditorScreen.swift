@@ -27,6 +27,9 @@ struct SceneEditorScreen: View {
     @State private var lastSavedName: String?
     @State private var saveToast = ""
     @State private var showingFBF = false
+    @State private var showingSetText = false
+    @State private var setTextDraft = ""
+    @State private var setTextError = ""
     @State private var showingLeaveAlert = false
     @State private var dismissAfterSave = false
     @State private var savedDocument: Data
@@ -121,7 +124,8 @@ struct SceneEditorScreen: View {
                             canMoveBackward: canMoveSelectedUnit(forward: false),
                             onSelectState: setSelectedUnitState,
                             onOpenAnimation: { showingFBF = true },
-                            onCopy: copySelectedUnit
+                            onCopy: copySelectedUnit,
+                            onSetText: selectedUnit.unitType == .bubble ? { openSetText() } : nil
                         )
                     } else {
                         PresentUnitsPanel(
@@ -235,6 +239,14 @@ struct SceneEditorScreen: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showingSetText) {
+            SetTextSheet(
+                text: $setTextDraft,
+                error: $setTextError,
+                onCancel: { showingSetText = false },
+                onApply: applySetText
+            )
         }
         .overlay {
             if !saveToast.isEmpty {
@@ -448,6 +460,43 @@ struct SceneEditorScreen: View {
             animations: animations
         )
         clampRange()
+    }
+
+    private func openSetText() {
+        guard let selectedUnit else {
+            fatalError("SceneEditorScreen set text with no selection")
+        }
+        guard let bubble = selectedUnit.bubble else {
+            fatalError("SceneEditorScreen unit '\(selectedUnit.name)' type=bubble missing meta")
+        }
+        setTextDraft = bubble.text
+        setTextError = ""
+        showingSetText = true
+    }
+
+    private func applySetText() {
+        if setTextDraft.isEmpty {
+            setTextError = "Text is empty"
+            return
+        }
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen set text without selected unit")
+        }
+        prepareSelectionUndo()
+        for frameIndex in rearrangeFrames {
+            guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
+                continue
+            }
+            if scene.frames[frameIndex].units[index].unitType != .bubble {
+                fatalError("SceneEditorScreen unit '\(selectedUnitName)' is not bubble")
+            }
+            guard var bubble = scene.frames[frameIndex].units[index].bubble else {
+                fatalError("SceneEditorScreen unit '\(selectedUnitName)' bubble missing meta")
+            }
+            bubble.text = setTextDraft
+            scene.frames[frameIndex].units[index].bubble = bubble
+        }
+        showingSetText = false
     }
 
     private func copySelectedUnit() {
@@ -702,6 +751,55 @@ struct SceneEditorScreen: View {
                 fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) missing unit '\(newUnit.name)'")
             }
         )
+    }
+}
+
+private struct SetTextSheet: View {
+    @Binding var text: String
+    @Binding var error: String
+    var onCancel: () -> Void
+    var onApply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Set text")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+
+            TextField("Text", text: $text, axis: .vertical)
+                .font(.system(size: 22))
+                .foregroundStyle(.black)
+                .tint(.black)
+                .textFieldStyle(.plain)
+                .padding(12)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .lineLimit(1...6)
+
+            if !error.isEmpty {
+                Text(error)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .font(.system(size: 17))
+                    .foregroundStyle(.white)
+                Spacer()
+                Button("Apply", action: onApply)
+                    .font(.system(size: 17, weight: .semibold))
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255))
+            }
+            Spacer()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(white: 0.15))
+        .presentationBackground(Color(white: 0.15))
+        .presentationDetents([.medium])
     }
 }
 

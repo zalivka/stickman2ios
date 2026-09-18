@@ -40,6 +40,12 @@ enum ItemLoader {
     static func load(zip: Data, into assets: UnitAssets) -> StickmanUnit {
         let unit = unit(from: zip)
         assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: unit.name), forceReload: false)
+        if unit.unitType == .bubble {
+            if unit.bubble == nil {
+                fatalError("ItemLoader '\(unit.name)' bubble missing meta")
+            }
+            return unit
+        }
         let own = UnitAssets.removeNumber(unit.name)
         if !assets.hasAssetsFor(unitName: own) {
             fatalError("ItemLoader assets missing unit '\(unit.name)'")
@@ -405,7 +411,16 @@ enum ModelXML {
         guard let name = sink.unitName, !sink.points.isEmpty else {
             fatalError("ItemLoader model.xml has no unit name or points")
         }
-        return StickmanUnit(name: name, points: sink.points, edges: [])
+        if sink.unitType == .bubble, sink.bubble == nil {
+            fatalError("ItemLoader unit '\(name)' bubble missing meta")
+        }
+        return StickmanUnit(
+            name: name,
+            points: sink.points,
+            edges: [],
+            unitType: sink.unitType,
+            bubble: sink.bubble
+        )
     }
 
     /// Writes the item format: base point at the origin, in native unscaled item units.
@@ -472,6 +487,8 @@ enum ModelXML {
 
     private final class Sink: NSObject, XMLParserDelegate {
         var unitName: String?
+        var unitType: StickmanUnitType = .unit
+        var bubble: BubbleMeta?
         var points: [StickmanPoint] = []
 
         func parser(
@@ -482,7 +499,25 @@ enum ModelXML {
             attributes: [String: String] = [:]
         ) {
             if elementName == "unit" {
-                unitName = attributes["name"].map(PackAlias.resolveUnitName)
+                let name = attributes["name"].map(PackAlias.resolveUnitName)
+                unitName = name
+                switch attributes["type"] {
+                case nil, "", "unit":
+                    unitType = .unit
+                    bubble = nil
+                case "bubble":
+                    guard let resolved = name, !resolved.isEmpty else {
+                        fatalError("ItemLoader bubble unit missing name")
+                    }
+                    unitType = .bubble
+                    if let meta = attributes["meta"], !meta.isEmpty {
+                        bubble = BubbleMeta.parse(encoded: meta, unitName: resolved)
+                    } else {
+                        bubble = .defaults
+                    }
+                case let other?:
+                    fatalError("ItemLoader unit '\(name ?? "")' unknown type '\(other)'")
+                }
                 return
             }
             if elementName != "point" { return }

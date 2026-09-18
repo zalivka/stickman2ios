@@ -80,6 +80,9 @@ enum SceneSaver {
         if !scene.unitAnimations.isEmpty {
             files.append((name: "animations_v2.txt", data: encodeAnimations(scene.unitAnimations)))
         }
+        for font in StickmanFonts.customFontsUsed(in: scene) {
+            files.append((name: "fonts/\(font.file)", data: font.data))
+        }
         let zip = ZipStore.archive(files)
         let dir = try ensureSavedDirectory()
         let url = dir.appendingPathComponent("\(name).\(Self.ext)")

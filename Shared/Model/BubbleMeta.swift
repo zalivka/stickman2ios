@@ -16,9 +16,18 @@ struct BubbleMeta: Equatable {
         max(22, 30 - CGFloat(text.count) / 4) * scale
     }
 
+    /// Android `BubbleMeta()` defaults when item `meta=""`.
+    static let defaults = BubbleMeta(
+        text: "Text",
+        color: "#ff000000",
+        font: "default",
+        scale: 1,
+        oneLiner: false
+    )
+
     static func parse(encoded: String, unitName: String) -> BubbleMeta {
         if encoded.isEmpty {
-            fatalError("SceneLoader unit '\(unitName)' bubble meta is empty")
+            return defaults
         }
         let plus = encoded.replacingOccurrences(of: "+", with: " ")
         guard let decoded = plus.removingPercentEncoding, !decoded.isEmpty else {
@@ -33,8 +42,8 @@ struct BubbleMeta: Equatable {
         if payload.text.isEmpty {
             fatalError("SceneLoader unit '\(unitName)' bubble text is empty")
         }
-        if payload.font != "default" {
-            fatalError("SceneLoader unit '\(unitName)' bubble font '\(payload.font)' is not default")
+        if payload.font != "default", !StickmanFonts.contains(payload.font) {
+            fatalError("SceneLoader unit '\(unitName)' unknown bubble font '\(payload.font)'")
         }
         if payload.scale <= 0 {
             fatalError("SceneLoader unit '\(unitName)' bubble scale is \(payload.scale)")
@@ -53,8 +62,8 @@ struct BubbleMeta: Equatable {
         if text.isEmpty {
             fatalError("SceneXML unit '\(unitName)' bubble text is empty")
         }
-        if font != "default" {
-            fatalError("SceneXML unit '\(unitName)' bubble font '\(font)' is not default")
+        if font != "default", !StickmanFonts.contains(font) {
+            fatalError("SceneXML unit '\(unitName)' unknown bubble font '\(font)'")
         }
         if scale <= 0 {
             fatalError("SceneXML unit '\(unitName)' bubble scale is \(scale)")

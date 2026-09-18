@@ -51,6 +51,7 @@ enum SceneLoader {
         if !names.contains("model.xml") {
             fatalError("SceneLoader '\(resource).ats' missing model.xml")
         }
+        StickmanFonts.installSceneFonts(zip: zip, names: names, resource: resource)
         var scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
         scene.unitAnimations = loadAnimations(zip: zip, names: names, resource: resource)
         // GOTCHA (doc/gotchas.md): pack items live at pack/items/name.ati, not zip root.
@@ -166,8 +167,14 @@ enum SceneLoader {
                 if assets.hasAssetsFor(unitName: name) {
                     continue
                 }
+                if unit.unitType == .bubble, assets.hasArchive(for: name) {
+                    continue
+                }
                 let zip = Manifest.shared.itemZip(fullname: name)
                 assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: name))
+                if unit.unitType == .bubble {
+                    continue
+                }
                 if !assets.hasAssetsFor(unitName: name) {
                     fatalError("SceneLoader assets missing unit '\(name)'")
                 }
@@ -473,11 +480,12 @@ enum SceneXML {
                     unitType = .unit
                     unitBubble = nil
                 case "bubble":
-                    guard let meta = attributes["meta"], !meta.isEmpty else {
-                        fatalError("SceneLoader unit '\(name)' bubble missing meta")
-                    }
                     unitType = .bubble
-                    unitBubble = BubbleMeta.parse(encoded: meta, unitName: name)
+                    if let meta = attributes["meta"], !meta.isEmpty {
+                        unitBubble = BubbleMeta.parse(encoded: meta, unitName: name)
+                    } else {
+                        unitBubble = .defaults
+                    }
                 case let other?:
                     fatalError("SceneLoader unit '\(name)' unknown type '\(other)'")
                 }
@@ -614,7 +622,7 @@ enum SceneXML {
                     fatalError("SceneLoader point \(id) attached id '\(parts[1])' is not an int")
                 }
                 if masterId != -1 && parts[0] != "null" && !parts[0].isEmpty {
-                    attachedName = parts[0]
+                    attachedName = PackAlias.resolveUnitName(parts[0])
                     attachedId = masterId
                 }
             }

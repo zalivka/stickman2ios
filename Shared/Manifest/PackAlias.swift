@@ -4,6 +4,7 @@ enum PackAlias {
     private static let packs = [
         "newstickman": "zalivka.newstickman",
         "jungle": "zalivka.jungle",
+        "common": "zalivka.common",
     ]
 
     static func resolvePack(_ pack: String) -> String {

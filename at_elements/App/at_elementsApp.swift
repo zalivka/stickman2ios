@@ -12,6 +12,7 @@ struct at_elementsApp: App {
     init() {
         BootLog.say("App.init")
         Manifest.shared.startBootReload()
+        StickmanFonts.boot()
     }
 
     var body: some Scene {

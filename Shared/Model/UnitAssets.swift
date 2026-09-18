@@ -82,6 +82,10 @@ final class UnitAssets {
         edgeAssets.keys.contains { $0.unitName == unitName }
     }
 
+    func hasArchive(for unitName: String) -> Bool {
+        archives[Self.removeNumber(unitName)] != nil
+    }
+
     func loadItemFromArchive(_ zip: Data, entryName: String, forceReload: Bool = true) {
         if entryName.isEmpty {
             fatalError("UnitAssets empty archive entry name")
@@ -92,6 +96,10 @@ final class UnitAssets {
             archives[key] = StoredArchive(entryName: entryName, zip: zip)
         }
         if !forceReload && hasAssetsFor(unitName: model.name) {
+            return
+        }
+        if model.unitType == .bubble {
+            captureRest(from: model)
             return
         }
         let xml = ZipStore.data(named: "assets.xml", in: zip)

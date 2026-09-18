@@ -31,6 +31,10 @@ Same `PictureMove` is used for camera and `bg=`. Do not “fix” this back to `
 
 Android extracts every zip entry ending in `.ati`, including `pack/items/name.ati`. Do not require items at the archive root. Match a unit to the entry whose last path component is `ownName.ati`.
 
+## PackAlias on unit names and `attached=`
+
+Native Android packs (`jungle`, `newstickman`, `common`) become dotted ATP ids. `PackAlias` rewrites unit `name=` (`jungle:lance` → `zalivka.jungle:lance`). The slave `attached="jungle:papuas&7"` master name must get the same rewrite or `SlavesRegistry.populate` never finds the master (`demo_lion`).
+
 ## Missing frame `bg_name` / `bg`
 
 Older scenes omit `bg_name` and sometimes `bg=`. Android `Frame` defaults to `#ffffff` and identity `PictureMove`. Do not fatal on a missing attr; still fatal on an unknown non-empty `bg_name`. Solid colors are Android `Color.parseColor`: `#rrggbb` or `#aarrggbb` (`demo_faces` uses `#ff202020`). Bitmap backgrounds are `_bgs/<own>.zip` + `bg_name="usermade:<own>"`.
@@ -39,7 +43,11 @@ Some demos (`demo_space`, `demo_fight`) still use the pre-`bg_name` layout: root
 
 ## Speech bubble is plain text
 
-Android `type="bubble"` draws a 9-patch (`bubble.9.png`) then `StaticLayout` text. iOS has no 9-patch. Load `meta` (URL-decoded JSON) and draw the string only: color, `max(22, 30 - count/4) * scale`, wrap at 150 when `oneLiner` is false. Place at point 1, rotate with the 1→2 edge. Do not bone-stretch `.9.png` to fake a bubble. Font must be `default` until scene `fonts/` exists.
+Android `type="bubble"` draws a 9-patch (`bubble.9.png` / `empty.9.png`) then `StaticLayout` text. iOS has no 9-patch. Load `meta` (URL-decoded JSON) and draw the string only: color, `max(22, 30 - count/4) * scale`, wrap at 150 when `oneLiner` is false. Place at point 1, rotate with the 1→2 edge. Do not bone-stretch `.9.png` to fake a bubble.
+
+Fonts match Android `Fonts.getByName`: `default` is system; bundled keys `roboto/bold`, `roboto/regular`, `graffiti`, `rafale` from `fonts/*.ttf`. Scene zip `fonts/*.ttf|otf` install as custom (key = filename without extension). Unknown font names fatal. User ttf-picker install is not on iOS yet — `roboto/bold` is bundled, not installed.
+
+`common:sign` ships as `zalivka.common` (`PackAlias` `common` → `zalivka.common`). The ATI has `type="bubble"` + meta, no `assets.xml`. Item load must keep type/meta; skip packed bitmaps for bubbles. Empty item `meta=""` is Android `BubbleMeta()` defaults (`text=Text`, black, `font=default`).
 
 ## `.atp` packs are unpacked, then Manifest reads the tree
 
