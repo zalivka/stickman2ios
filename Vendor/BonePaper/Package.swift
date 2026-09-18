@@ -9,7 +9,10 @@ let package = Package(
     products: [
         .library(name: "BonePaper", targets: ["BonePaper"])
     ],
+    dependencies: [
+        .package(path: "../FlexColorPicker")
+    ],
     targets: [
-        .target(name: "BonePaper")
+        .target(name: "BonePaper", dependencies: ["FlexColorPicker"])
     ]
 )

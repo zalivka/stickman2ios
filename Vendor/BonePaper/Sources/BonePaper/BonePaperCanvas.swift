@@ -11,6 +11,7 @@ struct BonePaperCanvas: UIViewRepresentable {
     var boneTip: CGPoint?
     var onion: CGImage?
     var zoom: Binding<CGFloat>
+    var fitInsets: UIEdgeInsets
 
     func makeUIView(context: Context) -> BonePaperScrollView {
         let scroll = BonePaperScrollView()
@@ -33,6 +34,7 @@ struct BonePaperCanvas: UIViewRepresentable {
         scroll.paper.onion = onion
         scroll.onZoom = { zoom.wrappedValue = $0 }
         scroll.setPanMode(tool == .pan)
+        scroll.fitInsets = fitInsets
         scroll.layoutPaper(side: CGFloat(document.worldSize))
         scroll.paper.show(document)
     }
@@ -41,6 +43,15 @@ struct BonePaperCanvas: UIViewRepresentable {
 final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
     let paper = BonePaperDrawView()
     var onZoom: ((CGFloat) -> Void)?
+    var fitInsets: UIEdgeInsets = .zero {
+        didSet {
+            if oldValue == fitInsets {
+                return
+            }
+            didFit = false
+            setNeedsLayout()
+        }
+    }
     private var didFit = false
     private var paperSide: CGFloat = 0
 
@@ -53,9 +64,17 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
         delaysContentTouches = false
         panGestureRecognizer.minimumNumberOfTouches = 2
         pinchGestureRecognizer?.isEnabled = true
+        pinchGestureRecognizer?.addTarget(self, action: #selector(pinchMayStealStroke))
         bouncesZoom = true
         backgroundColor = BonePaperDrawView.paneGray
         contentInsetAdjustmentBehavior = .never
+    }
+
+    // ScrollView owns the pinch; the paper view may not see the second finger.
+    @objc private func pinchMayStealStroke(_ pinch: UIPinchGestureRecognizer) {
+        if pinch.state == .began || pinch.state == .changed {
+            paper.abortStroke()
+        }
     }
 
     @available(*, unavailable)
@@ -107,12 +126,9 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
         }
         let drawW = CGFloat(document.width)
         let drawH = CGFloat(document.height)
-        let raw: CGFloat
-        if drawW >= drawH {
-            raw = bounds.width * 2 / 3 / drawW
-        } else {
-            raw = bounds.height * 2 / 3 / drawH
-        }
+        let availW = max(bounds.width - fitInsets.left - fitInsets.right, 1)
+        let availH = max(bounds.height - fitInsets.top - fitInsets.bottom, 1)
+        let raw = min(availW / drawW, availH / drawH)
         zoomScale = min(max(raw, minimumZoomScale), maximumZoomScale)
         let center: CGPoint
         if let start = paper.boneStart, let tip = paper.boneTip {
@@ -131,8 +147,8 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
 
     private func centerWorld(_ world: CGPoint) {
         let desired = CGPoint(
-            x: world.x * zoomScale - bounds.width / 2,
-            y: world.y * zoomScale - bounds.height / 2
+            x: world.x * zoomScale - (bounds.width + fitInsets.left - fitInsets.right) / 2,
+            y: world.y * zoomScale - (bounds.height + fitInsets.top - fitInsets.bottom) / 2
         )
         let zoomedW = paper.bounds.width * zoomScale
         let zoomedH = paper.bounds.height * zoomScale
@@ -170,8 +186,11 @@ final class BonePaperDrawView: UIView {
     private let frameLayer = CAShapeLayer()
     private let boneLayer = CAShapeLayer()
     private var lastWorld: CGPoint?
+    private var pendingView: CGPoint?
     private var stroking = false
     private var zoomScale: CGFloat = 1
+    // Screen points before a brush/eraser stroke starts. Lets a still finger wait for pinch.
+    private static let strokeSlop: CGFloat = 12
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -253,23 +272,38 @@ final class BonePaperDrawView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if tool == .pan { return }
-        if event?.allTouches?.count != 1 { return }
-        guard let touch = touches.first, let document else { return }
-        document.beginStroke(erase: tool == .eraser, opacity: opacity)
-        let point = worldPoint(touch)
-        lastWorld = point
-        stroking = true
-        document.stampDotWorld(at: point, color: color, size: brushSize, erase: tool == .eraser)
+        if event?.allTouches?.count != 1 {
+            abortStroke()
+            return
+        }
+        guard let touch = touches.first else { return }
+        pendingView = touch.location(in: self)
+        lastWorld = worldPoint(touch)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if !stroking { return }
         if event?.allTouches?.count != 1 {
-            finishStroke()
+            abortStroke()
             return
         }
-        guard let touch = touches.first, let document, let last = lastWorld else { return }
+        guard let touch = touches.first, let document else { return }
+        let view = touch.location(in: self)
         let point = worldPoint(touch)
+        if !stroking {
+            guard let startView = pendingView, let startWorld = lastWorld else { return }
+            let dx = view.x - startView.x
+            let dy = view.y - startView.y
+            if hypot(dx, dy) < Self.strokeSlop {
+                return
+            }
+            document.beginStroke(erase: tool == .eraser, opacity: opacity)
+            stroking = true
+            document.stampDotWorld(at: startWorld, color: color, size: brushSize, erase: tool == .eraser)
+            document.stampWorld(from: startWorld, to: point, color: color, size: brushSize, erase: tool == .eraser)
+            lastWorld = point
+            return
+        }
+        guard let last = lastWorld else { return }
         document.stampWorld(from: last, to: point, color: color, size: brushSize, erase: tool == .eraser)
         lastWorld = point
     }
@@ -279,7 +313,17 @@ final class BonePaperDrawView: UIView {
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finishStroke()
+        abortStroke()
+    }
+
+    // Second finger or pinch: discard, do not endStroke() which would keep the speck.
+    func abortStroke() {
+        if stroking {
+            document?.cancelStroke()
+        }
+        lastWorld = nil
+        pendingView = nil
+        stroking = false
     }
 
     private func finishStroke() {
@@ -287,6 +331,7 @@ final class BonePaperDrawView: UIView {
             document?.endStroke()
         }
         lastWorld = nil
+        pendingView = nil
         stroking = false
     }
 

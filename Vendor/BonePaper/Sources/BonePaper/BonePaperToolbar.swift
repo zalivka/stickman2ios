@@ -1,13 +1,25 @@
+import FlexColorPicker
 import SwiftUI
+import UIKit
 
 enum BonePaperBrush {
     static let sizeRange: ClosedRange<CGFloat> = 4...48
     static let opacityRange: ClosedRange<CGFloat> = 0.05...1
 }
 
-enum BonePaperReveal {
-    case none
-    case color
+enum BonePaperChrome {
+    static let pad: CGFloat = 16
+    static let leftRail: CGFloat = 44
+    static let rightRail: CGFloat = 64
+
+    static func fitInsets(safe: EdgeInsets) -> UIEdgeInsets {
+        UIEdgeInsets(
+            top: safe.top + pad,
+            left: safe.leading + pad + leftRail,
+            bottom: safe.bottom + pad,
+            right: safe.trailing + pad + rightRail
+        )
+    }
 }
 
 struct BonePaperBackUndo: View {
@@ -42,98 +54,281 @@ struct BonePaperBackUndo: View {
             .disabled(!canUndo)
             .accessibilityLabel("Undo")
         }
-        .padding(.leading, 8)
-        .padding(.top, 8)
+        .padding(.leading, BonePaperChrome.pad)
+        .padding(.top, BonePaperChrome.pad)
     }
 }
 
-struct BonePaperApplyTools: View {
-    @Binding var tool: BonePaperTool
-    @Binding var color: Color
-    @Binding var reveal: BonePaperReveal
+struct BonePaperApply: View {
     var onApply: () -> Void
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            Button(action: onApply) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.black)
-                    .frame(width: 64, height: 64)
-                    .background(Color(red: 0, green: 0xEC / 255, blue: 1))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Apply")
-
-            toolButton(system: "pencil.tip", selected: tool == .pen, label: "Brush") {
-                tool = .pen
-                reveal = .none
-            }
-            toolButton(system: "arrow.up.and.down.and.arrow.left.and.right", selected: tool == .pan, label: "Pan") {
-                tool = .pan
-                reveal = .none
-            }
-            toolButton(system: "eraser", selected: tool == .eraser, label: "Eraser") {
-                tool = .eraser
-                reveal = .none
-            }
-            HStack(alignment: .center, spacing: 10) {
-                if reveal == .color {
-                    BonePaperPalette(color: $color) { reveal = .none }
-                }
-                Button {
-                    reveal = reveal == .color ? .none : .color
-                } label: {
-                    Circle()
-                        .fill(color)
-                        .overlay {
-                            if color == .white {
-                                Circle().stroke(Color(white: 0.78), lineWidth: 1)
-                            }
-                        }
-                        .frame(width: 22, height: 22)
-                        .frame(width: 44, height: 44)
-                        .background(reveal == .color ? Color.white : Color(white: 0.92))
-                        .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Color")
-            }
-        }
-        .frame(minWidth: 64)
-        .padding(.trailing, 0)
-        .padding(.top, 0)
-    }
-
-    private func toolButton(system: String, selected: Bool, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: system)
-                .font(.system(size: 18, weight: .semibold))
+        Button(action: onApply) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 28, weight: .bold))
                 .foregroundStyle(.black)
-                .frame(width: 44, height: 44)
-                .background(selected ? Color.white : Color(white: 0.92))
-                .clipShape(Circle())
-                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                .frame(width: BonePaperChrome.rightRail, height: BonePaperChrome.rightRail)
+                .background(Color(red: 0, green: 0xEC / 255, blue: 1))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        .accessibilityLabel("Apply")
     }
 }
 
 struct BonePaperStrokeControls: View {
+    @Binding var tool: BonePaperTool
     @Binding var brushSize: CGFloat
+    @Binding var eraserSize: CGFloat
     @Binding var opacity: CGFloat
     var color: Color
     var onSeeking: (Bool) -> Void
 
+    @State private var activeSetting: BonePaperStrokeSetting?
+
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            BonePaperWidthSeek(value: $brushSize, color: color, onSeeking: onSeeking)
-                .frame(width: 32, height: 180)
-            BonePaperOpacitySeek(value: $opacity, color: color, onSeeking: onSeeking)
-                .frame(width: 150, height: 28)
+        VStack(alignment: .leading, spacing: 6) {
+            BonePaperPanChip(selected: tool == .pan) {
+                tool = .pan
+            }
+            BonePaperDragControl(
+                setting: .size,
+                value: $brushSize,
+                range: BonePaperBrush.sizeRange,
+                color: color,
+                selected: tool == .pen,
+                activeSetting: $activeSetting,
+                onActivate: { tool = .pen },
+                onSeeking: onSeeking
+            )
+            BonePaperDragControl(
+                setting: .opacity,
+                value: $opacity,
+                range: BonePaperBrush.opacityRange,
+                color: color,
+                selected: false,
+                activeSetting: $activeSetting,
+                onActivate: { tool = .pen },
+                onSeeking: onSeeking
+            )
+            BonePaperDragControl(
+                setting: .eraser,
+                value: $eraserSize,
+                range: BonePaperBrush.sizeRange,
+                color: color,
+                selected: tool == .eraser,
+                activeSetting: $activeSetting,
+                onActivate: { tool = .eraser },
+                onSeeking: onSeeking
+            )
         }
+        .padding(.leading, BonePaperChrome.pad)
+        .padding(.bottom, BonePaperChrome.pad)
+    }
+}
+
+private struct BonePaperPanChip: View {
+    var selected: Bool
+    var onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(selected ? Color(red: 0, green: 0xEC / 255, blue: 1) : Color.white))
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Pan")
+    }
+}
+
+private enum BonePaperStrokeSetting {
+    case size
+    case opacity
+    case eraser
+
+    var label: String {
+        switch self {
+        case .size: "Size"
+        case .opacity: "Opacity"
+        case .eraser: "Eraser size"
+        }
+    }
+}
+
+private struct BonePaperDragControl: View {
+    var setting: BonePaperStrokeSetting
+    @Binding var value: CGFloat
+    var range: ClosedRange<CGFloat>
+    var color: Color
+    var selected: Bool
+    @Binding var activeSetting: BonePaperStrokeSetting?
+    var onActivate: () -> Void
+    var onSeeking: (Bool) -> Void
+
+    private static let side: CGFloat = 44
+    private static let trackWidth: CGFloat = 176
+    private static let trackPadding: CGFloat = 12
+    private static let trackGap: CGFloat = 8
+
+    @State private var dragStartValue: CGFloat?
+
+    private var isActive: Bool {
+        activeSetting == setting
+    }
+
+    private var ratio: CGFloat {
+        (value - range.lowerBound) / (range.upperBound - range.lowerBound)
+    }
+
+    private var readout: String {
+        switch setting {
+        case .size, .eraser:
+            "\(Int(value.rounded()))"
+        case .opacity:
+            "\(Int((value * 100).rounded()))%"
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if isActive {
+                track
+                    .offset(x: Self.side + Self.trackGap)
+                    .transition(.opacity)
+            }
+            icon
+                .gesture(drag)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        onActivate()
+                    }
+                )
+        }
+        .frame(
+            width: isActive ? Self.side + Self.trackGap + Self.trackWidth : Self.side,
+            height: Self.side,
+            alignment: .leading
+        )
+        .animation(.easeOut(duration: 0.12), value: isActive)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(setting.label)
+        .accessibilityValue(readout)
+    }
+
+    private var icon: some View {
+        ZStack {
+            Circle()
+                .fill(selected ? Color(red: 0, green: 0xEC / 255, blue: 1) : Color.white)
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            switch setting {
+            case .size:
+                let diameter = 6 + ratio * 22
+                Circle()
+                    .fill(color)
+                    .frame(width: diameter, height: diameter)
+                    .overlay {
+                        if color == .white {
+                            Circle().stroke(Color(white: 0.62), lineWidth: 1)
+                        }
+                    }
+            case .opacity:
+                Image(systemName: "drop.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(color.opacity(value))
+                    .overlay {
+                        Image(systemName: "drop")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color.black.opacity(0.45))
+                    }
+            case .eraser:
+                Image(systemName: "eraser.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.black)
+            }
+        }
+        .frame(width: Self.side, height: Self.side)
+        .contentShape(Circle())
+    }
+
+    private var track: some View {
+        let lineWidth = Self.trackWidth - Self.trackPadding * 2
+        let knobX = Self.trackPadding + ratio * lineWidth
+        let bubbleWidth: CGFloat = 50
+        let bubbleX = min(max(knobX - bubbleWidth / 2, 4), Self.trackWidth - bubbleWidth - 4)
+        let knobColor = setting == .eraser ? Color.black : color
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            trackLine
+                .frame(width: lineWidth, height: 5)
+                .offset(x: Self.trackPadding, y: 29)
+            Circle()
+                .fill(knobColor)
+                .frame(width: 14, height: 14)
+                .overlay {
+                    Circle().stroke(Color.black.opacity(0.3), lineWidth: 1)
+                }
+                .offset(x: knobX - 7, y: 24.5)
+            Text(readout)
+                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .foregroundStyle(.black)
+                .frame(width: bubbleWidth, height: 20)
+                .background(Color(white: 0.92))
+                .clipShape(Capsule())
+                .offset(x: bubbleX, y: 2)
+        }
+        .frame(width: Self.trackWidth, height: Self.side)
+    }
+
+    @ViewBuilder
+    private var trackLine: some View {
+        if setting == .opacity {
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [color.opacity(0.05), color],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        } else {
+            Capsule()
+                .fill(Color.black.opacity(0.22))
+        }
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { drag in
+                if dragStartValue == nil {
+                    dragStartValue = value
+                    onActivate()
+                    onSeeking(true)
+                }
+                activeSetting = setting
+                guard let start = dragStartValue else {
+                    fatalError("BonePaper drag started without a value")
+                }
+                let valueStart = Self.side + Self.trackGap + Self.trackPadding
+                if drag.location.x < valueStart {
+                    value = start
+                    return
+                }
+                let valueWidth = Self.trackWidth - Self.trackPadding * 2
+                let t = min(max((drag.location.x - valueStart) / valueWidth, 0), 1)
+                let span = range.upperBound - range.lowerBound
+                value = range.lowerBound + t * span
+            }
+            .onEnded { _ in
+                activeSetting = nil
+                dragStartValue = nil
+                onSeeking(false)
+            }
     }
 }
 
@@ -142,246 +337,338 @@ struct BonePaperStrokePreview: View {
     var opacity: CGFloat
     var color: Color
     var zoom: CGFloat
+    var label: String
+    var showsOpacity: Bool
 
-    private static let step: CGFloat = 75
+    private static let width: CGFloat = 180
+    private static let height: CGFloat = 70
 
     var body: some View {
         let screenStroke = max(brushSize * max(zoom, 0.01), 1)
-        let pad = screenStroke / 2
-        VStack(spacing: 6) {
-            Text("W: \(Int(brushSize.rounded()))  O: \(Int((opacity * 100).rounded()))%")
-                .font(.system(size: 15, weight: .bold))
+        VStack(spacing: 4) {
+            Text(previewLabel)
+                .font(.system(size: 14, weight: .bold).monospacedDigit())
                 .foregroundStyle(.black)
             curve
                 .stroke(
                     color.opacity(opacity),
                     style: StrokeStyle(lineWidth: screenStroke, lineCap: .round, lineJoin: .round)
                 )
-                .frame(width: Self.step * 3, height: Self.step * 2)
-                .padding(pad)
+                .frame(width: Self.width, height: Self.height)
+                .padding(screenStroke / 2)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(Color.white)
     }
 
+    private var previewLabel: String {
+        var text = "\(label) \(Int(brushSize.rounded()))"
+        if showsOpacity {
+            text += "  \(Int((opacity * 100).rounded()))%"
+        }
+        return text
+    }
+
     private var curve: Path {
-        let step = Self.step
         var path = Path()
-        path.move(to: CGPoint(x: 0, y: step))
+        path.move(to: CGPoint(x: 0, y: Self.height / 2))
         path.addCurve(
-            to: CGPoint(x: step * 3, y: step),
-            control1: CGPoint(x: step, y: 0),
-            control2: CGPoint(x: step * 2, y: step * 2)
+            to: CGPoint(x: Self.width, y: Self.height / 2),
+            control1: CGPoint(x: Self.width / 3, y: 0),
+            control2: CGPoint(x: Self.width * 2 / 3, y: Self.height)
         )
         return path
     }
 }
 
-struct BonePaperWidthSeek: View {
-    @Binding var value: CGFloat
-    var color: Color
-    var onSeeking: (Bool) -> Void
+enum BonePaperColorStore {
+    static let key = "bonepaper.custom_colors"
 
-    private static let minTrack: CGFloat = 1
-    private static let maxTrack: CGFloat = 12
-    private static let thumbRadius: CGFloat = 7
-    private static let inner = Color(red: 1, green: 0xF7 / 255, blue: 0xE8 / 255)
+    static let presets: [String] = [
+        "#E63836",
+        "#FF9900",
+        "#FCD936",
+        "#7DB343",
+        "#1F87E6",
+        "#8F24AB",
+        "#000000",
+        "#9E9E9E",
+        "#FFFFFF",
+        "#FFE0B3",
+        "#8C6E63",
+        "#26C7D9",
+        "#F58FB0"
+    ]
 
-    var body: some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            let w = geo.size.width
-            let ratio = Self.ratio(value)
-            Canvas { ctx, size in
-                var wedge = Path()
-                let cx = size.width / 2
-                wedge.move(to: CGPoint(x: cx - Self.minTrack / 2, y: size.height))
-                wedge.addLine(to: CGPoint(x: cx + Self.minTrack / 2, y: size.height))
-                wedge.addLine(to: CGPoint(x: cx + Self.maxTrack / 2, y: 0))
-                wedge.addLine(to: CGPoint(x: cx - Self.maxTrack / 2, y: 0))
-                wedge.closeSubpath()
-                ctx.fill(wedge, with: .color(color))
-                let y = size.height * (1 - ratio)
-                let center = CGPoint(x: cx, y: y)
-                ctx.fill(Path(ellipseIn: Self.rect(center, Self.thumbRadius)), with: .color(color))
-                ctx.fill(
-                    Path(ellipseIn: Self.rect(center, Self.thumbRadius * 2 / 3)),
-                    with: .color(Self.inner)
-                )
+    static func load() -> [String] {
+        UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    static func save(_ hexes: [String]) {
+        UserDefaults.standard.set(hexes, forKey: key)
+    }
+
+    static func hex(from color: UIColor) -> String {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        if !color.getRed(&r, green: &g, blue: &b, alpha: &a) {
+            guard let converted = color.cgColor.converted(
+                to: CGColorSpaceCreateDeviceRGB(),
+                intent: .defaultIntent,
+                options: nil
+            ) else {
+                fatalError("BonePaperColorStore color is not RGB")
             }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { drag in
-                        onSeeking(true)
-                        let t = 1 - min(max(drag.location.y / h, 0), 1)
-                        value = BonePaperBrush.sizeRange.lowerBound
-                            + t * (BonePaperBrush.sizeRange.upperBound - BonePaperBrush.sizeRange.lowerBound)
-                    }
-                    .onEnded { _ in
-                        onSeeking(false)
-                    }
-            )
-            .accessibilityLabel("Width")
-            .accessibilityValue("\(Int(value.rounded()))")
-            .frame(width: w, height: h)
+            if !UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) {
+                fatalError("BonePaperColorStore converted color is not RGB")
+            }
         }
+        let ri = min(max(Int((r * 255).rounded()), 0), 255)
+        let gi = min(max(Int((g * 255).rounded()), 0), 255)
+        let bi = min(max(Int((b * 255).rounded()), 0), 255)
+        return String(format: "#%02X%02X%02X", ri, gi, bi)
     }
 
-    private static func ratio(_ value: CGFloat) -> CGFloat {
-        let span = BonePaperBrush.sizeRange.upperBound - BonePaperBrush.sizeRange.lowerBound
-        return (value - BonePaperBrush.sizeRange.lowerBound) / span
-    }
-
-    private static func rect(_ center: CGPoint, _ radius: CGFloat) -> CGRect {
-        CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+    static func color(from hex: String) -> Color {
+        if hex.count != 7 || !hex.hasPrefix("#") {
+            fatalError("BonePaperColorStore hex \(hex)")
+        }
+        let digits = hex.dropFirst()
+        guard let value = Int(digits, radix: 16) else {
+            fatalError("BonePaperColorStore hex \(hex)")
+        }
+        let r = Double((value >> 16) & 0xFF) / 255
+        let g = Double((value >> 8) & 0xFF) / 255
+        let b = Double(value & 0xFF) / 255
+        return Color(red: r, green: g, blue: b)
     }
 }
 
-struct BonePaperOpacitySeek: View {
-    @Binding var value: CGFloat
-    var color: Color
-    var onSeeking: (Bool) -> Void
-
-    private static let inner = Color(red: 1, green: 0xF7 / 255, blue: 0xE8 / 255)
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let t = Self.ratio(value)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [color.opacity(0.05), color],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(height: 5)
-                Circle()
-                    .fill(color)
-                    .frame(width: 14, height: 14)
-                    .overlay {
-                        Circle()
-                            .fill(Self.inner)
-                            .padding(2)
-                    }
-                    .offset(x: t * (w - 14))
-            }
-            .frame(width: w, height: h)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { drag in
-                        onSeeking(true)
-                        let u = min(max(drag.location.x / w, 0), 1)
-                        value = BonePaperBrush.opacityRange.lowerBound
-                            + u * (BonePaperBrush.opacityRange.upperBound - BonePaperBrush.opacityRange.lowerBound)
-                    }
-                    .onEnded { _ in
-                        onSeeking(false)
-                    }
-            )
-            .accessibilityLabel("Opacity")
-        }
-    }
-
-    private static func ratio(_ value: CGFloat) -> CGFloat {
-        let span = BonePaperBrush.opacityRange.upperBound - BonePaperBrush.opacityRange.lowerBound
-        return (value - BonePaperBrush.opacityRange.lowerBound) / span
-    }
-}
-
-struct BonePaperPalette: View {
+struct BonePaperColorStrip: View {
     @Binding var color: Color
     var onPick: () -> Void
 
-    private static let row1: [Color] = [
-        Color(red: 0.90, green: 0.22, blue: 0.21),
-        Color(red: 1.00, green: 0.60, blue: 0.00),
-        Color(red: 0.99, green: 0.85, blue: 0.21),
-        Color(red: 0.49, green: 0.70, blue: 0.26),
-        Color(red: 0.12, green: 0.53, blue: 0.90),
-        Color(red: 0.56, green: 0.14, blue: 0.67)
-    ]
-    private static let row2: [Color] = [
-        .black,
-        Color(white: 0.62),
-        .white,
-        Color(red: 1.00, green: 0.88, blue: 0.70),
-        Color(red: 0.55, green: 0.43, blue: 0.39),
-        Color(red: 0.15, green: 0.78, blue: 0.85),
-        Color(red: 0.96, green: 0.56, blue: 0.69)
-    ]
+    @State private var extras: [String] = BonePaperColorStore.load()
+    @State private var showingPicker = false
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                wheelChip
-                ForEach(Array(Self.row1.enumerated()), id: \.offset) { _, swatch in
-                    swatchButton(swatch)
+        VStack(spacing: 8) {
+            Button {
+                showingPicker = true
+            } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(
+                            AngularGradient(
+                                colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
+                                center: .center
+                            )
+                        )
+                    Circle()
+                        .fill(Color(white: 0.78))
+                        .frame(width: 12, height: 12)
+                }
+                .frame(width: 36, height: 36)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(Color(white: 0.45), lineWidth: 1)
                 }
             }
-            HStack(spacing: 10) {
-                ForEach(Array(Self.row2.enumerated()), id: \.offset) { _, swatch in
-                    swatchButton(swatch)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Color picker")
+
+            BonePaperPlainScroll {
+                VStack(spacing: 8) {
+                    ForEach(swatches, id: \.self) { hex in
+                        swatchButton(hex)
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color(white: 0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
-    }
-
-    private var wheelChip: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    AngularGradient(
-                        colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
-                        center: .center
-                    )
-                )
-            Circle()
-                .fill(Color(white: 0.92))
-                .frame(width: 10, height: 10)
-            ColorPicker("", selection: $color, supportsOpacity: false)
-                .labelsHidden()
-                .scaleEffect(1.6)
-                .opacity(0.02)
+        .frame(width: BonePaperChrome.rightRail)
+        .frame(maxHeight: .infinity)
+        .accessibilityIdentifier("bone paper colors")
+        .sheet(isPresented: $showingPicker) {
+            BonePaperFlexColorPickerSheet(initial: UIColor(BonePaperColorStore.color(from: topHex))) { picked in
+                let hex = BonePaperColorStore.hex(from: picked)
+                color = BonePaperColorStore.color(from: hex)
+                remember(hex)
+                onPick()
+                showingPicker = false
+            }
         }
-        .frame(width: 28, height: 28)
-        .clipShape(Circle())
     }
 
-    private func swatchButton(_ swatch: Color) -> some View {
-        Button {
-            color = swatch
-            onPick()
-        } label: {
-            Circle()
-                .fill(swatch)
-                .frame(width: 28, height: 28)
-                .overlay {
-                    if swatch == .white {
-                        Circle().stroke(Color(white: 0.78), lineWidth: 1)
-                    }
-                }
-                .overlay {
-                    if colorsMatch(color, swatch) {
-                        Circle().stroke(Color.black, lineWidth: 2)
-                    }
-                }
+    private var topHex: String {
+        extras.first ?? BonePaperColorStore.presets[0]
+    }
+
+    private var swatches: [String] {
+        extras + BonePaperColorStore.presets
+    }
+
+    private func swatchButton(_ hex: String) -> some View {
+        let swatch = BonePaperColorStore.color(from: hex)
+        let selected = BonePaperColorStore.hex(from: UIColor(color)) == hex
+        return RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(swatch)
+            .frame(width: 36, height: 36)
+            .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(selected ? Color.white : Color(white: 0.25), lineWidth: selected ? 3 : 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .onTapGesture {
+                color = swatch
+                onPick()
+            }
+            .accessibilityLabel(hex)
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private func remember(_ hex: String) {
+        if swatches.contains(hex) {
+            return
         }
-        .buttonStyle(.plain)
+        extras.insert(hex, at: 0)
+        BonePaperColorStore.save(extras)
+    }
+}
+
+private struct BonePaperPlainScroll<Content: View>: UIViewRepresentable {
+    var content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
     }
 
-    private func colorsMatch(_ a: Color, _ b: Color) -> Bool {
-        UIColor(a).cgColor.components == UIColor(b).cgColor.components
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> BonePaperFillScrollView {
+        let scroll = BonePaperFillScrollView()
+        scroll.bounces = false
+        scroll.alwaysBounceVertical = false
+        scroll.showsVerticalScrollIndicator = false
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.automaticallyAdjustsScrollIndicatorInsets = false
+        scroll.backgroundColor = .clear
+        scroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scroll.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        let host = UIHostingController(rootView: AnyView(content.ignoresSafeArea()))
+        host.sizingOptions = .intrinsicContentSize
+        host.safeAreaRegions = []
+        host.view.backgroundColor = .clear
+        host.view.insetsLayoutMarginsFromSafeArea = false
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            host.view.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            host.view.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            host.view.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)
+        ])
+        context.coordinator.host = host
+        return scroll
+    }
+
+    func updateUIView(_ scroll: BonePaperFillScrollView, context: Context) {
+        guard let host = context.coordinator.host else {
+            fatalError("BonePaperPlainScroll missing host")
+        }
+        host.rootView = AnyView(content.ignoresSafeArea())
+        host.view.invalidateIntrinsicContentSize()
+        host.view.setNeedsLayout()
+        // Keep the inserted custom color visible after the new intrinsic height reaches UIScrollView.
+        DispatchQueue.main.async { [weak scroll] in
+            guard let scroll else { return }
+            scroll.layoutIfNeeded()
+            scroll.setContentOffset(.zero, animated: false)
+        }
+    }
+
+    final class Coordinator {
+        var host: UIHostingController<AnyView>?
+    }
+}
+
+final class BonePaperFillScrollView: UIScrollView {
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
+    }
+}
+
+struct BonePaperFlexColorPickerSheet: UIViewControllerRepresentable {
+    var initial: UIColor
+    var onApply: (UIColor) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onApply: onApply)
+    }
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let picker = DefaultColorPickerViewController()
+        picker.selectedColor = initial
+        picker.delegate = context.coordinator
+        picker.title = "Color"
+        picker.navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: context.coordinator,
+            action: #selector(Coordinator.cancel)
+        )
+        picker.navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "Apply",
+            style: .done,
+            target: context.coordinator,
+            action: #selector(Coordinator.apply)
+        )
+        context.coordinator.picker = picker
+        let nav = UINavigationController(rootViewController: picker)
+        context.coordinator.navigation = nav
+        return nav
+    }
+
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
+        context.coordinator.onApply = onApply
+        context.coordinator.navigation = uiViewController
+        if let picker = uiViewController.viewControllers.first as? DefaultColorPickerViewController {
+            context.coordinator.picker = picker
+            picker.delegate = context.coordinator
+        }
+    }
+
+    final class Coordinator: NSObject, ColorPickerDelegate {
+        var onApply: (UIColor) -> Void
+        weak var picker: DefaultColorPickerViewController?
+        weak var navigation: UINavigationController?
+
+        init(onApply: @escaping (UIColor) -> Void) {
+            self.onApply = onApply
+        }
+
+        func colorPicker(
+            _ colorPicker: ColorPickerController,
+            confirmedColor: UIColor,
+            usingControl: ColorControl
+        ) {
+            onApply(confirmedColor)
+        }
+
+        @objc func apply() {
+            guard let picker else {
+                fatalError("BonePaperFlexColorPickerSheet Apply with no picker")
+            }
+            onApply(picker.selectedColor)
+        }
+
+        @objc func cancel() {
+            navigation?.dismiss(animated: true)
+        }
     }
 }

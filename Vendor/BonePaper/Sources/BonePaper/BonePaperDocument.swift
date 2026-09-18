@@ -110,6 +110,18 @@ final class BonePaperDocument: ObservableObject {
         publishPreview()
     }
 
+    // Pinch/second finger: drop the live stroke and the undo snapshot from beginStroke.
+    // Do not undo() — that would commit first, then eat a real earlier stroke.
+    func cancelStroke() {
+        guard let snapshot = undoStack.popLast() else {
+            fatalError("BonePaperDocument cancel with empty undo")
+        }
+        strokeLive = false
+        stroke.clear(pixelRect)
+        restore(snapshot)
+        publishStacks()
+    }
+
     func stampWorld(from start: CGPoint, to end: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
         var a = bitmapFromWorld(start)
         var b = bitmapFromWorld(end)

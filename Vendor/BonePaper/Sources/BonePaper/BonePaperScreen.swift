@@ -8,8 +8,8 @@ public struct BonePaperScreen: View {
     @State private var tool: BonePaperTool = .pen
     @State private var color: Color = .black
     @State private var brushSize: CGFloat = 14
+    @State private var eraserSize: CGFloat = 14
     @State private var opacity: CGFloat = 1
-    @State private var reveal: BonePaperReveal = .none
     @State private var zoom: CGFloat = 1
     @State private var showingStrokePreview = false
 
@@ -44,55 +44,69 @@ public struct BonePaperScreen: View {
     }
 
     public var body: some View {
-        ZStack {
-            Color(white: 0.78).ignoresSafeArea()
-            BonePaperCanvas(
-                document: document,
-                tool: tool,
-                color: UIColor(color),
-                brushSize: brushSize,
-                opacity: opacity,
-                boneStart: boneStart,
-                boneTip: boneTip,
-                onion: onion,
-                zoom: $zoom
-            )
-            .ignoresSafeArea()
-            .overlay(alignment: .top) {
-                if showingStrokePreview {
-                    BonePaperStrokePreview(
-                        brushSize: brushSize,
-                        opacity: opacity,
-                        color: color,
-                        zoom: zoom
-                    )
-                    .padding(.top, 8)
-                    .allowsHitTesting(false)
+        GeometryReader { geo in
+            let safe = geo.safeAreaInsets
+            ZStack {
+                Color(white: 0.78).ignoresSafeArea()
+                BonePaperCanvas(
+                    document: document,
+                    tool: tool,
+                    color: UIColor(color),
+                    brushSize: tool == .eraser ? eraserSize : brushSize,
+                    opacity: opacity,
+                    boneStart: boneStart,
+                    boneTip: boneTip,
+                    onion: onion,
+                    zoom: $zoom,
+                    fitInsets: BonePaperChrome.fitInsets(safe: safe)
+                )
+                .ignoresSafeArea()
+                .overlay(alignment: .top) {
+                    if showingStrokePreview {
+                        BonePaperStrokePreview(
+                            brushSize: tool == .eraser ? eraserSize : brushSize,
+                            opacity: tool == .eraser ? 1 : opacity,
+                            color: tool == .eraser ? Color.black.opacity(0.28) : color,
+                            zoom: zoom,
+                            label: tool == .eraser ? "Eraser" : "Brush",
+                            showsOpacity: tool != .eraser
+                        )
+                        .padding(.top, safe.top + BonePaperChrome.pad)
+                        .allowsHitTesting(false)
+                    }
                 }
-            }
-            .overlay(alignment: .topLeading) {
-                BonePaperBackUndo(
-                    canUndo: document.canUndo,
-                    onBack: { dismiss() },
-                    onUndo: document.undo
-                )
-            }
-            .overlay(alignment: .topTrailing) {
-                BonePaperApplyTools(
-                    tool: $tool,
-                    color: $color,
-                    reveal: $reveal,
-                    onApply: apply
-                )
-            }
-            .overlay(alignment: .bottomLeading) {
-                if tool != .pan {
+                .overlay(alignment: .topLeading) {
+                    BonePaperBackUndo(
+                        canUndo: document.canUndo,
+                        onBack: { dismiss() },
+                        onUndo: document.undo
+                    )
+                    .padding(.leading, safe.leading)
+                    .padding(.top, safe.top)
+                }
+                .overlay(alignment: .topTrailing) {
+                    VStack(spacing: BonePaperChrome.pad) {
+                        BonePaperApply(onApply: apply)
+                        BonePaperColorStrip(color: $color) {
+                            tool = .pen
+                        }
+                    }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.trailing, safe.trailing + BonePaperChrome.pad)
+                    .padding(.top, safe.top + BonePaperChrome.pad)
+                    .padding(.bottom, safe.bottom + BonePaperChrome.pad)
+                }
+                .overlay(alignment: .bottomLeading) {
                     BonePaperStrokeControls(
+                        tool: $tool,
                         brushSize: $brushSize,
+                        eraserSize: $eraserSize,
                         opacity: $opacity,
                         color: color,
                         onSeeking: { showingStrokePreview = $0 }
                     )
+                    .padding(.leading, safe.leading)
+                    .padding(.bottom, safe.bottom)
                 }
             }
         }
