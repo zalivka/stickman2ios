@@ -11,9 +11,6 @@ enum InstantiateUnit {
         if frameIndices.isEmpty {
             fatalError("InstantiateUnit no target frames")
         }
-        if !item.isAvailable {
-            fatalError("InstantiateUnit locked item '\(item.makeFullName())'")
-        }
         let zip = Manifest.shared.itemZip(fullname: item.makeFullName())
         assets.loadItemFromArchive(
             zip,

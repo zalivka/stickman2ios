@@ -62,6 +62,10 @@ nonisolated final class Manifest: @unchecked Sendable {
         await schedule { self.reloadPack(name) }
     }
 
+    func requestReloadCustomPack() async -> Int {
+        await schedule { self.reloadCustomPack() }
+    }
+
     func queryPacks(_ query: Query) async -> [Pack] {
         await schedule { self.packsMatching(query) }
     }
@@ -88,6 +92,7 @@ nonisolated final class Manifest: @unchecked Sendable {
             let ms = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
             BootLog.say("obtain \(name) \(ms)ms items=\(loaded[name]!.items.count)")
         }
+        loaded[Pack.customName] = obtainCustomPack()
         onPacksReloaded(loaded)
         let count = packs().count
         print("manifest: reloaded \(count) pack(s), \(countItems()) item(s)")
@@ -99,10 +104,20 @@ nonisolated final class Manifest: @unchecked Sendable {
     }
 
     func reloadPack(_ name: String) -> Int {
+        if name == Pack.customName {
+            return reloadCustomPack()
+        }
         print("manifest: requestReloadPack \(name)")
         let pack = obtainBundlePack(ExternalPack.bundleArchive(name))
         onPackUpdated(name, pack)
         print("manifest: updated \(name) \"\(pack.title)\" items=\(pack.items.count)")
+        return packs().count
+    }
+
+    func reloadCustomPack() -> Int {
+        print("manifest: requestReloadCustomPack")
+        onPackUpdated(Pack.customName, obtainCustomPack())
+        print("manifest: updated \(Pack.customName) items=\(pack(named: Pack.customName)?.items.count ?? 0)")
         return packs().count
     }
 
@@ -144,14 +159,26 @@ nonisolated final class Manifest: @unchecked Sendable {
         guard let item = findItem(fullname: fullname) else {
             fatalError("Manifest missing item '\(fullname)'")
         }
-        if !item.isAvailable {
-            fatalError("Manifest item '\(fullname)' is locked")
+        if item.packName == Pack.customName {
+            return CustomItems.zipData(systemName: item.systemName)
         }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
         return ZipStore.data(atiNamed: "\(item.systemName).ati", in: zip)
     }
 
     func packLogo(_ packName: String) -> Data {
+        if packName == Pack.customName {
+            guard let url = Bundle.main.url(forResource: "angry_cat", withExtension: "png", subdirectory: "chrome")
+                ?? Bundle.main.url(forResource: "angry_cat", withExtension: "png")
+            else {
+                fatalError("Manifest missing chrome/angry_cat.png")
+            }
+            do {
+                return try Data(contentsOf: url)
+            } catch {
+                fatalError("Manifest could not read \(url.path): \(error)")
+            }
+        }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
         return ZipStore.data(named: "logo.png", in: zip)
     }
@@ -182,6 +209,50 @@ nonisolated final class Manifest: @unchecked Sendable {
         )
     }
 
+    /// Android `ReloadCustomPackTask` — `@` pack is the customs directory, not an `.atp`.
+    private func obtainCustomPack() -> Pack {
+        let files = CustomItems.collect()
+        let items = files.map { file -> Item in
+            let zip = CustomItems.zipData(systemName: file.systemName)
+            let fullName = Pack.customName + ":" + file.systemName
+            return Item(
+                systemName: file.systemName,
+                humanName: file.name,
+                packName: Pack.customName,
+                fullName: fullName,
+                setName: "",
+                scale: customScale(zip: zip),
+                faceable: false,
+                multiframed: false,
+                hidden: false,
+                readOnly: false
+            )
+        }
+        return Pack(
+            name: Pack.customName,
+            humanName: Pack.customTitle,
+            version: 0,
+            defScale: 1,
+            editableItems: true,
+            useCommonBg: true,
+            items: items,
+            translations: ["pack_name": Pack.customTitle]
+        )
+    }
+
+    private func customScale(zip: Data) -> CGFloat {
+        if !ZipStore.contains("meta.txt", in: zip) {
+            return 1
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: ZipStore.data(named: "meta.txt", in: zip)) as? [String: Any],
+              let number = object["scale"] as? NSNumber
+        else {
+            return 1
+        }
+        let scale = CGFloat(truncating: number)
+        return scale > 0.01 ? scale : 1
+    }
+
     private func onPacksReloaded(_ content: [String: Pack]) {
         lock.lock()
         packsByName = content
@@ -194,6 +265,11 @@ nonisolated final class Manifest: @unchecked Sendable {
 
     private func onPackUpdated(_ packName: String, _ pack: Pack) {
         lock.lock()
+        if let old = packsByName[packName] {
+            for item in old.items {
+                itemsByFullName.removeValue(forKey: item.makeFullName())
+            }
+        }
         packsByName[packName] = pack
         index(pack)
         lock.unlock()
@@ -207,7 +283,10 @@ nonisolated final class Manifest: @unchecked Sendable {
 
     private func packsMatching(_ query: Query) -> [Pack] {
         if query.isEmpty {
-            return packs()
+            let all = packs()
+            let custom = all.filter { $0.name == Pack.customName }
+            let rest = all.filter { $0.name != Pack.customName }
+            return custom + rest
         }
         return query.requestedPacks.compactMap { pack(named: $0) }.sorted { $0.name < $1.name }
     }

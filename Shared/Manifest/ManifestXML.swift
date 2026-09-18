@@ -65,8 +65,10 @@ enum ManifestXML {
                     fatalError("ManifestXML '\(packName)' missing items/\(sname).ati")
                 }
                 let setName = attributes["set"] ?? ""
-                let fullNameAttr = attributes["fullname"]
-                let fullName = (fullNameAttr?.isEmpty == false) ? fullNameAttr : nil
+                let computed = packName + ":" + sname
+                if let attr = attributes["fullname"], !attr.isEmpty, attr != computed {
+                    fatalError("ManifestXML '\(packName)' item '\(sname)' fullname '\(attr)' != '\(computed)'")
+                }
                 var scale = defScale
                 if let text = attributes["scale"], !text.isEmpty {
                     guard let value = Double(text) else {
@@ -81,7 +83,7 @@ enum ManifestXML {
                         systemName: sname,
                         humanName: human,
                         packName: packName,
-                        fullName: fullName,
+                        fullName: computed,
                         setName: translations[setName] ?? setName,
                         scale: scale,
                         faceable: attributes["faceable"] == "true",

@@ -57,6 +57,10 @@ An `.atp` is distribution only. `ExternalPack` copies bundle `packs/*.atp` into 
 
 Insert queries one pack at a time (`Query(packName)`). Do not mix `common` or custom `@` into every pack the way Android `Query.setPacks` does.
 
+Android `PACK_CUSTOM_ITEMS` is `@`: not an `.atp`. `ReloadCustomPackTask` lists `*.ati` in the customs directory (skip `~`). The chooser tile is `~custom_agg` (“Custom items”, `angry_cat`). iOS registers `@` itself as that pack and lists those files. `itemZip` reads the `.ati` file; `UnitAssets.atiEntryName` for `@` is `name.ati`. Reload after `CustomsSeeder` and on `.customItemsDidChange`.
+
+Missing `fullname=` is Android’s paid lock. iOS has no IAP: every manifest item with an `.ati` is usable (`fullname` is always `pack:sname`). Do not hide or refuse insert for a missing XML `fullname`. Android chooser also lists locked items; it only skips `readOnly`. `super.pack` is the pack that actually omits `fullname` (49 of 52). Other bundled packs already stamp `fullname` on every item. Extra `.ati` files not listed in `manifest.xml` (`vk.gr1` / `vk.gr2`) stay out, same as Android.
+
 ## Unit alpha can be > 1
 
 Scene XML stores `alpha` as a raw float. Android parses it as-is (`demo_camera` has `@:Чёрный_СтикМан#2` at `1.08`). Draw only applies a transparency layer when `alpha < 1`, so values at or above 1 are opaque. Do not reject `alpha > 1` on load. Still fatal on `alpha < 0`.
@@ -83,6 +87,10 @@ Shared editor state (hold mode, selected point) lives in `SkeletonEditSession`, 
 
 `DualNavigationChrome` next/prev must do Android's `ImageButton` pair: tap = one frame, long-press = page jump. Stacking `.onTapGesture` and `.onLongPressGesture` on the same SwiftUI view makes taps miss. The long-press `pressing:` callback claims the touch; a release before 0.35s fires neither tap nor long-press.
 
-Use a `UIButton` (`touchUpInside` + `UILongPressGestureRecognizer`). Property is `minimumPressDuration`, not SwiftUI's `minimumDuration`. If the long-press begins, swallow the following `touchUpInside` so you do not also step one frame.
+Use a `UIButton` (`touchUpInside` + `UILongPressGestureRecognizer`). Property is `minimumPressDuration`, not SwiftUI's `minimumDuration`. If the long-press begins, swallow the following `touchUpInside` so you do not also step one frame. Default `cancelsTouchesInView` cancels UIButton tracking, so that `touchUpInside` often never comes — clear the swallow flag on `.ended` / `.cancelled` / `.failed` or the *next* tap is eaten. Long-press also fires `UIImpactFeedbackGenerator` (medium).
+
+Last-frame Next is Android `MainEditor.onNextFramePressed`: clone the last frame (`Scene.addFrame` when `isEnd()`), then flash a shrinking `#91cbff` ring on the new seek-bar dot. Camera/bg screens omit `onNextAtEnd` and stay put.
+
+Do not compute page size from a `PreferenceKey` height sitting in DualNavigationChrome `@State`. That starts at 0 → `windowSize` 1, and the UIButton coordinator can keep that first long-press closure, so a hold only steps one frame while the bar is showing 1–20. Store Android `WINDOW_SIZE` on `SeekFramesPageWindow` from the bar’s laid-out height; long-press reads `pageWindow.size` at fire time (page 1–20 → frame 21). Last page: jump to the last frame, never clone — that is tap-only. Clear the swallow flag on the next run-loop turn so a leftover hold cannot eat the next tap, and a same-press `touchUpInside` cannot add a frame.
 
 Do not put that `UIButton` in a 60×60 SwiftUI frame and `setImage` the chrome PNG at `UIScreen.main.scale`. `UIViewRepresentable` does not clip; the button's intrinsic size is the image in points and the artwork paints over `SeekFramesBar`. Size the `UIImage` so it displays at `barWidth / 1.5` (40pt), keep the control in the original 40+8+8 slot, and `clipsToBounds`.

@@ -13,6 +13,8 @@ struct SeekFramesBar: View {
     let frameCount: Int
     @Binding var currentIndex: Int
     var onDoubleTap: () -> Void = {}
+    var flashToken: Int = 0
+    var pageWindow: SeekFramesPageWindow? = nil
 
     var body: some View {
         GeometryReader { proxy in
@@ -68,7 +70,16 @@ struct SeekFramesBar: View {
                     onDoubleTap: onDoubleTap
                 )
             }
-            .preference(key: SeekFramesBarHeightKey.self, value: proxy.size.height)
+            .overlay {
+                FrameInsertFlash(
+                    token: flashToken,
+                    currentIndex: currentIndex,
+                    windowSize: Self.windowSize(height: proxy.size.height)
+                )
+            }
+            .onChange(of: proxy.size.height, initial: true) { _, height in
+                pageWindow?.size = Self.windowSize(height: height)
+            }
         }
         .frame(width: Self.barWidth)
         .background(Color.clear)
@@ -108,12 +119,20 @@ struct SeekFramesBar: View {
     }
 
     static func nextPage(current: Int, frameCount: Int, windowSize: Int) -> Int {
-        let windowIndex = current / windowSize
-        let lastWindow = (frameCount - 1) / windowSize
-        if windowIndex == lastWindow {
+        if windowSize < 1 {
+            fatalError("SeekFramesBar nextPage windowSize \(windowSize)")
+        }
+        if frameCount < 1 {
+            fatalError("SeekFramesBar nextPage frameCount \(frameCount)")
+        }
+        if current < 0 || current >= frameCount {
+            fatalError("SeekFramesBar nextPage current \(current) out of \(frameCount)")
+        }
+        let nextStart = (current / windowSize + 1) * windowSize
+        if nextStart >= frameCount {
             return frameCount - 1
         }
-        return (windowIndex + 1) * windowSize
+        return nextStart
     }
 
     static func prevPage(current: Int, windowSize: Int) -> Int {
@@ -138,10 +157,49 @@ struct SeekFramesBar: View {
     }
 }
 
-struct SeekFramesBarHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+/// Android `SeekFramesBar.WINDOW_SIZE` after `onLayout`. Buttons read this at press time.
+final class SeekFramesPageWindow {
+    var size = 1
+}
+
+/// Android `ScreenFlash.TYPE.BLUE` at the active seek-bar dot after a new frame.
+private struct FrameInsertFlash: View {
+    let token: Int
+    let currentIndex: Int
+    let windowSize: Int
+
+    @State private var progress: CGFloat = 1
+    @State private var active = false
+
+    var body: some View {
+        let center = CGPoint(
+            x: SeekFramesBar.horizontalPad + SeekFramesBar.idleDiameter / 2,
+            y: SeekFramesBar.stickY(index: currentIndex, windowSize: windowSize)
+                + SeekFramesBar.idleDiameter / 2
+        )
+        Circle()
+            .stroke(Color(red: 0x91 / 255, green: 0xcb / 255, blue: 1), lineWidth: 2.5)
+            .frame(width: diameter, height: diameter)
+            .opacity(active ? Double(progress) : 0)
+            .position(center)
+            .allowsHitTesting(false)
+            .animation(nil, value: currentIndex)
+            .onChange(of: token) { _, newToken in
+                if newToken <= 0 {
+                    return
+                }
+                active = true
+                progress = 0
+                withAnimation(.easeIn(duration: 0.5)) {
+                    progress = 1
+                } completion: {
+                    active = false
+                }
+            }
+    }
+
+    private var diameter: CGFloat {
+        36 - 28 * progress
     }
 }
 

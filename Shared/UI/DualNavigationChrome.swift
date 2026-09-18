@@ -8,8 +8,11 @@ struct DualNavigationChrome: View {
     @Binding var mode: DualNavigation.Mode
     var onEnterRange: (() -> Void)? = nil
     var onLeaveRange: (() -> Void)? = nil
+    /// Android `MainEditor.onNextFramePressed` when `isEnd()` — clone last frame. Camera/bg omit this.
+    var onNextAtEnd: (() -> Void)? = nil
+    var flashToken: Int = 0
 
-    @State private var barHeight: CGFloat = 0
+    @State private var pageWindow = SeekFramesPageWindow()
 
     var body: some View {
         Group {
@@ -26,11 +29,6 @@ struct DualNavigationChrome: View {
                 .frame(maxHeight: .infinity)
             }
         }
-        .onPreferenceChange(SeekFramesBarHeightKey.self) { barHeight = $0 }
-    }
-
-    private var windowSize: Int {
-        SeekFramesBar.windowSize(height: barHeight)
     }
 
     private var framesColumn: some View {
@@ -40,24 +38,30 @@ struct DualNavigationChrome: View {
             } longPress: {
                 currentIndex = SeekFramesBar.prevPage(
                     current: currentIndex,
-                    windowSize: windowSize
+                    windowSize: pageWindow.size
                 )
             }
 
             SeekFramesBar(
                 frameCount: frameCount,
                 currentIndex: $currentIndex,
-                onDoubleTap: enterRange
+                onDoubleTap: enterRange,
+                flashToken: flashToken,
+                pageWindow: pageWindow
             )
             .frame(maxHeight: .infinity)
 
             navButton(idle: Self.nextIdle, pressed: Self.nextPressed) {
-                currentIndex = min(frameCount - 1, currentIndex + 1)
+                if currentIndex >= frameCount - 1 {
+                    onNextAtEnd?()
+                    return
+                }
+                currentIndex += 1
             } longPress: {
                 currentIndex = SeekFramesBar.nextPage(
                     current: currentIndex,
                     frameCount: frameCount,
-                    windowSize: windowSize
+                    windowSize: pageWindow.size
                 )
             }
         }
@@ -137,7 +141,9 @@ private struct FrameNavUIButton: UIViewRepresentable {
         button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
         let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.held(_:)))
         hold.minimumPressDuration = 0.35
+        hold.cancelsTouchesInView = true
         button.addGestureRecognizer(hold)
+        context.coordinator.haptic.prepare()
         apply(button, context: context)
         return button
     }
@@ -160,6 +166,10 @@ private struct FrameNavUIButton: UIViewRepresentable {
     final class Coordinator: NSObject {
         var tap: () -> Void = {}
         var longPress: () -> Void = {}
+        let haptic = UIImpactFeedbackGenerator(style: .medium)
+        /// Swallow `touchUpInside` for this press only. Clear on the next turn so a same-press
+        /// tap cannot clone the last frame after a last-page jump; `cancelsTouchesInView` may
+        /// also drop tracking so that event never comes.
         private var consumedByHold = false
 
         @objc func tapped() {
@@ -174,9 +184,12 @@ private struct FrameNavUIButton: UIViewRepresentable {
             switch gesture.state {
             case .began:
                 consumedByHold = true
+                haptic.impactOccurred(intensity: 0.85)
                 longPress()
-            case .cancelled, .failed:
-                consumedByHold = false
+            case .ended, .cancelled, .failed:
+                DispatchQueue.main.async { [weak self] in
+                    self?.consumedByHold = false
+                }
             default:
                 break
             }

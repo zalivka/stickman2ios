@@ -5,6 +5,7 @@ enum CustomItems {
 
     struct Item: Identifiable {
         var id: String { cacheKey }
+        var systemName: String
         var name: String
         var url: URL
         var mtime: TimeInterval
@@ -49,13 +50,34 @@ enum CustomItems {
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate?
                 .timeIntervalSince1970 ?? 0
-            return Item(name: displayName(url: url, fileName: fileName), url: url, mtime: mtime)
+            return Item(
+                systemName: fileName,
+                name: displayName(url: url, fileName: fileName),
+                url: url,
+                mtime: mtime
+            )
         }
         return items.sorted {
             if $0.mtime != $1.mtime {
                 return $0.mtime > $1.mtime
             }
             return $0.name < $1.name
+        }
+    }
+
+    static func file(systemName: String) -> URL {
+        if systemName.isEmpty {
+            fatalError("CustomItems empty systemName")
+        }
+        return directory().appendingPathComponent("\(systemName).\(ext)")
+    }
+
+    static func zipData(systemName: String) -> Data {
+        let url = file(systemName: systemName)
+        do {
+            return try Data(contentsOf: url)
+        } catch {
+            fatalError("CustomItems could not read \(url.path): \(error)")
         }
     }
 

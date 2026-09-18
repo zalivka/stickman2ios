@@ -35,6 +35,7 @@ struct SceneEditorScreen: View {
     @State private var savedDocument: Data
     @StateObject private var clipboard = CopyPasteBuffer()
     @StateObject private var undo = SceneUndo()
+    @State private var frameInsertFlash = 0
     @Environment(\.dismiss) private var dismiss
 
     init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
@@ -163,7 +164,9 @@ struct SceneEditorScreen: View {
                 },
                 onLeaveRange: {
                     undo.clearRangeBaseline()
-                }
+                },
+                onNextAtEnd: addFrame,
+                flashToken: frameInsertFlash
             )
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
@@ -418,6 +421,7 @@ struct SceneEditorScreen: View {
             animations: animations
         )
         collapseRangeToCurrent()
+        frameInsertFlash += 1
     }
 
     private func deleteSelectedFrames() {

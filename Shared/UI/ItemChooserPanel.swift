@@ -32,6 +32,9 @@ struct ItemChooserPanel: View {
         .task {
             packs = await Manifest.shared.queryPacks(.empty())
         }
+        .onReceive(NotificationCenter.default.publisher(for: .customItemsDidChange)) { _ in
+            Task { await refreshCustomPack() }
+        }
     }
 
     private var packsList: some View {
@@ -63,7 +66,7 @@ struct ItemChooserPanel: View {
     }
 
     private func itemsList(pack: Pack, dir: String?) -> some View {
-        let visible = pack.items.filter { !$0.hidden && !$0.readOnly && $0.isAvailable }
+        let visible = pack.items.filter { !$0.readOnly }
         let dirs: [String] = {
             if dir != nil { return [] }
             return Array(Set(visible.map(\.setName).filter { !$0.isEmpty })).sorted()
@@ -83,12 +86,16 @@ struct ItemChooserPanel: View {
                         level = .items(pack: pack, dir: nil)
                     }
                 } label: {
-                    Text("Back")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 50)
+                    HStack(spacing: 8) {
+                        Text("<")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 50)
                 }
                 .buttonStyle(.plain)
                 ForEach(dirs, id: \.self) { name in
@@ -143,6 +150,17 @@ struct ItemChooserPanel: View {
                 fatalError("ItemChooser Query(\(name)) returned \(matched.map(\.name))")
             }
             level = .items(pack: pack, dir: nil)
+        }
+    }
+
+    private func refreshCustomPack() async {
+        _ = await Manifest.shared.requestReloadCustomPack()
+        packs = await Manifest.shared.queryPacks(.empty())
+        if case .items(let pack, let dir) = level, pack.name == Pack.customName {
+            guard let updated = packs.first(where: { $0.name == Pack.customName }) else {
+                fatalError("ItemChooser custom pack missing after reload")
+            }
+            level = .items(pack: updated, dir: dir)
         }
     }
 

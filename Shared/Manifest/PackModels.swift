@@ -62,7 +62,7 @@ struct Item {
     var systemName: String
     var humanName: String
     var packName: String
-    var fullName: String?
+    var fullName: String
     var setName: String
     var scale: CGFloat
     var faceable: Bool
@@ -70,14 +70,15 @@ struct Item {
     var hidden: Bool
     var readOnly: Bool
 
-    var isAvailable: Bool { fullName != nil }
-
     func makeFullName() -> String {
         packName + ":" + systemName
     }
 }
 
 struct Pack {
+    static let customName = "@"
+    static let customTitle = "Custom items"
+
     var name: String
     var humanName: String
     var version: Int

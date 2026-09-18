@@ -60,6 +60,7 @@ private struct ManifestBootView: View {
             DemoSeeder.copyIfNeeded()
             CustomsSeeder.copyIfNeeded()
             _ = await Manifest.shared.awaitBootReload()
+            _ = await Manifest.shared.requestReloadCustomPack()
             BootLog.say("ManifestBootView.task done")
             ready = true
             if let url = pendingURL {
