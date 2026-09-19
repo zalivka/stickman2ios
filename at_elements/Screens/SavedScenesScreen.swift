@@ -2,6 +2,14 @@ import Kingfisher
 import SwiftUI
 
 struct SavedScenesScreen: View {
+    var body: some View {
+        SavedScenesGrid(showsChrome: true)
+    }
+}
+
+/// Android `SavedFragment` grid. Landing LOAD embeds this without the nav chrome.
+struct SavedScenesGrid: View {
+    var showsChrome = true
     @State private var items: [SavedScenes.Item] = []
     private let thumbWidth: CGFloat = 160
     private let thumbHeight: CGFloat = 64
@@ -27,17 +35,30 @@ struct SavedScenesScreen: View {
                 .padding(.horizontal, leftover / 2)
             }
         }
-        .background(Color.white.ignoresSafeArea())
-        .navigationTitle("Saved Scenes")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(.light, for: .navigationBar)
+        .background((showsChrome ? Color.white : LandingScreen.pane).ignoresSafeArea())
+        .modifier(SavedScenesChrome(enabled: showsChrome))
         .onAppear {
             items = SavedScenes.collect()
         }
         .onReceive(NotificationCenter.default.publisher(for: .savedScenesDidChange)) { _ in
             items = SavedScenes.collect()
+        }
+    }
+}
+
+private struct SavedScenesChrome: ViewModifier {
+    var enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .navigationTitle("Saved Scenes")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(Color.white, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(.light, for: .navigationBar)
+        } else {
+            content
         }
     }
 }

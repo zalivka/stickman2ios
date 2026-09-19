@@ -126,10 +126,10 @@ struct FullscreenPreviewScreen: View {
             unit: Binding(
                 get: {
                     let frame = movie.currentFrame
-                    if frame.units.isEmpty {
-                        fatalError("FullscreenPreviewScreen frame \(frame.id) has no units")
+                    guard let first = frame.units.first else {
+                        fatalError("FullscreenPreviewScreen frame \(frame.id) read unit")
                     }
-                    return frame.units[0]
+                    return first
                 },
                 set: { _ in
                     fatalError("FullscreenPreviewScreen canvas is not interactive")

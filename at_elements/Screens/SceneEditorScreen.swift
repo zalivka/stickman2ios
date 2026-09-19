@@ -43,10 +43,6 @@ struct SceneEditorScreen: View {
         if scene.frames.isEmpty {
             fatalError("SceneEditorScreen has no frames")
         }
-        let frame = scene.frames[scene.currentIndex]
-        if frame.units.isEmpty {
-            fatalError("SceneEditorScreen frame \(frame.id) has no units")
-        }
         _scene = State(initialValue: scene)
         _assets = State(initialValue: assets)
         _backgrounds = State(initialValue: backgrounds)
@@ -77,7 +73,7 @@ struct SceneEditorScreen: View {
                     menuActivated: showingMenu
                 )
                 SkeletonCanvas(
-                    unit: unitBinding,
+                    unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
                     frameUnits: scene.currentFrame.units,
                     assets: assets,
                     backgrounds: backgrounds,

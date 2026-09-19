@@ -637,6 +637,16 @@ struct StickmanScene {
     var noInterpolationFrames: Int = 0
     var unitAnimations: [String: FBFAnimation] = [:]
 
+    /// Android `CartoonStage.makeOneFrameStage` — one empty frame at `LARGE_L` 640×480.
+    static func empty() -> StickmanScene {
+        StickmanScene(
+            width: 640,
+            height: 480,
+            frames: [StickmanFrame(id: 0, units: [], bgName: "#ffffff")],
+            currentIndex: 0
+        )
+    }
+
     var currentFrame: StickmanFrame {
         if frames.isEmpty {
             fatalError("StickmanScene has no frames")
@@ -682,9 +692,6 @@ struct StickmanScene {
         }
         created.id = nextFrameId()
         created.refreshAttachments()
-        if created.units.isEmpty {
-            fatalError("StickmanScene addFrame produced no units")
-        }
         frames.insert(created, at: currentIndex + 1)
         currentIndex += 1
     }

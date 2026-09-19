@@ -262,9 +262,6 @@ enum SceneXML {
     }
 
     private static func serialize(_ frame: StickmanFrame) -> String {
-        if frame.units.isEmpty {
-            fatalError("SceneXML frame \(frame.id) has no units")
-        }
         let bgName = frame.bgName ?? "#ffffff"
         var xml = "<frame"
         xml += XMLWrite.attr("id", "\(frame.id)")

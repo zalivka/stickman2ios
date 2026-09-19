@@ -151,12 +151,14 @@ struct RangeFramePreview: View {
             fatalError("RangeFramePreview index \(index) out of \(scene.frames.count)")
         }
         let frame = scene.frames[index]
-        if frame.units.isEmpty {
-            fatalError("RangeFramePreview frame \(frame.id) has no units")
-        }
         return SkeletonCanvas(
             unit: Binding(
-                get: { frame.units[0] },
+                get: {
+                    guard let first = frame.units.first else {
+                        fatalError("RangeFramePreview empty frame read unit")
+                    }
+                    return first
+                },
                 set: { _ in
                     fatalError("RangeFramePreview canvas is not interactive")
                 }

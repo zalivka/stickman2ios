@@ -25,16 +25,18 @@ enum SceneThumbRenderer {
             fatalError("SceneThumbRenderer scene has no frames")
         }
         let frame = scene.currentFrame
-        if frame.units.isEmpty {
-            fatalError("SceneThumbRenderer frame \(frame.id) has no units")
-        }
         let size = CGSize(width: scene.width, height: scene.height)
         if size.width < 1 || size.height < 1 {
             fatalError("SceneThumbRenderer scene size \(size.width)x\(size.height)")
         }
         let canvas = SkeletonCanvas(
             unit: Binding(
-                get: { frame.units[0] },
+                get: {
+                    guard let first = frame.units.first else {
+                        fatalError("SceneThumbRenderer empty frame read unit")
+                    }
+                    return first
+                },
                 set: { _ in
                     fatalError("SceneThumbRenderer canvas is not interactive")
                 }

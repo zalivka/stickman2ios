@@ -109,10 +109,10 @@ struct CameraAnimatorScreen: View {
         Binding(
             get: {
                 let frame = scene.currentFrame
-                if frame.units.isEmpty {
-                    fatalError("CameraAnimatorScreen frame \(frame.id) has no units")
+                guard let first = frame.units.first else {
+                    fatalError("CameraAnimatorScreen frame \(frame.id) read unit")
                 }
-                return frame.units[0]
+                return first
             },
             set: { _ in
                 fatalError("CameraAnimatorScreen canvas is not an editor")

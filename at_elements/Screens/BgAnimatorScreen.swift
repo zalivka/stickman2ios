@@ -284,10 +284,10 @@ struct BgAnimatorScreen: View {
         Binding(
             get: {
                 let frame = scene.currentFrame
-                if frame.units.isEmpty {
-                    fatalError("BgAnimatorScreen frame \(frame.id) has no units")
+                guard let first = frame.units.first else {
+                    fatalError("BgAnimatorScreen frame \(frame.id) read unit")
                 }
-                return frame.units[0]
+                return first
             },
             set: { _ in
                 fatalError("BgAnimatorScreen canvas is not an editor")
