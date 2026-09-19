@@ -523,6 +523,35 @@ struct StickmanFrame {
     }
 
     /// Android `UnitPaster.pasteOnFrame` — unique names, masters first, arrange on top.
+    func hasNameIntersection(_ structure: [StickmanUnit]) -> Bool {
+        let names = Set(structure.map(\.name))
+        return units.contains { names.contains($0.name) }
+    }
+
+    /// Android `Inbetweener.structureIntact` — same names and attachments, no extra slaves.
+    func structureIntact(_ structure: [StickmanUnit]) -> Bool {
+        guard let strRoot = structure.first(where: { SlavesRegistry.attachment(of: $0) == nil }) else {
+            fatalError("StickmanFrame \(id) structure has no root")
+        }
+        guard units.contains(where: { $0.name == strRoot.name }) else {
+            return false
+        }
+        var onFrameNames = Set(SlavesRegistry.allConnected(of: unit(named: strRoot.name), in: units).map(\.name))
+        let ordered = structure.sorted {
+            SlavesRegistry.slaveDepth($0, in: structure) < SlavesRegistry.slaveDepth($1, in: structure)
+        }
+        for unit in ordered {
+            guard let onFrame = units.first(where: { $0.name == unit.name }) else {
+                return false
+            }
+            if SlavesRegistry.attachment(of: unit) != SlavesRegistry.attachment(of: onFrame) {
+                return false
+            }
+            onFrameNames.remove(unit.name)
+        }
+        return onFrameNames.isEmpty
+    }
+
     mutating func pasteStructure(_ structure: [StickmanUnit]) {
         if structure.isEmpty {
             fatalError("StickmanFrame \(id) pasteStructure empty")
@@ -728,5 +757,35 @@ struct StickmanScene {
             unitAnimations[name] = copy
         }
         return inserted
+    }
+
+    /// Android `Inbetweener.ensureStructureOnRange` — copy root+slaves onto frames if no name conflicts.
+    @discardableResult
+    mutating func ensureStructureOnRange(
+        root: StickmanUnit,
+        in sourceUnits: [StickmanUnit],
+        range: ClosedRange<Int>
+    ) -> [Int] {
+        if SlavesRegistry.isEnslaved(root) {
+            fatalError("StickmanScene ensureStructureOnRange enslaved '\(root.name)'")
+        }
+        if range.lowerBound < 0 || range.upperBound >= frames.count {
+            fatalError("StickmanScene ensureStructureOnRange \(range) out of \(frames.count)")
+        }
+        let structure = SlavesRegistry.allConnected(of: root, in: sourceUnits)
+        var conflicts: [Int] = []
+        for index in range {
+            let frame = frames[index]
+            if !frame.structureIntact(structure) && frame.hasNameIntersection(structure) {
+                conflicts.append(index)
+            }
+        }
+        if !conflicts.isEmpty {
+            return conflicts
+        }
+        for index in range where !frames[index].structureIntact(structure) {
+            frames[index].pasteStructure(structure)
+        }
+        return []
     }
 }

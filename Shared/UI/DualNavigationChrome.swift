@@ -10,6 +10,8 @@ struct DualNavigationChrome: View {
     var onLeaveRange: (() -> Void)? = nil
     /// Android `MainEditor.onNextFramePressed` when `isEnd()` — clone last frame. Camera/bg omit this.
     var onNextAtEnd: (() -> Void)? = nil
+    /// Android `copyTouchHeldStructureToFrameIfNoConflicts` after a next/prev tap.
+    var onHoldCopy: ((_ sourceIndex: Int, _ destIndex: Int) -> Void)? = nil
     var flashToken: Int = 0
 
     @State private var pageWindow = SeekFramesPageWindow()
@@ -34,7 +36,11 @@ struct DualNavigationChrome: View {
     private var framesColumn: some View {
         VStack(spacing: 0) {
             navButton(idle: Self.prevIdle, pressed: Self.prevPressed) {
+                let source = currentIndex
                 currentIndex = max(0, currentIndex - 1)
+                if currentIndex != source {
+                    onHoldCopy?(source, currentIndex)
+                }
             } longPress: {
                 currentIndex = SeekFramesBar.prevPage(
                     current: currentIndex,
@@ -52,11 +58,16 @@ struct DualNavigationChrome: View {
             .frame(maxHeight: .infinity)
 
             navButton(idle: Self.nextIdle, pressed: Self.nextPressed) {
+                let source = currentIndex
                 if currentIndex >= frameCount - 1 {
                     onNextAtEnd?()
+                    if currentIndex != source {
+                        onHoldCopy?(source, currentIndex)
+                    }
                     return
                 }
                 currentIndex += 1
+                onHoldCopy?(source, currentIndex)
             } longPress: {
                 currentIndex = SeekFramesBar.nextPage(
                     current: currentIndex,

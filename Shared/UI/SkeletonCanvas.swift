@@ -161,6 +161,8 @@ struct SkeletonCanvas: View {
     var selectedPointId: Binding<Int?> = .constant(nil)
     /// Scene-editor selection. `nil` means no unit is active.
     var selectedUnitName: Binding<String?> = .constant(nil)
+    /// Android captured point — unit name while a finger is down on a unit or handler.
+    var capturedUnitName: Binding<String?> = .constant(nil)
     /// Bumped when asset draw-order changes so the canvas redraws.
     var layerEpoch: Int = 0
     /// Android `toggleVacantPoints` — green circles over all nodes.
@@ -267,7 +269,14 @@ struct SkeletonCanvas: View {
                 freezeLayout(in: newSize)
             }
             .onChange(of: currentIndex) { _, _ in
-                endTouch()
+                if dragRef.nodeId == nil && dragRef.handler == nil {
+                    endTouch()
+                }
+            }
+            .onChange(of: capturedUnitName.wrappedValue) { _, name in
+                if name == nil, dragRef.nodeId != nil || dragRef.handler != nil {
+                    endTouch()
+                }
             }
             .onChange(of: boneCreateHoldFlag) { _, on in
                 if !on {
@@ -863,6 +872,13 @@ struct SkeletonCanvas: View {
                 dragRef.undoPushed = true
                 onPrepareUndo?()
             }
+            if mode == .editor {
+                if dragRef.handler != nil || dragRef.nodeId != nil {
+                    capturedUnitName.wrappedValue = selectedUnitName.wrappedValue ?? unit.name
+                } else {
+                    capturedUnitName.wrappedValue = nil
+                }
+            }
             dragRef.lastScreen = location
         }
         if let kind = dragRef.handler {
@@ -938,6 +954,7 @@ struct SkeletonCanvas: View {
         dragRef.undoPushed = false
         dragRef.touchOffsetX = 0
         dragRef.touchOffsetY = 0
+        capturedUnitName.wrappedValue = nil
         if let current = layout {
             snapHandlers(to: current)
         }

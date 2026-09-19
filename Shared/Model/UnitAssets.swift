@@ -531,14 +531,26 @@ final class UnitAssets {
         return rows
     }
 
-    private func firstAsset(bmName: String, unitName: String) -> EdgeAsset? {
-        for (key, states) in edgeAssets where key.unitName == unitName {
+    func firstAsset(bmName: String, unitName: String) -> EdgeAsset? {
+        let name = Self.removeNumber(unitName)
+        for (key, states) in edgeAssets where key.unitName == name {
             if let match = states.values.first(where: { $0.bmName == bmName }) {
                 return match
             }
         }
-        if let loose = looseBones[bmName], loose.unitName == unitName {
+        if let loose = looseBones[bmName], loose.unitName == name {
             return loose
+        }
+        return nil
+    }
+
+    /// Android `BonesGalleryFragment.findEdgeUsing` — first skeleton edge that draws this picture.
+    func firstEdgeUsing(bmName: String, unitName: String) -> (start: Int, end: Int)? {
+        let name = Self.removeNumber(unitName)
+        for (key, states) in edgeAssets where key.unitName == name {
+            if states.values.contains(where: { $0.bmName == bmName }) {
+                return (key.start, key.end)
+            }
         }
         return nil
     }

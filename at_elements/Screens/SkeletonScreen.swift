@@ -174,7 +174,8 @@ struct SkeletonScreen: View {
                     bones: galleryBones,
                     highlightedBmName: highlightedBmName,
                     onNewBone: createNewGalleryBone,
-                    onAttach: attachBone
+                    onAttach: attachBone,
+                    onEdit: editGalleryBone
                 )
             }
         }
@@ -247,23 +248,48 @@ struct SkeletonScreen: View {
     }
 
     private func openBonePaper() {
-        guard let unit = optionalUnit, let assets else {
+        guard let unit = optionalUnit else {
             fatalError("SkeletonScreen '\(title)' edit with no unit")
         }
         guard let id = selectedPointId, let edge = unit.upperEdge(of: id) else {
             fatalError("SkeletonScreen '\(title)' edit with no selected edge")
         }
-        let from = unit.point(id: edge.from)
-        let to = unit.point(id: edge.to)
+        openBonePaper(from: edge.from, to: edge.to)
+    }
+
+    /// Android gallery long-press Edit: Kurwa for that picture; onion if some edge uses it.
+    private func editGalleryBone(_ bmName: String) {
+        guard let unit = optionalUnit, let assets else {
+            fatalError("SkeletonScreen '\(title)' gallery edit with no unit")
+        }
+        if bmName.isEmpty {
+            fatalError("SkeletonScreen '\(title)' gallery edit empty bmName")
+        }
+        if let ends = assets.firstEdgeUsing(bmName: bmName, unitName: unit.name) {
+            openBonePaper(from: ends.start, to: ends.end)
+            return
+        }
+        guard let asset = assets.firstAsset(bmName: bmName, unitName: unit.name) else {
+            fatalError("SkeletonScreen '\(title)' gallery edit unknown bm '\(bmName)'")
+        }
+        presentBonePaper(asset: asset, length: UnitAssets.defaultBoneLength, onion: nil)
+    }
+
+    private func openBonePaper(from: Int, to: Int) {
+        guard let unit = optionalUnit, let assets else {
+            fatalError("SkeletonScreen '\(title)' edit with no unit")
+        }
+        let startPt = unit.point(id: from)
+        let endPt = unit.point(id: to)
         if unit.scale <= 0 {
             fatalError("SkeletonScreen '\(title)' scale is \(unit.scale)")
         }
         // PNG offsets are item-pixel units. Scene points already include unit.scale
         // (Android skeleton editor stores unscaled model coords, so getLength() is 1:1).
-        let length = hypot(to.x - from.x, to.y - from.y) / unit.scale
+        let length = hypot(endPt.x - startPt.x, endPt.y - startPt.y) / unit.scale
         let asset = assets.ensureDrawable(
-            start: edge.from,
-            end: edge.to,
+            start: from,
+            end: to,
             unitName: unit.name,
             length: length
         )
@@ -271,8 +297,8 @@ struct SkeletonScreen: View {
         let onion = SkeletonOnion.worldOverlay(
             unit: unit,
             assets: assets,
-            excludeFrom: edge.from,
-            excludeTo: edge.to,
+            excludeFrom: from,
+            excludeTo: to,
             worldSize: BonePaperScreen.worldSide,
             pngWidth: asset.bitmap.width,
             pngHeight: asset.bitmap.height,

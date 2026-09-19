@@ -6,6 +6,7 @@ struct BonesGalleryPanel: View {
     var highlightedBmName: String?
     var onNewBone: () -> Void
     var onAttach: (String) -> Void
+    var onEdit: (String) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -81,6 +82,10 @@ struct BonesGalleryPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Attach Bone") { onAttach(bone.bmName) }
+            Button("Edit Bone") { onEdit(bone.bmName) }
+        }
         .accessibilityLabel("Bone \(bone.bmName)")
     }
 

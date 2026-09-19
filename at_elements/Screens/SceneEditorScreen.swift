@@ -21,6 +21,7 @@ struct SceneEditorScreen: View {
     @State private var showingMenu = false
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
+    @State private var capturedUnitName: String?
     @State private var showingSave = false
     @State private var saveName = ""
     @State private var saveError = ""
@@ -87,6 +88,7 @@ struct SceneEditorScreen: View {
                     sceneHeight: scene.height,
                     currentIndex: scene.currentIndex,
                     selectedUnitName: $selectedUnitName,
+                    capturedUnitName: $capturedUnitName,
                     onPrepareUndo: prepareSelectionUndo
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -166,6 +168,7 @@ struct SceneEditorScreen: View {
                     undo.clearRangeBaseline()
                 },
                 onNextAtEnd: addFrame,
+                onHoldCopy: copyHeldStructure,
                 flashToken: frameInsertFlash
             )
         }
@@ -408,6 +411,31 @@ struct SceneEditorScreen: View {
             return Array(range)
         case .frames:
             return [scene.currentIndex]
+        }
+    }
+
+    /// Android `MainEditor.copyTouchHeldStructureToFrameIfNoConflicts`.
+    private func copyHeldStructure(from sourceIndex: Int, to destIndex: Int) {
+        guard let capturedUnitName else {
+            return
+        }
+        if sourceIndex < 0 || sourceIndex >= scene.frames.count {
+            fatalError("SceneEditorScreen hold-copy source \(sourceIndex) out of \(scene.frames.count)")
+        }
+        if destIndex < 0 || destIndex >= scene.frames.count {
+            fatalError("SceneEditorScreen hold-copy dest \(destIndex) out of \(scene.frames.count)")
+        }
+        let source = scene.frames[sourceIndex]
+        guard let captured = source.units.first(where: { $0.name == capturedUnitName }) else {
+            fatalError("SceneEditorScreen captured '\(capturedUnitName)' missing on source frame \(sourceIndex)")
+        }
+        let root = SlavesRegistry.rootMaster(of: captured, in: source.units)
+        scene.ensureStructureOnRange(root: root, in: source.units, range: destIndex...destIndex)
+        if scene.frames[destIndex].units.contains(where: { $0.name == capturedUnitName }) {
+            selectedUnitName = capturedUnitName
+        } else {
+            selectedUnitName = nil
+            self.capturedUnitName = nil
         }
     }
 
