@@ -9,53 +9,131 @@ enum BonePaperBrush {
 
 enum BonePaperChrome {
     static let pad: CGFloat = 16
-    static let leftRail: CGFloat = 44
+    static let leftRail: CGFloat = 75
     static let rightRail: CGFloat = 64
+    static let tool: CGFloat = 44
+    static let pane = Color(red: 0x24 / 255, green: 0x25 / 255, blue: 0x30 / 255)
+    static let selected = Color(red: 0x45 / 255, green: 0x96 / 255, blue: 1)
+    static let apply = Color(red: 0x37 / 255, green: 0xAB / 255, blue: 0x22 / 255)
+
+    static var railIconInset: CGFloat { (leftRail - tool) / 2 }
 
     static func fitInsets(safe: EdgeInsets) -> UIEdgeInsets {
         UIEdgeInsets(
             top: safe.top + pad,
-            left: safe.leading + pad + leftRail,
+            left: pad,
             bottom: safe.bottom + pad,
             right: safe.trailing + pad + rightRail
         )
     }
+
+    static func chromeImage(_ name: String) -> UIImage {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
+            ?? Bundle.main.url(forResource: name, withExtension: "png")
+        else {
+            fatalError("BonePaper missing chrome/\(name).png")
+        }
+        guard let image = UIImage(contentsOfFile: url.path) else {
+            fatalError("BonePaper could not read \(url.path)")
+        }
+        return image
+    }
 }
 
-struct BonePaperBackUndo: View {
-    var canUndo: Bool
+struct BonePaperBackButton: View {
     var onBack: () -> Void
+
+    var body: some View {
+        Button(action: onBack) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
+                .background(Circle().fill(Color.white))
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
+        .padding(.leading, BonePaperChrome.leftRail + 8)
+        .padding(.top, 8)
+    }
+}
+
+struct BonePaperUndoButton: View {
+    var canUndo: Bool
     var onUndo: () -> Void
 
     var body: some View {
-        VStack(spacing: 6) {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.white))
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                    .contentShape(Circle())
+        Button(action: onUndo) {
+            VStack(spacing: 1) {
+                Image(uiImage: BonePaperChrome.chromeImage("skel_btn_undo"))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
+                Text("undo")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.white)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-
-            Button(action: onUndo) {
-                Image(systemName: "arrow.uturn.backward")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(canUndo ? Color.black : Color.black.opacity(0.28))
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.white))
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canUndo)
-            .accessibilityLabel("Undo")
+            .opacity(canUndo ? 1 : 0.35)
+            .contentShape(Rectangle())
         }
-        .padding(.leading, BonePaperChrome.pad)
-        .padding(.top, BonePaperChrome.pad)
+        .buttonStyle(.plain)
+        .disabled(!canUndo)
+        .accessibilityLabel("Undo")
+    }
+}
+
+struct BonePaperRedoButton: View {
+    var canRedo: Bool
+    var onRedo: () -> Void
+
+    private static let purple = Color(red: 1, green: 0.35, blue: 0.72)
+
+    var body: some View {
+        Button(action: onRedo) {
+            VStack(spacing: 1) {
+                Image(uiImage: BonePaperChrome.chromeImage("skel_btn_undo").withRenderingMode(.alwaysTemplate))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(Self.purple)
+                    .scaleEffect(x: -1, y: 1)
+                    .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
+                Text("redo")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+            .opacity(canRedo ? 1 : 0.35)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canRedo)
+        .accessibilityLabel("Redo")
+    }
+}
+
+/// Android `drawable/check` — the fat Kurwa apply tick.
+private struct KurwaCheck: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: 15.4142, y: 4.41421))
+        path.addLine(to: CGPoint(x: 6, y: 13.8284))
+        path.addLine(to: CGPoint(x: 0.585785, y: 8.41421))
+        path.addLine(to: CGPoint(x: 3.41421, y: 5.58578))
+        path.addLine(to: CGPoint(x: 6, y: 8.17157))
+        path.addLine(to: CGPoint(x: 12.5858, y: 1.58578))
+        path.closeSubpath()
+        let scale = min(rect.width, rect.height) / 16
+        let offset = CGSize(
+            width: rect.minX + (rect.width - 16 * scale) / 2,
+            height: rect.minY + (rect.height - 16 * scale) / 2
+        )
+        return path.applying(
+            CGAffineTransform(translationX: offset.width, y: offset.height)
+                .scaledBy(x: scale, y: scale)
+        )
     }
 }
 
@@ -64,11 +142,11 @@ struct BonePaperApply: View {
 
     var body: some View {
         Button(action: onApply) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.black)
+            KurwaCheck()
+                .fill(Color.white)
+                .frame(width: 36, height: 36)
                 .frame(width: BonePaperChrome.rightRail, height: BonePaperChrome.rightRail)
-                .background(Color(red: 0, green: 0xEC / 255, blue: 1))
+                .background(BonePaperChrome.apply)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Apply")
@@ -80,49 +158,67 @@ struct BonePaperStrokeControls: View {
     @Binding var brushSize: CGFloat
     @Binding var eraserSize: CGFloat
     @Binding var opacity: CGFloat
+    var canUndo: Bool
+    var onUndo: () -> Void
+    var canRedo: Bool
+    var onRedo: () -> Void
     var color: Color
     var onSeeking: (Bool) -> Void
 
     @State private var activeSetting: BonePaperStrokeSetting?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            BonePaperPanChip(selected: tool == .pan) {
-                tool = .pan
+        GeometryReader { geo in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 3) {
+                    BonePaperPanChip(selected: tool == .pan) {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            tool = .pan
+                        }
+                    }
+                    BonePaperRedoButton(canRedo: canRedo, onRedo: onRedo)
+                    BonePaperUndoButton(canUndo: canUndo, onUndo: onUndo)
+                    BonePaperDragControl(
+                        setting: .size,
+                        value: $brushSize,
+                        range: BonePaperBrush.sizeRange,
+                        color: color,
+                        selected: tool == .pen,
+                        activeSetting: $activeSetting,
+                        onActivate: { tool = .pen },
+                        onSeeking: onSeeking
+                    )
+                    BonePaperDragControl(
+                        setting: .opacity,
+                        value: $opacity,
+                        range: BonePaperBrush.opacityRange,
+                        color: color,
+                        selected: false,
+                        activeSetting: $activeSetting,
+                        onActivate: { tool = .pen },
+                        onSeeking: onSeeking
+                    )
+                    BonePaperDragControl(
+                        setting: .eraser,
+                        value: $eraserSize,
+                        range: BonePaperBrush.sizeRange,
+                        color: color,
+                        selected: tool == .eraser,
+                        activeSetting: $activeSetting,
+                        onActivate: { tool = .eraser },
+                        onSeeking: onSeeking
+                    )
+                }
+                .animation(nil, value: tool)
+                .padding(.leading, BonePaperChrome.railIconInset)
+                .padding(.bottom, BonePaperChrome.pad)
+                .frame(minHeight: geo.size.height, alignment: .bottom)
             }
-            BonePaperDragControl(
-                setting: .size,
-                value: $brushSize,
-                range: BonePaperBrush.sizeRange,
-                color: color,
-                selected: tool == .pen,
-                activeSetting: $activeSetting,
-                onActivate: { tool = .pen },
-                onSeeking: onSeeking
-            )
-            BonePaperDragControl(
-                setting: .opacity,
-                value: $opacity,
-                range: BonePaperBrush.opacityRange,
-                color: color,
-                selected: false,
-                activeSetting: $activeSetting,
-                onActivate: { tool = .pen },
-                onSeeking: onSeeking
-            )
-            BonePaperDragControl(
-                setting: .eraser,
-                value: $eraserSize,
-                range: BonePaperBrush.sizeRange,
-                color: color,
-                selected: tool == .eraser,
-                activeSetting: $activeSetting,
-                onActivate: { tool = .eraser },
-                onSeeking: onSeeking
-            )
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
         }
-        .padding(.leading, BonePaperChrome.pad)
-        .padding(.bottom, BonePaperChrome.pad)
     }
 }
 
@@ -131,17 +227,43 @@ private struct BonePaperPanChip: View {
     var onSelect: () -> Void
 
     var body: some View {
-        Button(action: onSelect) {
+        VStack(spacing: 1) {
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.black)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(selected ? Color(red: 0, green: 0xEC / 255, blue: 1) : Color.white))
-                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-                .contentShape(Circle())
+                .foregroundStyle(.white)
+                .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
+                .background {
+                    if selected {
+                        BonePaperChrome.selected
+                            .transition(.identity)
+                    }
+                }
+            Text("move")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(selected ? BonePaperChrome.selected : Color.white)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Pan")
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .transaction { $0.animation = nil }
+        .accessibilityLabel("Move")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+private struct CheckerDisc: View {
+    var body: some View {
+        Canvas { context, size in
+            let cell = size.width / 2
+            let light = Color(white: 0.92)
+            let dark = Color(white: 0.62)
+            for row in 0..<2 {
+                for col in 0..<2 {
+                    let rect = CGRect(x: CGFloat(col) * cell, y: CGFloat(row) * cell, width: cell, height: cell)
+                    context.fill(Path(rect), with: .color((row + col).isMultiple(of: 2) ? light : dark))
+                }
+            }
+        }
+        .clipShape(Circle())
     }
 }
 
@@ -152,9 +274,9 @@ private enum BonePaperStrokeSetting {
 
     var label: String {
         switch self {
-        case .size: "Size"
-        case .opacity: "Opacity"
-        case .eraser: "Eraser size"
+        case .size: "brush"
+        case .opacity: "opacity"
+        case .eraser: "erase"
         }
     }
 }
@@ -173,6 +295,7 @@ private struct BonePaperDragControl: View {
     private static let trackWidth: CGFloat = 176
     private static let trackPadding: CGFloat = 12
     private static let trackGap: CGFloat = 8
+    private static let space = "bonepaper.slider"
 
     @State private var dragStartValue: CGFloat?
 
@@ -194,25 +317,32 @@ private struct BonePaperDragControl: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if isActive {
-                track
-                    .offset(x: Self.side + Self.trackGap)
-                    .transition(.opacity)
+        VStack(spacing: 1) {
+            ZStack(alignment: .leading) {
+                if isActive {
+                    track
+                        .offset(x: Self.side + Self.trackGap)
+                }
+                icon
             }
-            icon
-                .gesture(drag)
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        onActivate()
-                    }
-                )
+            .frame(
+                width: isActive ? Self.side + Self.trackGap + Self.trackWidth : Self.side,
+                height: Self.side,
+                alignment: .leading
+            )
+            .contentShape(Rectangle())
+            .coordinateSpace(name: Self.space)
+            .gesture(drag)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    onActivate()
+                }
+            )
+            Text(setting.label)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(selected || isActive ? BonePaperChrome.selected : Color.white)
+                .frame(width: Self.side)
         }
-        .frame(
-            width: isActive ? Self.side + Self.trackGap + Self.trackWidth : Self.side,
-            height: Self.side,
-            alignment: .leading
-        )
         .animation(.easeOut(duration: 0.12), value: isActive)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(setting.label)
@@ -221,37 +351,35 @@ private struct BonePaperDragControl: View {
 
     private var icon: some View {
         ZStack {
-            Circle()
-                .fill(selected ? Color(red: 0, green: 0xEC / 255, blue: 1) : Color.white)
-                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            if selected {
+                BonePaperChrome.selected
+            }
             switch setting {
             case .size:
-                let diameter = 6 + ratio * 22
-                Circle()
-                    .fill(color)
-                    .frame(width: diameter, height: diameter)
-                    .overlay {
-                        if color == .white {
-                            Circle().stroke(Color(white: 0.62), lineWidth: 1)
-                        }
-                    }
+                Image(uiImage: BonePaperChrome.chromeImage("v3_draw_free_unactivated"))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 32)
             case .opacity:
-                Image(systemName: "drop.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(color.opacity(value))
-                    .overlay {
-                        Image(systemName: "drop")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.45))
-                    }
+                ZStack {
+                    CheckerDisc()
+                    Circle()
+                        .fill(color.opacity(value))
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2)
+                }
+                .frame(width: 22, height: 22)
             case .eraser:
-                Image(systemName: "eraser.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.black)
+                Image(uiImage: BonePaperChrome.chromeImage(
+                    selected ? "vector_eraser_activated" : "vector_eraser_deactivated"
+                ))
+                .resizable()
+                .scaledToFit()
+                .frame(width: 32, height: 32)
             }
         }
         .frame(width: Self.side, height: Self.side)
-        .contentShape(Circle())
+        .contentShape(Rectangle())
     }
 
     private var track: some View {
@@ -259,7 +387,7 @@ private struct BonePaperDragControl: View {
         let knobX = Self.trackPadding + ratio * lineWidth
         let bubbleWidth: CGFloat = 50
         let bubbleX = min(max(knobX - bubbleWidth / 2, 4), Self.trackWidth - bubbleWidth - 4)
-        let knobColor = setting == .eraser ? Color.black : color
+        let knobColor = Color.black
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.white)
@@ -285,25 +413,13 @@ private struct BonePaperDragControl: View {
         .frame(width: Self.trackWidth, height: Self.side)
     }
 
-    @ViewBuilder
     private var trackLine: some View {
-        if setting == .opacity {
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [color.opacity(0.05), color],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-        } else {
-            Capsule()
-                .fill(Color.black.opacity(0.22))
-        }
+        Capsule()
+            .fill(Color.black.opacity(0.22))
     }
 
     private var drag: some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: .named(Self.space))
             .onChanged { drag in
                 if dragStartValue == nil {
                     dragStartValue = value
@@ -315,11 +431,14 @@ private struct BonePaperDragControl: View {
                     fatalError("BonePaper drag started without a value")
                 }
                 let valueStart = Self.side + Self.trackGap + Self.trackPadding
+                let valueWidth = Self.trackWidth - Self.trackPadding * 2
+                if valueWidth <= 0 {
+                    fatalError("BonePaper slider track width is \(valueWidth)")
+                }
                 if drag.location.x < valueStart {
                     value = start
                     return
                 }
-                let valueWidth = Self.trackWidth - Self.trackPadding * 2
                 let t = min(max((drag.location.x - valueStart) / valueWidth, 0), 1)
                 let span = range.upperBound - range.lowerBound
                 value = range.lowerBound + t * span

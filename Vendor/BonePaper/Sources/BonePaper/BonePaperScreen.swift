@@ -48,18 +48,24 @@ public struct BonePaperScreen: View {
             let safe = geo.safeAreaInsets
             ZStack {
                 Color(white: 0.78).ignoresSafeArea()
-                BonePaperCanvas(
-                    document: document,
-                    tool: tool,
-                    color: UIColor(color),
-                    brushSize: tool == .eraser ? eraserSize : brushSize,
-                    opacity: opacity,
-                    boneStart: boneStart,
-                    boneTip: boneTip,
-                    onion: onion,
-                    zoom: $zoom,
-                    fitInsets: BonePaperChrome.fitInsets(safe: safe)
-                )
+                HStack(spacing: 0) {
+                    BonePaperChrome.pane
+                        .frame(width: BonePaperChrome.leftRail)
+                        .frame(maxHeight: .infinity)
+                    BonePaperCanvas(
+                        document: document,
+                        tool: tool,
+                        color: UIColor(color),
+                        brushSize: tool == .eraser ? eraserSize : brushSize,
+                        opacity: opacity,
+                        boneStart: boneStart,
+                        boneTip: boneTip,
+                        onion: onion,
+                        zoom: $zoom,
+                        fitInsets: BonePaperChrome.fitInsets(safe: safe)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 .ignoresSafeArea()
                 .overlay(alignment: .top) {
                     if showingStrokePreview {
@@ -76,13 +82,8 @@ public struct BonePaperScreen: View {
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    BonePaperBackUndo(
-                        canUndo: document.canUndo,
-                        onBack: { dismiss() },
-                        onUndo: document.undo
-                    )
-                    .padding(.leading, safe.leading)
-                    .padding(.top, safe.top)
+                    BonePaperBackButton(onBack: { dismiss() })
+                        .padding(.top, safe.top)
                 }
                 .overlay(alignment: .topTrailing) {
                     VStack(spacing: BonePaperChrome.pad) {
@@ -102,10 +103,13 @@ public struct BonePaperScreen: View {
                         brushSize: $brushSize,
                         eraserSize: $eraserSize,
                         opacity: $opacity,
+                        canUndo: document.canUndo,
+                        onUndo: document.undo,
+                        canRedo: document.canRedo,
+                        onRedo: document.redo,
                         color: color,
                         onSeeking: { showingStrokePreview = $0 }
                     )
-                    .padding(.leading, safe.leading)
                     .padding(.bottom, safe.bottom)
                 }
             }
