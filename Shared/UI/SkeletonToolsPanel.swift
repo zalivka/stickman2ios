@@ -39,23 +39,39 @@ enum SkeletonChrome {
     }
 }
 
-struct SkeletonBackButton: View {
+struct BackCircleButton: View {
+    var showsCaption: Bool = false
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.black)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.white))
-                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                .contentShape(Circle())
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.white))
+                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                if showsCaption {
+                    Text("Back")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Back")
-        .padding(.top, 4)
-        .padding(.bottom, 8)
+    }
+}
+
+struct SkeletonBackButton: View {
+    var action: () -> Void
+
+    var body: some View {
+        BackCircleButton(action: action)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
     }
 }
 

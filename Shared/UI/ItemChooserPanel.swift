@@ -8,6 +8,7 @@ struct ItemChooserPanel: View {
     static let dir = Color(red: 0xac / 255, green: 0x81 / 255, blue: 0x2b / 255)
 
     var onPick: (Item) -> Void
+    var onClose: () -> Void
 
     @State private var level: Level = .packs
     @State private var packs: [Pack] = []
@@ -29,6 +30,11 @@ struct ItemChooserPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            backButton(action: goBack)
+                .padding(.leading, 8)
+                .padding(.top, 8)
+        }
         .task {
             packs = await Manifest.shared.queryPacks(.empty())
         }
@@ -61,7 +67,9 @@ struct ItemChooserPanel: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(5)
+            .padding(.horizontal, 5)
+            .padding(.bottom, 5)
+            .padding(.top, Self.listTop)
         }
     }
 
@@ -79,32 +87,13 @@ struct ItemChooserPanel: View {
         }()
         return ScrollView {
             LazyVStack(spacing: 0) {
-                Button {
-                    if dir == nil {
-                        level = .packs
-                    } else {
-                        level = .items(pack: pack, dir: nil)
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Text("<")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text("Back")
-                            .font(.system(size: 14, weight: .medium))
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 50)
-                }
-                .buttonStyle(.plain)
                 ForEach(dirs, id: \.self) { name in
                     Button {
                         level = .items(pack: pack, dir: name)
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "folder.fill")
-                                .foregroundStyle(Self.dir)
+                            Image(decorative: Self.folderIcon, scale: 80.0 / 48)
+                                .frame(width: 48, height: 44)
                             Text(name)
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(Self.dir)
@@ -137,8 +126,40 @@ struct ItemChooserPanel: View {
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.top, Self.listTop)
         }
     }
+
+    /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
+    private static let listTop: CGFloat = 60
+
+    private func goBack() {
+        switch level {
+        case .packs:
+            onClose()
+        case .items(_, nil):
+            level = .packs
+        case .items(let pack, _?):
+            level = .items(pack: pack, dir: nil)
+        }
+    }
+
+    private func backButton(action: @escaping () -> Void) -> some View {
+        BackCircleButton(showsCaption: true, action: action)
+    }
+
+    private static let folderIcon: CGImage = {
+        guard let url = Bundle.main.url(forResource: "dir2", withExtension: "png", subdirectory: "chrome")
+            ?? Bundle.main.url(forResource: "dir2", withExtension: "png")
+        else {
+            fatalError("ItemChooserPanel missing chrome/dir2.png")
+        }
+        do {
+            return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/dir2.png")
+        } catch {
+            fatalError("ItemChooserPanel could not read \(url.path): \(error)")
+        }
+    }()
 
     private func openPack(_ name: String) {
         Task {
