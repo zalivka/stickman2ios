@@ -381,7 +381,7 @@ struct SkeletonCanvas: View {
         }
         if showSkeleton {
             drawSkeleton(drawn, context: &context, layout: layout)
-            if FeatureFlags.debugDrawTouchCapture {
+            if DevFlags.debugDrawTouchCapture {
                 drawTouchCapture(drawn, context: &context, layout: layout)
             }
         }

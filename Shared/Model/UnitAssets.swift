@@ -742,6 +742,34 @@ private enum PNG {
         ) else {
             fatalError("UnitAssets '\(name)' is not a PNG")
         }
+        if DevFlags.decodedBoneBitmaps {
+            return decodedBitmap(image, name: name)
+        }
+        return image
+    }
+
+    /// Copy PNG pixels into a plain bitmap so later draws do not inflate the file again.
+    private static func decodedBitmap(_ source: CGImage, name: String) -> CGImage {
+        let width = source.width
+        let height = source.height
+        if width < 1 || height < 1 {
+            fatalError("UnitAssets '\(name)' decoded size \(width)x\(height)")
+        }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            fatalError("UnitAssets '\(name)' could not allocate \(width)x\(height)")
+        }
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else {
+            fatalError("UnitAssets '\(name)' decoded bitmap failed")
+        }
         return image
     }
 
