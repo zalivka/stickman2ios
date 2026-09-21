@@ -277,8 +277,11 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let touch = touches.first else { return }
-        pendingView = touch.location(in: self)
         lastWorld = worldPoint(touch)
+        if tool == .fill {
+            return
+        }
+        pendingView = touch.location(in: self)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -287,8 +290,12 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let touch = touches.first, let document else { return }
-        let view = touch.location(in: self)
         let point = worldPoint(touch)
+        if tool == .fill {
+            lastWorld = point
+            return
+        }
+        let view = touch.location(in: self)
         if !stroking {
             guard let startView = pendingView, let startWorld = lastWorld else { return }
             let dx = view.x - startView.x
@@ -327,7 +334,11 @@ final class BonePaperDrawView: UIView {
     }
 
     private func finishStroke() {
-        if stroking {
+        if tool == .fill {
+            if let point = lastWorld {
+                document?.fillWorld(at: point, color: color, opacity: opacity)
+            }
+        } else if stroking {
             document?.endStroke()
         }
         lastWorld = nil

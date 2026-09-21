@@ -18,6 +18,26 @@ enum BonePaperChrome {
 
     static var railIconInset: CGFloat { (leftRail - tool) / 2 }
 
+    /// iPhone 12 mini (`iPhone13,1`) and 13 mini (`iPhone14,4`).
+    static var hidesMoveTool: Bool {
+        let id = machineIdentifier
+        return id == "iPhone13,1" || id == "iPhone14,4"
+    }
+
+    private static var machineIdentifier: String {
+        if let sim = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"], !sim.isEmpty {
+            return sim
+        }
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: info.machine) { raw in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                fatalError("BonePaper machine identifier missing")
+            }
+            return String(cString: base)
+        }
+    }
+
     static func fitInsets(safe: EdgeInsets) -> UIEdgeInsets {
         UIEdgeInsets(
             top: safe.top + pad,
@@ -37,6 +57,25 @@ enum BonePaperChrome {
             fatalError("BonePaper could not read \(url.path)")
         }
         return image
+    }
+}
+
+struct BonePaperFillTestButton: View {
+    var selected: Bool
+    var onSelect: () -> Void
+
+    var body: some View {
+        Text("Fill")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .frame(height: BonePaperChrome.tool)
+            .background(selected ? BonePaperChrome.selected : BonePaperChrome.pane)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onSelect)
+            .transaction { $0.animation = nil }
+            .accessibilityLabel("Fill")
+            .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -171,11 +210,13 @@ struct BonePaperStrokeControls: View {
         GeometryReader { geo in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 3) {
-                    BonePaperPanChip(selected: tool == .pan) {
-                        var transaction = Transaction()
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) {
-                            tool = .pan
+                    if !BonePaperChrome.hidesMoveTool {
+                        BonePaperPanChip(selected: tool == .pan) {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                tool = .pan
+                            }
                         }
                     }
                     BonePaperRedoButton(canRedo: canRedo, onRedo: onRedo)

@@ -17,12 +17,14 @@ enum MovieGenerator {
             stateLists[name] = assets.states(for: name)
         }
         queue.async {
-            let duration = scene.noInterpolation
+            let base = scene.noInterpolation
                 ? max(scene.noInterpolationFrames, 1)
                 : max(scene.interframes, 1)
             let gaps = scene.frames.count - 1
             var movieFrames: [StickmanFrame] = []
             for index in 0..<gaps {
+                let speed = scene.speedModifier.speedMod(gapIndex: index, frameCount: scene.frames.count)
+                let duration = max(1, Int(Float(base) * speed))
                 var generated = scene.noInterpolation
                     ? NullInterpolator.interpolate(
                         from: scene.frames[index],

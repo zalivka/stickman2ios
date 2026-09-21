@@ -15,6 +15,7 @@ struct SceneEditorScreen: View {
     @State private var showingPreview = false
     @State private var showingCamera = false
     @State private var showingBackground = false
+    @State private var showingSpeedEffects = false
     @State private var showingInsert = false
     @State private var showingEditUnit = false
     @State private var showingEditFrame = false
@@ -195,6 +196,9 @@ struct SceneEditorScreen: View {
         }
         .fullScreenCover(isPresented: $showingBackground) {
             BgAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
+        }
+        .fullScreenCover(isPresented: $showingSpeedEffects) {
+            SpeedEffectsScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
         }
         .sheet(item: $scenePropsSheet) { sheet in
             switch sheet {
@@ -592,6 +596,13 @@ struct SceneEditorScreen: View {
         }
         if action == .background {
             showingBackground = true
+        }
+        if action == .speedEffects {
+            if scene.frames.count < 3 {
+                showToast("Add more frames first")
+                return
+            }
+            showingSpeedEffects = true
         }
     }
 

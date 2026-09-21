@@ -3,6 +3,7 @@ import SwiftUI
 struct FullscreenBackButton: View {
     var besideMainPanel: Bool = true
     var extraLeading: CGFloat = 0
+    var padded: Bool = true
     var action: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
@@ -17,7 +18,7 @@ struct FullscreenBackButton: View {
                 .contentShape(Circle())
         }
         .accessibilityLabel("Back")
-        .padding(.leading, (besideMainPanel ? MainPanel.width : 0) + extraLeading + 8)
-        .padding(.top, 8)
+        .padding(.leading, padded ? (besideMainPanel ? MainPanel.width : 0) + extraLeading + 8 : 0)
+        .padding(.top, padded ? 8 : 0)
     }
 }

@@ -320,12 +320,13 @@ struct SkeletonCanvas: View {
         }
     }
 
-    /// Skeleton editor omits `frameUnits` and draws `unit`. Empty scene frames draw nothing.
+    /// Skeleton editor and item Preview omit `frameUnits` and draw `unit`.
+    /// Empty scene frames pass `unit == nil` and draw nothing.
     private var drawnUnits: [StickmanUnit] {
         if !frameUnits.isEmpty {
             return frameUnits
         }
-        if mode == .skeleton {
+        if (mode == .skeleton || mode == .editor), unit != nil {
             return [liveUnit]
         }
         return []

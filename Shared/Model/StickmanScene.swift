@@ -636,6 +636,7 @@ struct StickmanScene {
     var noInterpolation: Bool = false
     var noInterpolationFrames: Int = 0
     var unitAnimations: [String: FBFAnimation] = [:]
+    var speedModifier = SpeedModifier()
 
     /// Android `CartoonStage.makeOneFrameStage` — one empty frame at `LARGE_L` 640×480.
     static func empty() -> StickmanScene {
@@ -694,6 +695,7 @@ struct StickmanScene {
         created.refreshAttachments()
         frames.insert(created, at: currentIndex + 1)
         currentIndex += 1
+        speedModifier.adjustTo(frameCount: frames.count)
     }
 
     /// Android `Scene.removeFrames` — cannot delete every frame. Lands on the neighbor Android picks.
@@ -724,6 +726,7 @@ struct StickmanScene {
             fatalError("StickmanScene removeFrames lost landing id \(landingId)")
         }
         currentIndex = next
+        speedModifier.adjustTo(frameCount: frames.count)
     }
 
     /// Android `Scene.pasteFrames` — insert after current, or at start when current is 0.
@@ -763,6 +766,7 @@ struct StickmanScene {
             }
             unitAnimations[name] = copy
         }
+        speedModifier.adjustTo(frameCount: frames.count)
         return inserted
     }
 

@@ -5,6 +5,7 @@ enum BonePaperTool {
     case pen
     case pan
     case eraser
+    case fill
 }
 
 public struct BonePaperExport {
@@ -19,6 +20,8 @@ final class BonePaperDocument: ObservableObject {
     static let defaultSide: Int = 512
     static let maxSide: Int = 1024
     static let growChunk: Int = 64
+    /// Per-channel 0...255. High so AA fringes join the tapped region.
+    static let fillTolerance = 128
 
     var worldSize: Int { Self.maxSide }
 
@@ -141,6 +144,50 @@ final class BonePaperDocument: ObservableObject {
             target.addLine(to: sampledPoint(b))
             target.strokePath()
         }
+    }
+
+    func fillWorld(at world: CGPoint, color: UIColor, opacity: CGFloat) {
+        if strokeLive {
+            endStroke()
+        }
+        let px = Int(floor((world.x - CGFloat(originX)) * CGFloat(Self.sample)))
+        let py = Int(floor((world.y - CGFloat(originY)) * CGFloat(Self.sample)))
+        if px < 0 || py < 0 || px >= pixelWidth || py >= pixelHeight {
+            return
+        }
+        guard let data = context.data else {
+            fatalError("BonePaperDocument fill has no pixel data")
+        }
+        let stride = context.bytesPerRow
+        if stride < pixelWidth * 4 {
+            fatalError("BonePaperDocument fill stride \(stride) width \(pixelWidth)")
+        }
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        let fill = Self.premultiplied(color: color, opacity: opacity)
+        let seedIndex = py * stride + px * 4
+        let target = (
+            pixels[seedIndex],
+            pixels[seedIndex + 1],
+            pixels[seedIndex + 2],
+            pixels[seedIndex + 3]
+        )
+        if target == fill {
+            return
+        }
+        pushUndo()
+        redoStack.removeAll()
+        Self.floodFill(
+            pixels: pixels,
+            width: pixelWidth,
+            height: pixelHeight,
+            stride: stride,
+            seedX: px,
+            seedY: py,
+            target: target,
+            fill: fill
+        )
+        publishPreview()
+        publishStacks()
     }
 
     func stampDotWorld(at point: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
@@ -384,29 +431,125 @@ final class BonePaperDocument: ObservableObject {
         return Int(ceil(need / step) * step)
     }
 
-    private static func drawUIKitImage(_ image: CGImage, into context: CGContext, rect: CGRect) {
+    private static func drawUIKitImage(
+        _ image: CGImage,
+        into context: CGContext,
+        rect: CGRect,
+        interpolation: CGInterpolationQuality = .high
+    ) {
         context.saveGState()
         context.translateBy(x: 0, y: rect.height)
         context.scaleBy(x: 1, y: -1)
-        context.interpolationQuality = .high
+        context.interpolationQuality = interpolation
         context.draw(image, in: rect)
         context.restoreGState()
     }
 
     private static func makeBuffer(width: Int, height: Int) -> CGContext {
-        guard let context = CGContext(
-            data: nil,
+        guard let context = makeBuffer(width: width, height: height, data: nil) else {
+            fatalError("BonePaperDocument could not create \(width)x\(height) context")
+        }
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        return context
+    }
+
+    private static func makeBuffer(width: Int, height: Int, data: UnsafeMutableRawPointer?) -> CGContext? {
+        CGContext(
+            data: data,
             width: width,
             height: height,
             bitsPerComponent: 8,
             bytesPerRow: width * 4,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            fatalError("BonePaperDocument could not create \(width)x\(height) context")
+        )
+    }
+
+    private static func premultiplied(color: UIColor, opacity: CGFloat) -> (UInt8, UInt8, UInt8, UInt8) {
+        if opacity <= 0 {
+            fatalError("BonePaperDocument fill opacity is \(opacity)")
         }
-        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-        return context
+        guard let rgb = color.cgColor.converted(
+            to: CGColorSpaceCreateDeviceRGB(),
+            intent: .defaultIntent,
+            options: nil
+        ), let c = rgb.components, c.count >= 4 else {
+            fatalError("BonePaperDocument fill color is not RGB")
+        }
+        let alpha = max(0, min(c[3] * opacity, 1))
+        return (
+            UInt8(clamping: Int((c[0] * alpha * 255).rounded())),
+            UInt8(clamping: Int((c[1] * alpha * 255).rounded())),
+            UInt8(clamping: Int((c[2] * alpha * 255).rounded())),
+            UInt8(clamping: Int((alpha * 255).rounded()))
+        )
+    }
+
+    private static func floodFill(
+        pixels: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        stride: Int,
+        seedX: Int,
+        seedY: Int,
+        target: (UInt8, UInt8, UInt8, UInt8),
+        fill: (UInt8, UInt8, UInt8, UInt8)
+    ) {
+        func write(_ x: Int, _ y: Int) {
+            let i = y * stride + x * 4
+            pixels[i] = fill.0
+            pixels[i + 1] = fill.1
+            pixels[i + 2] = fill.2
+            pixels[i + 3] = fill.3
+        }
+        func isTarget(_ x: Int, _ y: Int) -> Bool {
+            let i = y * stride + x * 4
+            let pixel = (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3])
+            if pixel == fill {
+                return false
+            }
+            return abs(Int(pixel.0) - Int(target.0)) <= fillTolerance
+                && abs(Int(pixel.1) - Int(target.1)) <= fillTolerance
+                && abs(Int(pixel.2) - Int(target.2)) <= fillTolerance
+                && abs(Int(pixel.3) - Int(target.3)) <= fillTolerance
+        }
+
+        var stack = [(seedX, seedY)]
+        while let (startX, y) = stack.popLast() {
+            if !isTarget(startX, y) {
+                continue
+            }
+            var x = startX
+            while x > 0, isTarget(x - 1, y) {
+                x -= 1
+            }
+            var spanUp = false
+            var spanDown = false
+            while x < width, isTarget(x, y) {
+                write(x, y)
+                if y > 0 {
+                    if isTarget(x, y - 1) {
+                        if !spanUp {
+                            stack.append((x, y - 1))
+                            spanUp = true
+                        }
+                    } else {
+                        spanUp = false
+                    }
+                }
+                if y + 1 < height {
+                    if isTarget(x, y + 1) {
+                        if !spanDown {
+                            stack.append((x, y + 1))
+                            spanDown = true
+                        }
+                    } else {
+                        spanDown = false
+                    }
+                }
+                x += 1
+            }
+        }
     }
 
     private struct Snapshot {

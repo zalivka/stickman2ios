@@ -81,6 +81,16 @@ public struct BonePaperScreen: View {
                         .allowsHitTesting(false)
                     }
                 }
+                .overlay(alignment: .top) {
+                    BonePaperFillTestButton(selected: tool == .fill) {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            tool = .fill
+                        }
+                    }
+                    .padding(.top, safe.top + BonePaperChrome.pad)
+                }
                 .overlay(alignment: .topLeading) {
                     BonePaperBackButton(onBack: { dismiss() })
                         .padding(.top, safe.top)

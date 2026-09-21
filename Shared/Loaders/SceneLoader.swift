@@ -216,15 +216,20 @@ enum SceneXML {
         guard let interframes = sink.interframes else {
             fatalError("SceneLoader scene missing interframes")
         }
-        return StickmanScene(
+        var scene = StickmanScene(
             width: width,
             height: height,
             frames: sink.frames,
             currentIndex: 0,
             interframes: interframes,
             noInterpolation: sink.noInterpolation,
-            noInterpolationFrames: sink.noInterpolationFrames
+            noInterpolationFrames: sink.noInterpolationFrames,
+            speedModifier: sink.speedModifier
         )
+        if !scene.speedModifier.isEmpty {
+            scene.speedModifier.adjustTo(frameCount: scene.frames.count)
+        }
+        return scene
     }
 
     static func serialize(_ scene: StickmanScene) -> Data {
@@ -245,6 +250,9 @@ enum SceneXML {
         xml += XMLWrite.attr("interframes", "\(scene.interframes)")
         xml += XMLWrite.attr("no_interpolation", scene.noInterpolation ? "true" : "false")
         xml += XMLWrite.attr("no_interpolation_frames", "\(scene.noInterpolationFrames)")
+        if !scene.speedModifier.isEmpty {
+            xml += XMLWrite.attr("pivot_points", scene.speedModifier.encodeJSON())
+        }
         xml += ">\n"
         var written = 0
         for frame in scene.frames {
@@ -348,6 +356,7 @@ enum SceneXML {
         var interframes: Int?
         var noInterpolation = false
         var noInterpolationFrames = 0
+        var speedModifier = SpeedModifier()
         var frames: [StickmanFrame] = []
 
         private var frameId: Int?
@@ -404,6 +413,9 @@ enum SceneXML {
                         fatalError("SceneLoader no_interpolation_frames is \(text)")
                     }
                     noInterpolationFrames = frames
+                }
+                if let text = attributes["pivot_points"], !text.isEmpty {
+                    speedModifier = SpeedModifier.decode(text)
                 }
             case "frame":
                 guard let idText = attributes["id"], let id = Int(idText) else {

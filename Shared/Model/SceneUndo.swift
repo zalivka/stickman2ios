@@ -87,6 +87,7 @@ final class SceneUndo: ObservableObject {
             }
             scene.unitAnimations = animations
             scene.currentIndex = min(max(currentIndex, 0), scene.frames.count - 1)
+            scene.speedModifier.adjustTo(frameCount: scene.frames.count)
         case .deleted(let frames, let at, let currentIndex, let animations):
             if at < 0 || at > scene.frames.count {
                 fatalError("SceneUndo delete restore at \(at) out of \(scene.frames.count)")
@@ -104,6 +105,7 @@ final class SceneUndo: ObservableObject {
                 fatalError("SceneUndo delete restore currentIndex \(currentIndex) out of \(scene.frames.count)")
             }
             scene.currentIndex = currentIndex
+            scene.speedModifier.adjustTo(frameCount: scene.frames.count)
         }
     }
 
