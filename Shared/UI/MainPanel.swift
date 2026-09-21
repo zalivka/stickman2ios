@@ -20,6 +20,8 @@ struct MainPanel: View {
     var undoEnabled: Bool = false
     var onMenu: (() -> Void)? = nil
     var onReset: (() -> Void)? = nil
+    var onTween: (() -> Void)? = nil
+    var tweenEnabled: Bool = true
     var insertActivated = false
     var editUnitActivated = false
     var editFrameActivated = false
@@ -94,6 +96,25 @@ struct MainPanel: View {
                     action: onReset
                 )
             }
+            if let onTween {
+                systemButton(
+                    systemName: "arrow.left.and.right",
+                    title: "TWEEN",
+                    color: Self.editUnit,
+                    enabled: tweenEnabled,
+                    action: onTween
+                )
+            }
+            if onEditFrame == nil, let onUndo {
+                chromeButton(
+                    icon: Self.undoIcon,
+                    title: "UNDO",
+                    color: Self.undo,
+                    activated: false,
+                    enabled: undoEnabled,
+                    action: onUndo
+                )
+            }
             Spacer(minLength: 0)
         }
         .frame(width: Self.width)
@@ -136,6 +157,7 @@ struct MainPanel: View {
         title: String,
         color: Color,
         activated: Bool = false,
+        enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -155,6 +177,8 @@ struct MainPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
     }
 
     private static let navIcon = chromeImage("main_btn_nav")

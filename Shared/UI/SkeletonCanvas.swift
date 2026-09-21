@@ -169,8 +169,13 @@ struct SkeletonCanvas: View {
     /// Android `toggleVacantPoints` — green circles over all nodes.
     var exposeVacantPoints: Bool = false
     var onPrepareUndo: (() -> Void)? = nil
+    var canMutatePose: Bool = true
+    var canMutatePoseFor: ((String) -> Bool)? = nil
+    var onLockedEdit: (() -> Void)? = nil
+    var onPoseEditEnded: (() -> Void)? = nil
     var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
+    var canMutateCamera: Bool = true
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
@@ -261,6 +266,9 @@ struct SkeletonCanvas: View {
                         cameraMove: cameraMove,
                         layoutScale: resolvedLayout(size: proxy.size).scale,
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
+                        canMutate: canMutateCamera,
+                        onLocked: { onLockedEdit?() },
+                        onPrepareUndo: onPrepareUndo,
                         onChange: cameraChangeHandler
                     )
                 }
@@ -855,6 +863,14 @@ struct SkeletonCanvas: View {
         if began {
             if mode == .editor, selectedUnitName.wrappedValue != nil,
                let handle = hitHandler(at: location, layout: current) {
+                if !poseEditable(for: selectedUnitName.wrappedValue ?? liveUnit.name) {
+                    onLockedEdit?()
+                    dragRef.handler = nil
+                    dragRef.nodeId = nil
+                    dragRef.panning = false
+                    dragRef.lastScreen = location
+                    return
+                }
                 dragRef.handler = handle.kind
                 dragRef.handlerX = handle.x
                 dragRef.handlerY = handle.y
@@ -875,6 +891,13 @@ struct SkeletonCanvas: View {
                 dragRef.handler = nil
                 if mode == .editor, let hit = hitAnyUnit(at: location, layout: current) {
                     selectedUnitName.wrappedValue = hit.name
+                    if !poseEditable(for: hit.name) {
+                        onLockedEdit?()
+                        dragRef.nodeId = nil
+                        dragRef.panning = false
+                        dragRef.lastScreen = location
+                        return
+                    }
                     dragRef.nodeId = hit.pointId
                     let graph = current.graphPoint(screen: location)
                     let node = hit.unit.point(id: hit.pointId)
@@ -979,6 +1002,7 @@ struct SkeletonCanvas: View {
             touchScreen = nil
             return
         }
+        let didPoseEdit = mode == .editor && dragRef.undoPushed
         touchScreen = nil
         dragRef.nodeId = nil
         dragRef.handler = nil
@@ -991,6 +1015,13 @@ struct SkeletonCanvas: View {
         if let current = layout {
             snapHandlers(to: current)
         }
+        if didPoseEdit {
+            onPoseEditEnded?()
+        }
+    }
+
+    private func poseEditable(for name: String) -> Bool {
+        canMutatePoseFor?(name) ?? canMutatePose
     }
 
     private func liveShift(for asset: UnitAssets.EdgeAsset) -> (dx: CGFloat, dy: CGFloat) {
@@ -1176,6 +1207,9 @@ private struct CameraTouchOverlay: UIViewRepresentable {
     var cameraMove: PictureMove
     var layoutScale: CGFloat
     var windowCenter: CGPoint
+    var canMutate: Bool
+    var onLocked: () -> Void
+    var onPrepareUndo: (() -> Void)?
     var onChange: (PictureMove) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -1207,6 +1241,9 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         coordinator.cameraMove = cameraMove
         coordinator.layoutScale = layoutScale
         coordinator.windowCenter = windowCenter
+        coordinator.canMutate = canMutate
+        coordinator.onLocked = onLocked
+        coordinator.onPrepareUndo = onPrepareUndo
         coordinator.onChange = onChange
     }
 
@@ -1219,6 +1256,9 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         var cameraMove = PictureMove.identity
         var layoutScale: CGFloat = 1
         var windowCenter = CGPoint.zero
+        var canMutate = true
+        var onLocked: () -> Void = {}
+        var onPrepareUndo: (() -> Void)?
         var onChange: (PictureMove) -> Void = { _ in }
         var working: PictureMove?
 
@@ -1233,9 +1273,13 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
             switch gesture.state {
             case .began:
-                beginSession()
+                if !beginSession() {
+                    return
+                }
             case .changed:
-                beginSession()
+                if working == nil {
+                    return
+                }
                 if layoutScale <= 0 {
                     fatalError("CameraTouchOverlay layoutScale is \(layoutScale)")
                 }
@@ -1259,10 +1303,14 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
             switch gesture.state {
             case .began:
-                beginSession()
+                if !beginSession() {
+                    return
+                }
                 gesture.scale = 1
             case .changed, .ended, .cancelled, .failed:
-                beginSession()
+                if working == nil {
+                    return
+                }
                 let factor = gesture.scale
                 gesture.scale = 1
                 if factor <= 0 {
@@ -1288,10 +1336,14 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         @objc func handleRotate(_ gesture: UIRotationGestureRecognizer) {
             switch gesture.state {
             case .began:
-                beginSession()
+                if !beginSession() {
+                    return
+                }
                 gesture.rotation = 0
             case .changed, .ended, .cancelled, .failed:
-                beginSession()
+                if working == nil {
+                    return
+                }
                 let degrees = gesture.rotation * 180 / .pi
                 gesture.rotation = 0
                 mutate { move in
@@ -1306,10 +1358,18 @@ private struct CameraTouchOverlay: UIViewRepresentable {
             }
         }
 
-        private func beginSession() {
-            if working == nil {
-                working = cameraMove
+        @discardableResult
+        private func beginSession() -> Bool {
+            if working != nil {
+                return true
             }
+            if !canMutate {
+                onLocked()
+                return false
+            }
+            onPrepareUndo?()
+            working = cameraMove
+            return true
         }
 
         private func mutate(_ body: (inout PictureMove) -> Void) {

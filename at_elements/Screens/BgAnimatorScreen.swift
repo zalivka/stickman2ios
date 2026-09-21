@@ -75,6 +75,7 @@ struct BgAnimatorScreen: View {
                                 )
                             )
                         },
+                        onCancel: { pendingRangeHex = nil },
                         onApply: { span in
                             applyBackground(hex, to: span)
                             range = span

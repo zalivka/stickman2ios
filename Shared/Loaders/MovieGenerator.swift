@@ -34,7 +34,9 @@ enum MovieGenerator {
                     : NlerpInterpolator.interpolate(
                         from: scene.frames[index],
                         to: scene.frames[index + 1],
-                        duration: duration
+                        duration: duration,
+                        scene: scene,
+                        originIndex: index
                     )
                 for i in generated.indices {
                     generated[i].originFrameIndex = index

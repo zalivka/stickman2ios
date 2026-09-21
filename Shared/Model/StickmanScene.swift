@@ -6,7 +6,7 @@ enum Attachable: Hashable {
     case slave
 }
 
-struct SlaveAttachment: Equatable {
+struct SlaveAttachment: Equatable, Hashable {
     var masterName: String
     var masterPointId: Int
 }
@@ -362,6 +362,22 @@ struct StickmanUnit {
         }
     }
 
+    /// Copy interpolated pose onto this instance; keep attachment / identity fields.
+    mutating func applyPose(from other: StickmanUnit) {
+        if name != other.name {
+            fatalError("StickmanUnit '\(name)' applyPose from '\(other.name)'")
+        }
+        for i in points.indices {
+            guard let src = other.points.first(where: { $0.id == points[i].id }) else {
+                fatalError("StickmanUnit '\(name)' applyPose missing point \(points[i].id)")
+            }
+            points[i].x = src.x
+            points[i].y = src.y
+        }
+        scale = other.scale
+        alpha = other.alpha
+    }
+
     func handlerRotateDiff(handler: CGPoint) -> CGFloat {
         if edges.isEmpty {
             fatalError("StickmanUnit '\(name)' has no edges for rotate handler")
@@ -637,6 +653,8 @@ struct StickmanScene {
     var noInterpolationFrames: Int = 0
     var unitAnimations: [String: FBFAnimation] = [:]
     var speedModifier = SpeedModifier()
+    var unitTweens = UnitTweenStorage()
+    var cameraTweens = CameraTweenStorage()
 
     /// Android `CartoonStage.makeOneFrameStage` — one empty frame at `LARGE_L` 640×480.
     static func empty() -> StickmanScene {
@@ -677,8 +695,11 @@ struct StickmanScene {
         if currentIndex < 0 || currentIndex >= frames.count {
             fatalError("StickmanScene addFrame currentIndex \(currentIndex) out of \(frames.count)")
         }
+        let appendAtEnd = currentIndex == frames.count - 1
+        let oldCount = frames.count
+        let insertIndex = currentIndex + 1
         var created: StickmanFrame
-        if currentIndex == frames.count - 1 {
+        if appendAtEnd {
             created = frames[currentIndex].clone()
         } else {
             let generated = NlerpInterpolator.interpolate(
@@ -693,9 +714,13 @@ struct StickmanScene {
         }
         created.id = nextFrameId()
         created.refreshAttachments()
-        frames.insert(created, at: currentIndex + 1)
+        frames.insert(created, at: insertIndex)
         currentIndex += 1
         speedModifier.adjustTo(frameCount: frames.count)
+        if !appendAtEnd {
+            retweenReconciled(unitTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
+            retweenCameraReconciled(cameraTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
+        }
     }
 
     /// Android `Scene.removeFrames` — cannot delete every frame. Lands on the neighbor Android picks.
@@ -720,6 +745,7 @@ struct StickmanScene {
             fatalError("StickmanScene removeFrames landing \(landingOld) is deleted")
         }
         let landingId = frames[landingOld].id
+        let oldCount = frames.count
         var drop = Set(unique)
         frames = frames.enumerated().compactMap { drop.contains($0.offset) ? nil : $0.element }
         guard let next = frames.firstIndex(where: { $0.id == landingId }) else {
@@ -727,6 +753,8 @@ struct StickmanScene {
         }
         currentIndex = next
         speedModifier.adjustTo(frameCount: frames.count)
+        retweenReconciled(unitTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
+        retweenCameraReconciled(cameraTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
     }
 
     /// Android `Scene.pasteFrames` — insert after current, or at start when current is 0.
@@ -767,6 +795,8 @@ struct StickmanScene {
             unitAnimations[name] = copy
         }
         speedModifier.adjustTo(frameCount: frames.count)
+        unitTweens.clear()
+        cameraTweens.clear()
         return inserted
     }
 
@@ -798,5 +828,198 @@ struct StickmanScene {
             frames[index].pasteStructure(structure)
         }
         return []
+    }
+
+    func isPoseLocked(unitName: String, frameIndex: Int) -> Bool {
+        if unitTweens.isPoseLocked(unitName: unitName, frameIndex: frameIndex) {
+            return true
+        }
+        guard let unit = frames[safe: frameIndex]?.units.first(where: { $0.name == unitName }) else {
+            return false
+        }
+        let root = SlavesRegistry.rootMaster(of: unit, in: frames[frameIndex].units)
+        return root.name != unitName && unitTweens.isPoseLocked(unitName: root.name, frameIndex: frameIndex)
+    }
+
+    func isStructureLocked(unitName: String, frameIndex: Int) -> Bool {
+        if unitTweens.isOwned(unitName: unitName, frameIndex: frameIndex) {
+            return true
+        }
+        guard let unit = frames[safe: frameIndex]?.units.first(where: { $0.name == unitName }) else {
+            return false
+        }
+        let root = SlavesRegistry.rootMaster(of: unit, in: frames[frameIndex].units)
+        return root.name != unitName && unitTweens.isOwned(unitName: root.name, frameIndex: frameIndex)
+    }
+
+    func wouldPasteSplitTweens() -> Bool {
+        let after = currentIndex == 0 ? -1 : currentIndex
+        return unitTweens.wouldInsertSplit(after: after) || cameraTweens.wouldInsertSplit(after: after)
+    }
+
+    func isCameraPoseLocked(frameIndex: Int) -> Bool {
+        cameraTweens.isPoseLocked(frameIndex: frameIndex)
+    }
+
+    mutating func removeCameraTweenContaining(frameIndex: Int) -> CameraAutoTweenRange? {
+        cameraTweens.removeContaining(frameIndex: frameIndex)
+    }
+
+    mutating func retweenCameraSpan(_ span: CameraAutoTweenRange) {
+        if span.fromFrame < 0 || span.toFrame >= frames.count || span.fromFrame >= span.toFrame {
+            _ = cameraTweens.removeExact(from: span.fromFrame, to: span.toFrame)
+            return
+        }
+        CameraInbetweener.bakeInteriors(
+            scene: &self,
+            from: span.fromFrame,
+            to: span.toFrame,
+            easing: span.easingType,
+            strength: span.easingStrength,
+            shakeFrequency: span.shakeFrequency
+        )
+    }
+
+    mutating func retweenCameraEndpoints(frames edited: [Int]) {
+        if edited.isEmpty {
+            return
+        }
+        let editedSet = Set(edited)
+        for span in cameraTweens.ranges
+        where editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame) {
+            retweenCameraSpan(span)
+        }
+    }
+
+    mutating func removeUnitTweenContaining(unitName: String, frameIndex: Int) -> AutoTweenRange? {
+        guard let range = unitTweens.removeContaining(unitName: unitName, frameIndex: frameIndex) else {
+            return nil
+        }
+        if let unit = frames[safe: range.fromFrame]?.units.first(where: { $0.name == unitName }) {
+            let root = SlavesRegistry.rootMaster(of: unit, in: frames[range.fromFrame].units)
+            for connected in SlavesRegistry.allConnected(of: root, in: frames[range.fromFrame].units)
+            where connected.name != unitName {
+                unitTweens.removeExact(unitName: connected.name, from: range.fromFrame, to: range.toFrame)
+            }
+        }
+        return range
+    }
+
+    mutating func breakTweensTouching(unitName: String, frameIndex: Int) {
+        if unitTweens.isOwned(unitName: unitName, frameIndex: frameIndex) {
+            _ = removeUnitTweenContaining(unitName: unitName, frameIndex: frameIndex)
+        }
+        guard let unit = frames[safe: frameIndex]?.units.first(where: { $0.name == unitName }) else {
+            return
+        }
+        let root = SlavesRegistry.rootMaster(of: unit, in: frames[frameIndex].units)
+        if root.name != unitName && unitTweens.isOwned(unitName: root.name, frameIndex: frameIndex) {
+            _ = removeUnitTweenContaining(unitName: root.name, frameIndex: frameIndex)
+        }
+    }
+
+    mutating func retweenEndpoints(unitName: String, frames edited: [Int]) {
+        if edited.isEmpty {
+            return
+        }
+        let editedSet = Set(edited)
+        let spans = unitTweens.ranges.filter { span in
+            span.unitName == unitName && (editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame))
+        }
+        var seen = Set<String>()
+        for span in spans {
+            guard let unit = self.frames[safe: span.fromFrame]?.units.first(where: { $0.name == span.unitName }) else {
+                continue
+            }
+            let root = SlavesRegistry.rootMaster(of: unit, in: self.frames[span.fromFrame].units)
+            let key = "\(root.name):\(span.fromFrame):\(span.toFrame)"
+            if !seen.insert(key).inserted {
+                continue
+            }
+            retweenSpan(
+                AutoTweenRange(
+                    unitName: root.name,
+                    fromFrame: span.fromFrame,
+                    toFrame: span.toFrame,
+                    easingType: span.easingType,
+                    easingStrength: span.easingStrength,
+                    shakeFrequency: span.shakeFrequency
+                )
+            )
+        }
+    }
+
+    mutating func retweenSpan(_ span: AutoTweenRange) {
+        if span.fromFrame < 0 || span.toFrame >= frames.count {
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            return
+        }
+        guard let startUnit = frames[span.fromFrame].units.first(where: { $0.name == span.unitName }),
+              frames[span.toFrame].units.contains(where: { $0.name == span.unitName })
+        else {
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            return
+        }
+        let root = SlavesRegistry.rootMaster(of: startUnit, in: frames[span.fromFrame].units)
+        if SlavesRegistry.isEnslaved(root) {
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            return
+        }
+        if root.name != span.unitName {
+            return
+        }
+        if !UnitInbetweener.propagate(
+            scene: &self,
+            rootName: root.name,
+            from: span.fromFrame,
+            to: span.toFrame,
+            easing: span.easingType,
+            strength: span.easingStrength,
+            shakeFrequency: span.shakeFrequency
+        ) {
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+        }
+    }
+
+    private mutating func retweenCameraReconciled(_ spans: [CameraAutoTweenRange]) {
+        var seen = Set<String>()
+        for span in spans {
+            let key = "\(span.fromFrame):\(span.toFrame)"
+            if !seen.insert(key).inserted {
+                continue
+            }
+            retweenCameraSpan(span)
+        }
+    }
+
+    private mutating func retweenReconciled(_ spans: [AutoTweenRange]) {
+        var seen = Set<String>()
+        for span in spans {
+            guard let unit = frames[safe: span.fromFrame]?.units.first(where: { $0.name == span.unitName }) else {
+                continue
+            }
+            let root = SlavesRegistry.rootMaster(of: unit, in: frames[span.fromFrame].units)
+            let key = "\(root.name):\(span.fromFrame):\(span.toFrame)"
+            if !seen.insert(key).inserted {
+                continue
+            }
+            retweenSpan(
+                AutoTweenRange(
+                    unitName: root.name,
+                    fromFrame: span.fromFrame,
+                    toFrame: span.toFrame,
+                    easingType: span.easingType,
+                    easingStrength: span.easingStrength,
+                    shakeFrequency: span.shakeFrequency
+                )
+            )
+        }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        guard index >= 0 && index < count else { return nil }
+        return self[index]
     }
 }

@@ -20,7 +20,9 @@ struct VerticalRangeBar: View {
     static let strokeWidth: CGFloat = 2
     static let targetRadius: CGFloat = 24
     static let selectedTickThickness: CGFloat = 5
+    static let unselectedTrackThickness: CGFloat = 2
     static let tickColor = Color(red: 0, green: 197 / 255, blue: 1)
+    static let unselectedTrackColor = Color(white: 0.55)
     static let pad: CGFloat = 19
 
     let frameCount: Int
@@ -123,6 +125,10 @@ struct VerticalRangeBar: View {
         if frameCount < 2 {
             fatalError("VerticalRangeBar frameCount must be >= 2, got \(frameCount)")
         }
+        if axis == .horizontal {
+            drawHorizontalTrack(context: context, size: size)
+            return
+        }
         let span = axisLength(size) - 2 * Self.pad
         let tickSpacing = span / CGFloat(frameCount - 1)
         let lowFramePin = pinOf(frame: range.lowerBound)
@@ -134,23 +140,12 @@ struct VerticalRangeBar: View {
             let point = trackPoint(pin: pin, size: size)
             let selected = range.contains(frame)
             if selected && pin != lowFramePin {
-                let rect: CGRect
-                switch axis {
-                case .vertical:
-                    rect = CGRect(
-                        x: point.x - Self.selectedTickThickness / 2,
-                        y: point.y - tickSpacing / 2,
-                        width: Self.selectedTickThickness,
-                        height: tickSpacing + 2
-                    )
-                case .horizontal:
-                    rect = CGRect(
-                        x: point.x - tickSpacing / 2,
-                        y: point.y - Self.selectedTickThickness / 2,
-                        width: tickSpacing + 2,
-                        height: Self.selectedTickThickness
-                    )
-                }
+                let rect = CGRect(
+                    x: point.x - Self.selectedTickThickness / 2,
+                    y: point.y - tickSpacing / 2,
+                    width: Self.selectedTickThickness,
+                    height: tickSpacing + 2
+                )
                 context.fill(Path(rect), with: .color(Self.tickColor))
             } else {
                 let radius = baseRadius * (pin == 0 || pin == frameCount - 1 ? 2 : 1)
@@ -158,6 +153,25 @@ struct VerticalRangeBar: View {
                 context.fill(Path(ellipseIn: rect), with: .color(Self.tickColor))
             }
         }
+    }
+
+    private func drawHorizontalTrack(context: GraphicsContext, size: CGSize) {
+        let first = trackPoint(pin: 0, size: size)
+        let last = trackPoint(pin: frameCount - 1, size: size)
+        var track = Path()
+        track.move(to: first)
+        track.addLine(to: last)
+        context.stroke(track, with: .color(Self.unselectedTrackColor), lineWidth: Self.unselectedTrackThickness)
+
+        let start = trackPoint(frame: range.lowerBound, size: size)
+        let end = trackPoint(frame: range.upperBound, size: size)
+        if start.x == end.x {
+            return
+        }
+        var selected = Path()
+        selected.move(to: start)
+        selected.addLine(to: end)
+        context.stroke(selected, with: .color(Self.tickColor), lineWidth: Self.selectedTickThickness)
     }
 
     private func drawPin(context: GraphicsContext, size: CGSize, frame: Int) {

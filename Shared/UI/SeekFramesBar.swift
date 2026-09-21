@@ -15,6 +15,7 @@ struct SeekFramesBar: View {
     var onDoubleTap: () -> Void = {}
     var flashToken: Int = 0
     var pageWindow: SeekFramesPageWindow? = nil
+    var stickStyle: ((Int) -> (color: Color?, scale: CGFloat))? = nil
 
     var body: some View {
         GeometryReader { proxy in
@@ -24,7 +25,9 @@ struct SeekFramesBar: View {
                 for index in layout.visible {
                     let stickY = Self.stickY(index: index, windowSize: layout.windowSize)
                     let isCurrent = index == currentIndex
-                    let diameter = isCurrent ? Self.currentDiameter : Self.idleDiameter
+                    let style = stickStyle?(index)
+                    let scale = style?.scale ?? 1
+                    let diameter = (isCurrent ? Self.currentDiameter : Self.idleDiameter) * scale
                     let idleCenterX = Self.horizontalPad + Self.idleDiameter / 2
                     let idleCenterY = stickY + Self.idleDiameter / 2
                     let rect = CGRect(
@@ -33,9 +36,15 @@ struct SeekFramesBar: View {
                         width: diameter,
                         height: diameter
                     )
+                    let color: Color
+                    if let tint = style?.color {
+                        color = tint
+                    } else {
+                        color = isCurrent ? Self.currentColor : Self.idleColor
+                    }
                     context.fill(
                         Path(ellipseIn: rect),
-                        with: .color(isCurrent ? Self.currentColor : Self.idleColor)
+                        with: .color(color)
                     )
                 }
 

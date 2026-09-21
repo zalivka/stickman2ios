@@ -80,6 +80,12 @@ enum SceneSaver {
         if !scene.unitAnimations.isEmpty {
             files.append((name: "animations_v2.txt", data: encodeAnimations(scene.unitAnimations)))
         }
+        if !scene.unitTweens.isEmpty {
+            files.append((name: UnitTweenStorage.archiveName, data: scene.unitTweens.encodeArchive(scene: scene)))
+        }
+        if !scene.cameraTweens.isEmpty {
+            files.append((name: CameraTweenStorage.archiveName, data: scene.cameraTweens.encodeArchive(scene: scene)))
+        }
         for font in StickmanFonts.customFontsUsed(in: scene) {
             files.append((name: "fonts/\(font.file)", data: font.data))
         }
@@ -104,6 +110,12 @@ enum SceneSaver {
             } catch {
                 fatalError("SceneSaver documentBytes animations JSON: \(error)")
             }
+        }
+        if !scene.unitTweens.isEmpty {
+            bytes.append(scene.unitTweens.encodeArchive(scene: scene))
+        }
+        if !scene.cameraTweens.isEmpty {
+            bytes.append(scene.cameraTweens.encodeArchive(scene: scene))
         }
         return bytes
     }

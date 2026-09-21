@@ -6,9 +6,18 @@ enum NlerpInterpolator {
     private static let minEdgeLength: CGFloat = 1e-4
     private static let twoPi: CGFloat = .pi * 2
 
-    static func interpolate(from frame1: StickmanFrame, to frame2: StickmanFrame, duration: Int) -> [StickmanFrame] {
+    static func interpolate(
+        from frame1: StickmanFrame,
+        to frame2: StickmanFrame,
+        duration: Int,
+        scene: StickmanScene? = nil,
+        originIndex: Int? = nil
+    ) -> [StickmanFrame] {
         if duration <= 0 {
             fatalError("NlerpInterpolator duration must be > 0, got \(duration)")
+        }
+        if (scene == nil) != (originIndex == nil) {
+            fatalError("NlerpInterpolator scene and originIndex must be provided together")
         }
         let excluded = exclude(frame1, frame2)
         var frames: [StickmanFrame] = []
@@ -22,15 +31,41 @@ enum NlerpInterpolator {
                 guard let unit2 = frame2.units.first(where: { $0.name == unit1.name }) else {
                     continue
                 }
-                units.append(inbetween(unit1: unit1, unit2: unit2, t: t))
+                if let scene, let originIndex {
+                    units.append(
+                        UnitStateInterpolator.inbetween(
+                            scene: scene,
+                            originIndex: originIndex,
+                            unit1: unit1,
+                            unit2: unit2,
+                            step: step,
+                            framesNumber: duration
+                        )
+                    )
+                } else {
+                    units.append(inbetween(unit1: unit1, unit2: unit2, t: t))
+                }
             }
-            let cameraT = CGFloat(step + 1) / CGFloat(duration + 1)
+            let cameraMove: PictureMove
+            if let scene, let originIndex {
+                cameraMove = CameraMoveInterpolator.inbetween(
+                    scene: scene,
+                    originIndex: originIndex,
+                    frame1: frame1,
+                    frame2: frame2,
+                    step: step,
+                    framesNumber: duration
+                )
+            } else {
+                let cameraT = CGFloat(step + 1) / CGFloat(duration + 1)
+                cameraMove = frame1.cameraMove.lerp(frame2.cameraMove, t: cameraT)
+            }
             var generated = StickmanFrame(
                 id: -1,
                 units: units,
                 bgName: frame1.bgName,
                 bgMove: frame1.bgMove,
-                cameraMove: frame1.cameraMove.lerp(frame2.cameraMove, t: cameraT)
+                cameraMove: cameraMove
             )
             adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)
             frames.append(generated)

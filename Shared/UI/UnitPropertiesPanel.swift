@@ -24,6 +24,10 @@ struct UnitPropertiesPanel: View {
     var onOpenAnimation: () -> Void
     var onCopy: () -> Void
     var onSetText: (() -> Void)? = nil
+    var poseLocked: Bool = false
+    var structureOwned: Bool = false
+    var tweenEnabled: Bool = true
+    var onTween: (() -> Void)? = nil
 
     @State private var showingStates = false
 
@@ -50,7 +54,7 @@ struct UnitPropertiesPanel: View {
     private var actions: some View {
         ScrollView {
             VStack(spacing: 8 / 1.5) {
-                Text(unit.name)
+                Text(caption)
                     .font(.system(size: 12))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
@@ -71,37 +75,45 @@ struct UnitPropertiesPanel: View {
                 .accessibilityLabel("Deselect \(unit.name)")
 
                 if availableStates.count > 1 {
-                    actionButton("States", icon: "props_state") {
+                    actionButton("States", icon: "props_state", enabled: !poseLocked) {
                         showingStates = true
                     }
                 }
                 if unit.unitType == .bubble {
-                    actionButton("Set text", icon: "props_text", action: {
+                    actionButton("Set text", icon: "props_text", enabled: !poseLocked, action: {
                         guard let onSetText else {
                             fatalError("UnitPropertiesPanel bubble '\(unit.name)' missing onSetText")
                         }
                         onSetText()
                     })
                 }
-                actionButton("Delete", icon: "props_delete", action: onDelete)
-                actionButton("Flip", icon: "props_flip", action: onFlip)
+                actionButton("Delete", icon: "props_delete", enabled: !poseLocked, action: onDelete)
+                actionButton("Flip", icon: "props_flip", enabled: !poseLocked, action: onFlip)
                 if SlavesRegistry.isEnslaved(unit) {
-                    actionButton("Detach", icon: "props_detach", action: onDetach)
+                    actionButton("Detach", icon: "props_detach", enabled: !poseLocked && !structureOwned, action: onDetach)
+                }
+                if let onTween {
+                    actionButton(
+                        structureOwned ? "Tween (AUTO)" : "Tween",
+                        systemImage: "arrow.left.and.right",
+                        enabled: tweenEnabled && !poseLocked && !structureOwned,
+                        action: onTween
+                    )
                 }
                 // Android maps “Up” to props_down and “Down” to props_up.
                 actionButton(
                     "Up",
                     icon: "props_down",
-                    enabled: canMoveForward,
+                    enabled: canMoveForward && !poseLocked,
                     action: onMoveForward
                 )
                 actionButton(
                     "Down",
                     icon: "props_up",
-                    enabled: canMoveBackward,
+                    enabled: canMoveBackward && !poseLocked,
                     action: onMoveBackward
                 )
-                actionButton("Copy", icon: "props_copy", action: onCopy)
+                actionButton("Copy", icon: "props_copy", enabled: !poseLocked, action: onCopy)
             }
             .padding(.horizontal, 6)
             .padding(.bottom, 12)
@@ -171,6 +183,13 @@ struct UnitPropertiesPanel: View {
         .accessibilityLabel("Animate")
     }
 
+    private var caption: String {
+        if poseLocked || structureOwned {
+            return "\(unit.name) [AUTO]"
+        }
+        return unit.name
+    }
+
     private var thumb: CGImage {
         let stored = assets.archive(for: unit.name)
         return ItemLoader.thumb(from: stored.zip, name: unit.name)
@@ -178,14 +197,22 @@ struct UnitPropertiesPanel: View {
 
     private func actionButton(
         _ label: String,
-        icon: String,
+        icon: String? = nil,
+        systemImage: String? = nil,
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 6 / 1.5) {
-                Image(decorative: Self.icon(icon), scale: 2)
-                    .frame(width: 45, height: 45)
+                if let icon {
+                    Image(decorative: Self.icon(icon), scale: 2)
+                        .frame(width: 45, height: 45)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Self.label)
+                        .frame(width: 45, height: 45)
+                }
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundStyle(Self.label)

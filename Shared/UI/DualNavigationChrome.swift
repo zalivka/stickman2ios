@@ -13,6 +13,7 @@ struct DualNavigationChrome: View {
     /// Android `copyTouchHeldStructureToFrameIfNoConflicts` after a next/prev tap.
     var onHoldCopy: ((_ sourceIndex: Int, _ destIndex: Int) -> Void)? = nil
     var flashToken: Int = 0
+    var stickStyle: ((Int) -> (color: Color?, scale: CGFloat))? = nil
 
     @State private var pageWindow = SeekFramesPageWindow()
 
@@ -53,7 +54,8 @@ struct DualNavigationChrome: View {
                 currentIndex: $currentIndex,
                 onDoubleTap: enterRange,
                 flashToken: flashToken,
-                pageWindow: pageWindow
+                pageWindow: pageWindow,
+                stickStyle: stickStyle
             )
             .frame(maxHeight: .infinity)
 

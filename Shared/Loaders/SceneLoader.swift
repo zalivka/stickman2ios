@@ -54,6 +54,8 @@ enum SceneLoader {
         StickmanFonts.installSceneFonts(zip: zip, names: names, resource: resource)
         var scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
         scene.unitAnimations = loadAnimations(zip: zip, names: names, resource: resource)
+        scene.unitTweens = loadUnitTweens(zip: zip, names: names, scene: scene, resource: resource)
+        scene.cameraTweens = loadCameraTweens(zip: zip, names: names, scene: scene, resource: resource)
         // GOTCHA (doc/gotchas.md): pack items live at pack/items/name.ati, not zip root.
         // Android does not embed native (no-dot) pack items; those come from the bundled .atp.
         let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }
@@ -94,6 +96,34 @@ enum SceneLoader {
             result[unitname] = mapped
         }
         return result
+    }
+
+    private static func loadUnitTweens(
+        zip: Data,
+        names: [String],
+        scene: StickmanScene,
+        resource _: String
+    ) -> UnitTweenStorage {
+        if !names.contains(UnitTweenStorage.archiveName) {
+            return UnitTweenStorage()
+        }
+        var storage = UnitTweenStorage()
+        storage.importArchive(ZipStore.data(named: UnitTweenStorage.archiveName, in: zip), scene: scene)
+        return storage
+    }
+
+    private static func loadCameraTweens(
+        zip: Data,
+        names: [String],
+        scene: StickmanScene,
+        resource _: String
+    ) -> CameraTweenStorage {
+        if !names.contains(CameraTweenStorage.archiveName) {
+            return CameraTweenStorage()
+        }
+        var storage = CameraTweenStorage()
+        storage.importArchive(ZipStore.data(named: CameraTweenStorage.archiveName, in: zip), scene: scene)
+        return storage
     }
 
     private static func loadBackgrounds(
