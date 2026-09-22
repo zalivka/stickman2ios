@@ -108,6 +108,9 @@ struct SceneEditorScreen: View {
                     onLockedEdit: { showToast("Locked") },
                     onPoseEditEnded: {
                         retweenSelectedAfterPoseEdit(frames: [scene.currentIndex])
+                    },
+                    onTryAttach: { scale in
+                        tryAttachSelected(sceneScale: scale)
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -563,13 +566,43 @@ struct SceneEditorScreen: View {
             return
         }
         prepareSelectionUndo()
+        var detached = false
         for frameIndex in rearrangeFrames {
-            guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == selectedUnitName }) else {
-                continue
+            if scene.frames[frameIndex].detachAndShift(named: selectedUnitName) {
+                detached = true
             }
-            scene.frames[frameIndex].units[index].stripAttachment()
-            scene.frames[frameIndex].refreshAttachments()
         }
+        if detached {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+    }
+
+    /// Android `TouchPointUseCase.tryAttach` — snap a straying unit onto a master inside the hold circles.
+    private func tryAttachSelected(sceneScale: CGFloat) -> Bool {
+        guard let name = selectedUnitName else {
+            fatalError("SceneEditorScreen attach without selected unit")
+        }
+        if sceneScale <= 0 {
+            fatalError("SceneEditorScreen attach scale \(sceneScale)")
+        }
+        let radius = StickmanUnit.exposeMarkerRadius / sceneScale
+        guard let target = scene.frames[scene.currentIndex].nearestAttachTarget(for: name, radius: radius) else {
+            return false
+        }
+        if rearrangeFrames.contains(where: {
+            scene.isStructureLocked(unitName: name, frameIndex: $0)
+                || scene.isStructureLocked(unitName: target.unitName, frameIndex: $0)
+        }) {
+            showToast("Locked")
+            return false
+        }
+        if !scene.frames[scene.currentIndex].attach(named: name, to: target) {
+            fatalError("SceneEditorScreen attach missed '\(name)' inside the snap radius")
+        }
+        for frameIndex in rearrangeFrames where frameIndex != scene.currentIndex {
+            _ = scene.frames[frameIndex].attach(named: name, to: target)
+        }
+        return true
     }
 
     private func canMoveSelectedUnit(forward: Bool) -> Bool {
@@ -1179,6 +1212,10 @@ struct SceneEditorScreen: View {
         SlavesRegistry.rootMaster(of: unit, in: scene.currentFrame.units).name
     }
 
+    private func carrySlaves(old: StickmanUnit, new: StickmanUnit, frameIndex: Int) {
+        scene.frames[frameIndex].followAttachedSlaves(old: old, new: new)
+    }
+
     private var unitBinding: Binding<StickmanUnit> {
         Binding(
             get: {
@@ -1198,14 +1235,18 @@ struct SceneEditorScreen: View {
                     fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) has no units")
                 }
                 if let index = units.firstIndex(where: { $0.name == newUnit.name }) {
+                    let old = units[index]
                     scene.frames[frameIndex].units[index] = newUnit
                     selectedUnitName = newUnit.name
+                    carrySlaves(old: old, new: newUnit, frameIndex: frameIndex)
                     return
                 }
                 if let activeName = selectedUnitName,
                    let index = units.firstIndex(where: { $0.name == activeName }) {
+                    let old = units[index]
                     scene.frames[frameIndex].units[index] = newUnit
                     selectedUnitName = newUnit.name
+                    carrySlaves(old: old, new: newUnit, frameIndex: frameIndex)
                     return
                 }
                 fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) missing unit '\(newUnit.name)'")

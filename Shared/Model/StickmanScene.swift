@@ -11,6 +11,11 @@ struct SlaveAttachment: Equatable, Hashable {
     var masterPointId: Int
 }
 
+struct MasterTarget: Equatable {
+    var unitName: String
+    var pointId: Int
+}
+
 struct StickmanPoint: Identifiable {
     let id: Int
     var x: CGFloat
@@ -38,6 +43,11 @@ enum StickmanUnitType {
 }
 
 struct StickmanUnit {
+    /// Android `Unit.ATTACH_RADIUS`. Scene-unit nudge on detach.
+    static let attachRadius: CGFloat = 25
+    /// Red/green hold circles, in screen points. Snap distance matches the circle.
+    static let exposeMarkerRadius: CGFloat = attachRadius / 1.5
+
     var name: String
     var points: [StickmanPoint]
     var edges: [StickmanEdge]
@@ -544,6 +554,335 @@ struct StickmanFrame {
         let target = master.point(id: attachment.masterPointId)
         let base = units[index].basePoint()
         units[index].translateAll(dx: target.x - base.x, dy: target.y - base.y)
+    }
+
+    /// Android `Frame.findCloseMasterPoint` plus `Unit.canAttachTo`. Nearest vacant master inside `radius`.
+    func nearestAttachTarget(for name: String, radius: CGFloat) -> MasterTarget? {
+        if radius <= 0 {
+            fatalError("StickmanFrame \(id) attach radius \(radius)")
+        }
+        guard let slave = units.first(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+        }
+        guard SlavesRegistry.isStraying(slave) else {
+            return nil
+        }
+        let base = slave.basePoint()
+        var best: (target: MasterTarget, dist: CGFloat)?
+        for other in units where other.name != slave.name {
+            for point in other.points where point.attachable == .master {
+                let target = MasterTarget(unitName: other.name, pointId: point.id)
+                guard canAttach(slave, to: target) else { continue }
+                let dist = hypot(point.x - base.x, point.y - base.y)
+                if dist < radius {
+                    if let current = best {
+                        if dist < current.dist {
+                            best = (target, dist)
+                        }
+                    } else {
+                        best = (target, dist)
+                    }
+                }
+            }
+        }
+        return best?.target
+    }
+
+    func canAttach(_ slave: StickmanUnit, to target: MasterTarget) -> Bool {
+        guard let master = units.first(where: { $0.name == target.unitName }) else {
+            return false
+        }
+        guard master.points.contains(where: { $0.id == target.pointId && $0.attachable == .master }) else {
+            return false
+        }
+        guard isMasterVacant(target) else {
+            return false
+        }
+        let connected = SlavesRegistry.allConnected(of: slave, in: units)
+        return !connected.contains(where: { $0.name == target.unitName })
+    }
+
+    /// Android `Unit.doAttachTo` — snap this straying unit and its slaves onto the master point.
+    mutating func attach(named name: String, to target: MasterTarget) -> Bool {
+        guard let index = units.firstIndex(where: { $0.name == name }) else {
+            return false
+        }
+        guard SlavesRegistry.isStraying(units[index]) else {
+            return false
+        }
+        guard canAttach(units[index], to: target) else {
+            return false
+        }
+        guard let master = units.first(where: { $0.name == target.unitName }),
+              let point = master.points.first(where: { $0.id == target.pointId })
+        else {
+            return false
+        }
+        guard let baseIndex = units[index].points.firstIndex(where: \.isBase) else {
+            fatalError("StickmanFrame \(id) '\(name)' has no base")
+        }
+        units[index].points[baseIndex].attachedMasterName = target.unitName
+        units[index].points[baseIndex].attachedMasterPointId = target.pointId
+        let base = units[index].basePoint()
+        shiftUnitAndSlaves(named: name, dx: point.x - base.x, dy: point.y - base.y)
+        return true
+    }
+
+    /// Android `Unit.detachAndShift`.
+    mutating func detachAndShift(named name: String) -> Bool {
+        guard let index = units.firstIndex(where: { $0.name == name }) else {
+            return false
+        }
+        guard SlavesRegistry.isEnslaved(units[index]) else {
+            return false
+        }
+        units[index].stripAttachment()
+        shiftUnitAndSlaves(
+            named: name,
+            dx: StickmanUnit.attachRadius,
+            dy: StickmanUnit.attachRadius
+        )
+        return true
+    }
+
+    private func isMasterVacant(_ target: MasterTarget) -> Bool {
+        !units.contains { unit in
+            guard let attachment = SlavesRegistry.attachment(of: unit) else { return false }
+            return attachment.masterName == target.unitName && attachment.masterPointId == target.pointId
+        }
+    }
+
+    /// Slaves only. The named unit is already at its new pose.
+    mutating func shiftSlaves(of name: String, dx: CGFloat, dy: CGFloat) {
+        if dx == 0 && dy == 0 { return }
+        refreshAttachments()
+        for slaveName in slaves.allSlaves(of: name) {
+            guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
+                fatalError("StickmanFrame \(id) shift missing '\(slaveName)'")
+            }
+            units[index].translateAll(dx: dx, dy: dy)
+        }
+    }
+
+    private mutating func shiftUnitAndSlaves(named name: String, dx: CGFloat, dy: CGFloat) {
+        guard let index = units.firstIndex(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) shift missing '\(name)'")
+        }
+        units[index].translateAll(dx: dx, dy: dy)
+        shiftSlaves(of: name, dx: dx, dy: dy)
+    }
+
+    /// Android `applyMatrix(..., includingSlaves)` and `PointManipulator` — slaves ride the master point.
+    mutating func followAttachedSlaves(old: StickmanUnit, new: StickmanUnit) {
+        if old.name != new.name {
+            fatalError("StickmanFrame \(id) follow renamed '\(old.name)' to '\(new.name)'")
+        }
+        for point in old.points where !new.points.contains(where: { $0.id == point.id }) {
+            fatalError("StickmanFrame \(id) '\(new.name)' lost point \(point.id)")
+        }
+        refreshAttachments()
+        let slaveNames = slaves.allSlaves(of: new.name)
+        if slaveNames.isEmpty { return }
+
+        if let shift = Self.translation(from: old, to: new) {
+            if shift.dx == 0 && shift.dy == 0 { return }
+            translateUnits(slaveNames, dx: shift.dx, dy: shift.dy)
+            return
+        }
+        if new.scale != old.scale {
+            if old.scale <= 0 {
+                fatalError("StickmanFrame \(id) '\(new.name)' scale is \(old.scale)")
+            }
+            followScale(slaveNames, factor: new.scale / old.scale)
+            return
+        }
+        let pivot = new.basePoint()
+        let oldBase = old.basePoint()
+        if hypot(pivot.x - oldBase.x, pivot.y - oldBase.y) < 0.05,
+           let angle = Self.uniformRotation(from: old, to: new, pivotX: pivot.x, pivotY: pivot.y),
+           abs(angle) > 0.0001 {
+            rotateUnits(slaveNames, radians: angle, pivotX: pivot.x, pivotY: pivot.y)
+            return
+        }
+        if let limb = Self.limbRotation(from: old, to: new), abs(limb.angle) > 0.0001 {
+            followLimb(masterName: new.name, limb)
+            return
+        }
+        glueSlaves(masterName: new.name, old: old, new: new)
+    }
+
+    private mutating func followScale(_ slaveNames: [String], factor: CGFloat) {
+        if factor <= 0 {
+            fatalError("StickmanFrame \(id) slave scale factor \(factor)")
+        }
+        let ordered = slaveNames.sorted {
+            SlavesRegistry.slaveDepth(unit(named: $0), in: units)
+                < SlavesRegistry.slaveDepth(unit(named: $1), in: units)
+        }
+        for name in ordered {
+            guard let index = units.firstIndex(where: { $0.name == name }) else {
+                fatalError("StickmanFrame \(id) scale missing '\(name)'")
+            }
+            let base = units[index].basePoint()
+            units[index].scaleBy(pivotX: base.x, pivotY: base.y, factor: factor)
+        }
+        for name in ordered {
+            moveUnitToMaster(named: name)
+        }
+    }
+
+    private mutating func followLimb(masterName: String, _ limb: LimbTurn) {
+        var names: [String] = []
+        for unit in units {
+            guard let attachment = SlavesRegistry.attachment(of: unit),
+                  attachment.masterName == masterName,
+                  limb.movedIds.contains(attachment.masterPointId)
+            else { continue }
+            names.append(unit.name)
+            names.append(contentsOf: slaves.allSlaves(of: unit.name))
+        }
+        var seen: Set<String> = []
+        let unique = names.filter { seen.insert($0).inserted }
+        rotateUnits(unique, radians: limb.angle, pivotX: limb.pivotX, pivotY: limb.pivotY)
+    }
+
+    /// Keep each slave's base on its master point when the pose edit was not a rigid move.
+    private mutating func glueSlaves(masterName: String, old: StickmanUnit, new: StickmanUnit) {
+        for unit in units {
+            guard let attachment = SlavesRegistry.attachment(of: unit), attachment.masterName == masterName else {
+                continue
+            }
+            let from = old.point(id: attachment.masterPointId)
+            let to = new.point(id: attachment.masterPointId)
+            let dx = to.x - from.x
+            let dy = to.y - from.y
+            if dx == 0 && dy == 0 { continue }
+            let names = [unit.name] + slaves.allSlaves(of: unit.name)
+            translateUnits(names, dx: dx, dy: dy)
+        }
+    }
+
+    private mutating func translateUnits(_ names: [String], dx: CGFloat, dy: CGFloat) {
+        for name in names {
+            guard let index = units.firstIndex(where: { $0.name == name }) else {
+                fatalError("StickmanFrame \(id) shift missing '\(name)'")
+            }
+            units[index].translateAll(dx: dx, dy: dy)
+        }
+    }
+
+    private mutating func rotateUnits(_ names: [String], radians: CGFloat, pivotX: CGFloat, pivotY: CGFloat) {
+        for name in names {
+            guard let index = units.firstIndex(where: { $0.name == name }) else {
+                fatalError("StickmanFrame \(id) rotate missing '\(name)'")
+            }
+            units[index].rotate(radians: radians, pivotX: pivotX, pivotY: pivotY)
+        }
+    }
+
+    private struct LimbTurn {
+        var pivotX: CGFloat
+        var pivotY: CGFloat
+        var angle: CGFloat
+        var movedIds: Set<Int>
+    }
+
+    private static func translation(from old: StickmanUnit, to new: StickmanUnit) -> (dx: CGFloat, dy: CGFloat)? {
+        let dx = new.basePoint().x - old.basePoint().x
+        let dy = new.basePoint().y - old.basePoint().y
+        for point in old.points {
+            guard let moved = new.points.first(where: { $0.id == point.id }) else { return nil }
+            if moved.x - point.x != dx || moved.y - point.y != dy { return nil }
+        }
+        return (dx, dy)
+    }
+
+    /// One angle around `pivot` for every point that is not the pivot. Nil when the pose is not that rotation.
+    private static func uniformRotation(
+        from old: StickmanUnit,
+        to new: StickmanUnit,
+        pivotX: CGFloat,
+        pivotY: CGFloat
+    ) -> CGFloat? {
+        var angle: CGFloat?
+        for point in old.points {
+            let moved = new.point(id: point.id)
+            guard let delta = rotationDelta(
+                ox: point.x, oy: point.y, nx: moved.x, ny: moved.y, pivotX: pivotX, pivotY: pivotY
+            ) else { continue }
+            if let angle {
+                if abs(wrapAngle(delta - angle)) > 0.02 { return nil }
+            } else {
+                angle = delta
+            }
+        }
+        return angle
+    }
+
+    private static func limbRotation(from old: StickmanUnit, to new: StickmanUnit) -> LimbTurn? {
+        var movedIds: [Int] = []
+        var stationary: [StickmanPoint] = []
+        for point in old.points {
+            let moved = new.point(id: point.id)
+            if hypot(moved.x - point.x, moved.y - point.y) <= 0.05 {
+                stationary.append(point)
+            } else {
+                movedIds.append(point.id)
+            }
+        }
+        if movedIds.isEmpty || stationary.isEmpty { return nil }
+        let parentIds = Set(movedIds.compactMap { old.point(id: $0).parentId })
+        let pivots = stationary.sorted { parentIds.contains($0.id) && !parentIds.contains($1.id) }
+        for pivot in pivots {
+            var angle: CGFloat?
+            var matched = true
+            for id in movedIds {
+                let from = old.point(id: id)
+                let to = new.point(id: id)
+                guard let delta = rotationDelta(
+                    ox: from.x, oy: from.y, nx: to.x, ny: to.y, pivotX: pivot.x, pivotY: pivot.y
+                ) else {
+                    matched = false
+                    break
+                }
+                if let angle {
+                    if abs(wrapAngle(delta - angle)) > 0.02 {
+                        matched = false
+                        break
+                    }
+                } else {
+                    angle = delta
+                }
+            }
+            if matched, let angle {
+                return LimbTurn(pivotX: pivot.x, pivotY: pivot.y, angle: angle, movedIds: Set(movedIds))
+            }
+        }
+        return nil
+    }
+
+    /// Nil when the point is the pivot, or its distance from the pivot changed.
+    private static func rotationDelta(
+        ox: CGFloat, oy: CGFloat, nx: CGFloat, ny: CGFloat,
+        pivotX: CGFloat, pivotY: CGFloat
+    ) -> CGFloat? {
+        let oldX = ox - pivotX
+        let oldY = oy - pivotY
+        let newX = nx - pivotX
+        let newY = ny - pivotY
+        let oldLen = hypot(oldX, oldY)
+        let newLen = hypot(newX, newY)
+        if oldLen < 0.05 && newLen < 0.05 { return nil }
+        if abs(oldLen - newLen) > 0.75 { return nil }
+        return wrapAngle(atan2(newY, newX) - atan2(oldY, oldX))
+    }
+
+    private static func wrapAngle(_ angle: CGFloat) -> CGFloat {
+        var value = angle
+        let turn = CGFloat.pi * 2
+        while value > .pi { value -= turn }
+        while value < -.pi { value += turn }
+        return value
     }
 
     func uniqueName(for name: String) -> String {

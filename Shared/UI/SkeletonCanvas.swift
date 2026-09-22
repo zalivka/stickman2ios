@@ -135,6 +135,9 @@ struct SkeletonCanvas: View {
     static let boneSelected = Color(red: 0, green: 1, blue: 0)
     /// Android vacant-point flash (`#51be00` @ 196/255).
     static let vacantExpose = Color(red: 0x51 / 255, green: 0xbe / 255, blue: 0).opacity(196 / 255)
+    /// Android expose circles: master `#56e8a4`, slave `#ff5000`, alpha 170.
+    static let exposeMaster = Color(red: 0x56 / 255, green: 0xe8 / 255, blue: 0xa4 / 255).opacity(170 / 255)
+    static let exposeSlave = Color(red: 1, green: 0x50 / 255, blue: 0).opacity(170 / 255)
     /// Android `EditView.EXPOSE_RADIUS` in scene units.
     static let vacantExposeRadius: CGFloat = 30
     static let sceneBound = Color(red: 0, green: 0xd7 / 255, blue: 1)
@@ -173,6 +176,8 @@ struct SkeletonCanvas: View {
     var canMutatePoseFor: ((String) -> Bool)? = nil
     var onLockedEdit: (() -> Void)? = nil
     var onPoseEditEnded: (() -> Void)? = nil
+    /// Finger up on a straying unit. `scale` is points per scene unit. Returns whether an attach snapped.
+    var onTryAttach: ((CGFloat) -> Bool)? = nil
     var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     var canMutateCamera: Bool = true
@@ -188,6 +193,8 @@ struct SkeletonCanvas: View {
     @State private var boneCreateEnd: CGPoint?
     @State private var boneModDx: CGFloat = 0
     @State private var boneModDy: CGFloat = 0
+    /// Android `ExposedPointsUseCase` — finger is on a straying unit's move handle or base.
+    @State private var attachHold = false
 
     private final class DragRef {
         var nodeId: Int?
@@ -224,6 +231,7 @@ struct SkeletonCanvas: View {
                     for drawn in unitsToDraw {
                         drawUnit(drawn, context: &context, layout: layout)
                     }
+                    drawAttachExpose(context: &context, layout: layout)
                     drawCameraRectangle(context: &context, layout: layout)
                     drawHandlers(context: &context, layout: layout)
                     drawTouchPoint(context: &context)
@@ -526,6 +534,32 @@ struct SkeletonCanvas: View {
         context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 4, lineCap: .round))
         let tipRadius = Self.boneNodeRadius * 1.5
         context.fill(Path(ellipseIn: Self.square(around: to, radius: tipRadius)), with: .color(color))
+    }
+
+    private func drawAttachExpose(context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard attachHold, let name = selectedUnitName.wrappedValue else { return }
+        guard let held = unitsToDraw.first(where: { $0.name == name }), SlavesRegistry.isStraying(held) else {
+            return
+        }
+        let radius = StickmanUnit.exposeMarkerRadius
+        for unit in unitsToDraw {
+            if unit.name == held.name {
+                let base = unit.basePoint()
+                let center = layout.screenPoint(x: base.x, y: base.y)
+                context.fill(
+                    Path(ellipseIn: Self.square(around: center, radius: radius)),
+                    with: .color(Self.exposeSlave)
+                )
+                continue
+            }
+            for point in unit.points where point.attachable == .master {
+                let center = layout.screenPoint(x: point.x, y: point.y)
+                context.fill(
+                    Path(ellipseIn: Self.square(around: center, radius: radius)),
+                    with: .color(Self.exposeMaster)
+                )
+            }
+        }
     }
 
     private func drawVacantPoints(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
@@ -934,6 +968,12 @@ struct SkeletonCanvas: View {
                 } else {
                     capturedUnitName.wrappedValue = nil
                 }
+                let holdingBase = dragRef.nodeId.map { liveUnit.point(id: $0).isBase } ?? false
+                if dragRef.handler == .move || holdingBase {
+                    attachHold = SlavesRegistry.isStraying(liveUnit)
+                } else {
+                    attachHold = false
+                }
             }
             dragRef.lastScreen = location
         }
@@ -1003,6 +1043,8 @@ struct SkeletonCanvas: View {
             return
         }
         let didPoseEdit = mode == .editor && dragRef.undoPushed
+        let editedStray = didPoseEdit && SlavesRegistry.isStraying(liveUnit)
+        let sceneScale = layout?.scale
         touchScreen = nil
         dragRef.nodeId = nil
         dragRef.handler = nil
@@ -1011,11 +1053,20 @@ struct SkeletonCanvas: View {
         dragRef.undoPushed = false
         dragRef.touchOffsetX = 0
         dragRef.touchOffsetY = 0
+        attachHold = false
         capturedUnitName.wrappedValue = nil
         if let current = layout {
             snapHandlers(to: current)
         }
         if didPoseEdit {
+            if editedStray {
+                guard let sceneScale, sceneScale > 0 else {
+                    fatalError("SkeletonCanvas attach without layout scale")
+                }
+                if onTryAttach?(sceneScale) == true {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+            }
             onPoseEditEnded?()
         }
     }

@@ -19,6 +19,11 @@ nonisolated struct SlavesRegistry {
         attachment(of: unit) != nil
     }
 
+    /// Android `SlavesRegistry.isStraying` — slave base that is not attached.
+    static func isStraying(_ unit: StickmanUnit) -> Bool {
+        unit.basePoint().attachable == .slave && attachment(of: unit) == nil
+    }
+
     mutating func populate(units: [StickmanUnit]) {
         children = [:]
         var pending: [StickmanUnit] = []
