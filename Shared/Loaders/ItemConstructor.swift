@@ -38,6 +38,19 @@ enum ItemConstructor {
         return unit
     }
 
+    /// Android `EditUnit.reset`: one base point, no bones.
+    static func blank() -> StickmanUnit {
+        var unit = StickmanUnit(
+            name: "@:new",
+            points: [
+                StickmanPoint(id: 1, x: 0, y: 0, isBase: true, parentId: nil)
+            ],
+            edges: []
+        )
+        unit.link()
+        return unit
+    }
+
     static let sceneWidth: CGFloat = 640
     static let sceneHeight: CGFloat = 480
 

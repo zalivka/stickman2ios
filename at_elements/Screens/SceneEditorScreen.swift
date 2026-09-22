@@ -161,7 +161,6 @@ struct SceneEditorScreen: View {
                         )
                     } else {
                         PresentUnitsPanel(
-                            frameNumber: scene.currentIndex + 1,
                             units: scene.currentFrame.units,
                             selectedName: nil,
                             assets: assets,
@@ -876,6 +875,7 @@ struct SceneEditorScreen: View {
     }
 
     private func applySceneProps(_ draft: EditSceneDraft) {
+        undo.commitSceneProps(from: scene)
         scene.width = draft.width
         scene.height = draft.height
         scene.interframes = draft.interframes
@@ -885,6 +885,7 @@ struct SceneEditorScreen: View {
     }
 
     private func applySceneSize(_ size: SceneSize) {
+        undo.commitSceneProps(from: scene)
         scene.width = size.width
         scene.height = size.height
         scenePropsSheet = nil
@@ -1209,46 +1210,70 @@ private struct SaveProjectSheet: View {
     var onSave: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Save project as")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-
-            TextField("Name", text: $name)
-                .font(.system(size: 22))
-                .foregroundStyle(.black)
-                .tint(.black)
-                .textFieldStyle(.plain)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(12)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            if !error.isEmpty {
-                Text(error)
-                    .font(.system(size: 16))
-                    .foregroundStyle(.red)
+        VStack(spacing: 0) {
+            topPanel
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Name")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(SkeletonChrome.toolLabel)
+                        .textCase(.uppercase)
+                    TextField("Name", text: $name)
+                        .font(.system(size: 22))
+                        .foregroundStyle(.black)
+                        .tint(.black)
+                        .textFieldStyle(.plain)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 16)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    if !error.isEmpty {
+                        Text(error)
+                            .font(.system(size: 16))
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            HStack {
-                Button("Cancel", action: onCancel)
-                    .font(.system(size: 17))
-                    .foregroundStyle(.white)
-                Spacer()
-                Button("Save", action: onSave)
-                    .font(.system(size: 17, weight: .semibold))
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255))
-            }
-            Spacer()
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(white: 0.15))
-        .presentationBackground(Color(white: 0.15))
+        .background(SkeletonChrome.pane.ignoresSafeArea())
         .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(SkeletonChrome.pane)
+    }
+
+    private var topPanel: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                BackCircleButton(action: onCancel)
+                Text("Save project as")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: onSave) {
+                    Text("Save")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(minWidth: 72)
+                        .padding(.vertical, 8)
+                        .background(SkeletonChrome.boneNew)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Save")
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 10)
+            SkeletonChrome.bonesAccent.frame(height: 3)
+        }
+        .background(SkeletonChrome.pane)
     }
 }
 

@@ -11,7 +11,7 @@ enum ItemSaver {
         return String(format: "Item_%d", millis % 1000)
     }
 
-    static func save(unit: StickmanUnit, assets: UnitAssets, source: Data, name rawName: String) throws -> URL {
+    static func save(unit: StickmanUnit, assets: UnitAssets, source: Data?, name rawName: String) throws -> URL {
         if !SceneSaver.isGoodFileName(rawName) {
             fatalError("ItemSaver illegal name '\(rawName)'")
         }
@@ -34,19 +34,20 @@ enum ItemSaver {
             }
             files.append((name: "assets.xml", data: AssetsXML.serialize(rows: rows, fullName: fullName)))
             files.append(contentsOf: livePngs)
-        } else if ZipStore.contains("assets.xml", in: source) {
+        } else if let source, ZipStore.contains("assets.xml", in: source) {
             fatalError("ItemSaver '\(fullName)' live assets empty but source has assets.xml")
         }
 
-        // Bone art is encoded from live bitmaps so Edit/Apply survives save.
-        for entry in ZipStore.names(in: source) where !regenerated.contains(entry) {
-            if liveNames.contains(entry) {
-                continue
+        if let source {
+            for entry in ZipStore.names(in: source) where !regenerated.contains(entry) {
+                if liveNames.contains(entry) {
+                    continue
+                }
+                if entry.hasSuffix(".name") || entry.hasSuffix("/") {
+                    continue
+                }
+                files.append((name: entry, data: ZipStore.data(named: entry, in: source)))
             }
-            if entry.hasSuffix(".name") || entry.hasSuffix("/") {
-                continue
-            }
-            files.append((name: entry, data: ZipStore.data(named: entry, in: source)))
         }
         files.append((name: "\(name).name", data: Data()))
         files.append((name: "meta.txt", data: meta(name: name, scale: unit.scale)))

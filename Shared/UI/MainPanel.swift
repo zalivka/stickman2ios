@@ -11,6 +11,8 @@ struct MainPanel: View {
     static let editUnitActive = Color(red: 0, green: 0x9a / 255, blue: 0x62 / 255)
     static let editFrame = Color(red: 0x44 / 255, green: 0x9e / 255, blue: 0xc9 / 255)
     static let undo = Color(red: 0, green: 0x9a / 255, blue: 0xc4 / 255)
+    static let tween = Color(red: 0, green: 0xc0 / 255, blue: 0xd8 / 255)
+    static let reset = Color(red: 0xf3 / 255, green: 0x54 / 255, blue: 0x54 / 255)
 
     var onPlay: () -> Void = {}
     var playEnabled: Bool = true
@@ -93,21 +95,23 @@ struct MainPanel: View {
                     action: { tapUndo(onUndo ?? {}) }
                 )
             }
-            if let onReset {
-                systemButton(
-                    systemName: "arrow.counterclockwise",
-                    title: "RESET",
-                    color: .white,
-                    action: onReset
-                )
-            }
             if let onTween {
-                systemButton(
-                    systemName: "arrow.left.and.right",
+                chromeButton(
+                    icon: Self.tweenIcon,
                     title: "TWEEN",
-                    color: Self.editUnit,
+                    color: Self.tween,
+                    activated: false,
                     enabled: tweenEnabled,
                     action: onTween
+                )
+            }
+            if let onReset {
+                chromeButton(
+                    icon: Self.resetIcon,
+                    title: "RESET",
+                    color: Self.reset,
+                    activated: false,
+                    action: onReset
                 )
             }
             if onEditFrame == nil, let onUndo {
@@ -172,35 +176,6 @@ struct MainPanel: View {
         .opacity(enabled ? 1 : 0.4)
     }
 
-    private func systemButton(
-        systemName: String,
-        title: String,
-        color: Color,
-        activated: Bool = false,
-        enabled: Bool = true,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: systemName)
-                    .font(.system(size: 28, weight: .regular))
-                    .foregroundStyle(color)
-                    .frame(width: 36, height: 36)
-                Text(title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 5)
-            .background(activated ? Self.editUnitActive : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
-    }
-
     private static let navIcon = chromeImage("main_btn_nav")
     private static let playIcon = chromeImage("main_btn_play")
     private static let insertIcon = chromeImage("main_btn_insert")
@@ -210,6 +185,8 @@ struct MainPanel: View {
     private static let frameIcon = chromeImage("main_btn_frames")
     private static let frameIconSel = chromeImage("main_btn_frames_sel")
     private static let undoIcon = chromeImage("main_btn_undo")
+    private static let tweenIcon = chromeImage("btn_tween")
+    private static let resetIcon = chromeImage("btn_reset")
 
     private static func chromeImage(_ name: String) -> CGImage {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")

@@ -7,7 +7,6 @@ struct PresentUnitsPanel: View {
     static let accent = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
     static let thumbSize: CGFloat = 60
 
-    var frameNumber: Int
     var units: [StickmanUnit]
     var selectedName: String?
     var assets: UnitAssets
@@ -22,14 +21,7 @@ struct PresentUnitsPanel: View {
             Self.accent
                 .frame(width: 2)
             VStack(spacing: 0) {
-                Text("Frame \(frameNumber)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 5)
-                    .padding(.top, Self.listTop)
-                    .padding(.bottom, 2)
-
+                Color.clear.frame(height: Self.listTop)
                 List {
                     pasteRow
                         .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))

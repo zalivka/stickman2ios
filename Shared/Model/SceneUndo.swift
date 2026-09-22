@@ -30,6 +30,13 @@ final class SceneUndo: ObservableObject {
             tweens: UnitTweenStorage,
             cameraTweens: CameraTweenStorage
         )
+        case sceneProps(
+            width: CGFloat,
+            height: CGFloat,
+            interframes: Int,
+            noInterpolation: Bool,
+            noInterpolationFrames: Int
+        )
     }
 
     @Published private(set) var stack: [Entry] = []
@@ -108,6 +115,16 @@ final class SceneUndo: ObservableObject {
         ))
     }
 
+    func commitSceneProps(from scene: StickmanScene) {
+        push(.sceneProps(
+            width: scene.width,
+            height: scene.height,
+            interframes: scene.interframes,
+            noInterpolation: scene.noInterpolation,
+            noInterpolationFrames: scene.noInterpolationFrames
+        ))
+    }
+
     func commitTimeline(from scene: StickmanScene) {
         push(.timeline(
             frames: scene.frames.map { $0.clone() },
@@ -182,6 +199,12 @@ final class SceneUndo: ObservableObject {
                 fatalError("SceneUndo timeline restore currentIndex \(currentIndex) out of \(scene.frames.count)")
             }
             scene.currentIndex = currentIndex
+        case .sceneProps(let width, let height, let interframes, let noInterpolation, let noInterpolationFrames):
+            scene.width = width
+            scene.height = height
+            scene.interframes = interframes
+            scene.noInterpolation = noInterpolation
+            scene.noInterpolationFrames = noInterpolationFrames
         }
     }
 

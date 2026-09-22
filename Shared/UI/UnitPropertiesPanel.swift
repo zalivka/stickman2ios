@@ -101,7 +101,7 @@ struct UnitPropertiesPanel: View {
                 if let onTween {
                     actionButton(
                         structureOwned ? "Tween (AUTO)" : "Tween",
-                        systemImage: "arrow.left.and.right",
+                        icon: "props_tween",
                         enabled: tweenEnabled && !poseLocked && !structureOwned,
                         action: onTween
                     )
@@ -207,22 +207,15 @@ struct UnitPropertiesPanel: View {
 
     private func actionButton(
         _ label: String,
-        icon: String? = nil,
-        systemImage: String? = nil,
+        icon: String,
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
-                if let icon {
-                    Image(decorative: Self.icon(icon), scale: 2)
-                        .frame(width: 45, height: 45)
-                } else if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Self.label)
-                        .frame(width: 45, height: 45)
-                }
+                let image = Self.icon(icon)
+                Image(decorative: image, scale: CGFloat(image.width) / 45)
+                    .frame(width: 45, height: 45)
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundStyle(Self.label)

@@ -608,17 +608,15 @@ struct SkeletonScreen: View {
         guard let scene else {
             fatalError("SkeletonScreen '\(title)' save before load")
         }
-        guard let sourceZip else {
-            fatalError("SkeletonScreen '\(title)' has no source archive to save from")
-        }
         guard let assets else {
             fatalError("SkeletonScreen '\(title)' has no assets to save")
         }
         let unit = scene.currentFrame.units[0]
         let name = ItemSaver.freeName()
+        let source = sourceZip
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                _ = try ItemSaver.save(unit: unit, assets: assets, source: sourceZip, name: name)
+                _ = try ItemSaver.save(unit: unit, assets: assets, source: source, name: name)
             } catch {
                 fatalError("SkeletonScreen could not save '\(name)': \(error)")
             }

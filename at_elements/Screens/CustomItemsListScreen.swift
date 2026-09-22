@@ -8,6 +8,7 @@ private let slotsThumbFill = Color(red: 0xee / 255, green: 0xee / 255, blue: 0xe
 private let templateIconSize: CGFloat = 80
 
 struct CustomItemsListScreen: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var items: [CustomItems.Item] = []
     @State private var templates: [Item] = []
     @State private var copyItem: CustomItems.Item?
@@ -21,11 +22,31 @@ struct CustomItemsListScreen: View {
             templatesRail
         }
         .background(slotsDarkGrey.ignoresSafeArea())
-        .navigationTitle("Custom Items")
+        .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: { dismiss() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 17))
+                    }
+                    .foregroundStyle(.white)
+                }
+                .tint(.white)
+            }
+            ToolbarItem(placement: .principal) {
+                Text("Custom Items")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
         .toolbarBackground(slotsDarkGrey, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .tint(.white)
         .onAppear {
             items = CustomItems.collect()
             Task {
@@ -77,7 +98,9 @@ struct CustomItemsListScreen: View {
 
     private var templatesRail: some View {
         VStack(spacing: 8) {
-            Button(action: {}) {
+            NavigationLink {
+                SkeletonScreen(title: "New item", unit: ItemConstructor.blank())
+            } label: {
                 VStack(spacing: 8) {
                     Image(systemName: "plus")
                         .font(.system(size: 22, weight: .bold))
