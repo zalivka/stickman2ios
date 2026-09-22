@@ -419,8 +419,9 @@ struct SkeletonDrawTools: View {
                         .scaledToFit()
                         .frame(width: 28, height: 28)
                 }
-                Text("Shift")
+                Text("Shift\nBone")
                     .font(.system(size: 10, weight: .bold))
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(SkeletonChrome.toolLabel)
                     .textCase(.uppercase)
             }

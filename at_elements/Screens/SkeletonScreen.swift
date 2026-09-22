@@ -28,7 +28,6 @@ struct SkeletonScreen: View {
     @State private var canUndo = false
     @State private var canRedo = false
     @State private var pointProps: PointPropsEdit?
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
     init(item: CustomItems.Item) {
@@ -116,20 +115,6 @@ struct SkeletonScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            if let banner = holdBannerText {
-                Text(banner)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(SkeletonChrome.holdBanner)
-                    .frame(maxWidth: .infinity)
-                    .padding(.leading, SkeletonChrome.leadingWidth(panel: toolsPanel))
-                    .padding(.trailing, SkeletonChrome.galleryWidth(horizontalSizeClass: horizontalSizeClass))
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .allowsHitTesting(false)
-            }
-
             if !toast.isEmpty {
                 Text(toast)
                     .font(.system(size: 16, weight: .semibold))
@@ -177,6 +162,19 @@ struct SkeletonScreen: View {
                     onAttach: attachBone,
                     onEdit: editGalleryBone
                 )
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if let banner = holdBannerText {
+                Text(banner)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .multilineTextAlignment(.trailing)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(SkeletonChrome.holdBanner)
+                    .padding(.trailing, 16)
+                    .allowsHitTesting(false)
             }
         }
         .background(SkeletonCanvas.checkerLight)
@@ -382,15 +380,18 @@ struct SkeletonScreen: View {
         layerEpoch += 1
     }
 
-    private func applyBoneShift(from: Int, to: Int, dx: CGFloat, dy: CGFloat) {
+    private func applyBoneShift(from: Int, to: Int, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
         guard let unit = optionalUnit, let assets else {
             fatalError("SkeletonScreen '\(title)' shift with no unit")
+        }
+        if scale <= 0 {
+            fatalError("SkeletonScreen '\(title)' shift scale \(scale)")
         }
         guard let bmName = assets.bmName(forEdge: from, end: to, unitName: unit.name) else {
             return
         }
         prepareUndo(includeAssets: true)
-        assets.applyShift(bmName: bmName, dx: dx, dy: dy)
+        assets.applyShift(bmName: bmName, dx: dx, dy: dy, scale: scale, rotation: rotation)
         layerEpoch += 1
     }
 

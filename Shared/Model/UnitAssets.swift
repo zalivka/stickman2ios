@@ -342,6 +342,19 @@ final class UnitAssets {
         }
     }
 
+    /// Slide by `dx`/`dy`, then scale and rotate the bitmap around the joint (`-xOffset`, `-yOffset`).
+    func applyShift(bmName: String, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
+        if scale <= 0 {
+            fatalError("UnitAssets applyShift '\(bmName)' scale \(scale)")
+        }
+        if dx != 0 || dy != 0 {
+            applyShift(bmName: bmName, dx: dx, dy: dy)
+        }
+        if abs(scale - 1) > 0.001 || abs(rotation) > 0.001 {
+            applyPictureTransform(bmName: bmName, factor: scale, radians: rotation)
+        }
+    }
+
     /// Android `PictureFrame.applyModifier`: `xpad -= dx` (`xOffset` is `-xpad`).
     func applyShift(bmName: String, dx: CGFloat, dy: CGFloat) {
         if bmName.isEmpty {
@@ -372,6 +385,68 @@ final class UnitAssets {
         if !found {
             fatalError("UnitAssets applyShift unknown bm '\(bmName)'")
         }
+    }
+
+    /// Resample `bmName` around the joint so that pixel stays on the bone start.
+    private func applyPictureTransform(bmName: String, factor: CGFloat, radians: CGFloat) {
+        if factor <= 0 {
+            fatalError("UnitAssets picture scale \(factor) for '\(bmName)'")
+        }
+        let matches = assets(bmName: bmName)
+        if matches.isEmpty {
+            fatalError("UnitAssets picture scale unknown bm '\(bmName)'")
+        }
+        let source = matches[0]
+        for asset in matches.dropFirst() {
+            if asset.xOffset != source.xOffset || asset.yOffset != source.yOffset {
+                fatalError("UnitAssets '\(bmName)' offsets differ across edges")
+            }
+        }
+        let jointX = -source.xOffset
+        let jointY = -source.yOffset
+        let scaled = BonePictureScale.transform(
+            source.bitmap,
+            aroundX: jointX,
+            y: jointY,
+            factor: factor,
+            radians: radians
+        )
+        let xOffset = -scaled.jointX
+        let yOffset = -scaled.jointY
+        for (key, states) in edgeAssets {
+            var next = states
+            var changed = false
+            for (state, asset) in states where asset.bmName == bmName {
+                var updated = asset
+                updated.bitmap = scaled.image
+                updated.xOffset = xOffset
+                updated.yOffset = yOffset
+                next[state] = updated
+                changed = true
+            }
+            if changed {
+                edgeAssets[key] = next
+            }
+        }
+        if var loose = looseBones[bmName] {
+            loose.bitmap = scaled.image
+            loose.xOffset = xOffset
+            loose.yOffset = yOffset
+            looseBones[bmName] = loose
+        }
+    }
+
+    private func assets(bmName: String) -> [EdgeAsset] {
+        var found: [EdgeAsset] = []
+        for states in edgeAssets.values {
+            for asset in states.values where asset.bmName == bmName {
+                found.append(asset)
+            }
+        }
+        if let loose = looseBones[bmName] {
+            found.append(loose)
+        }
+        return found
     }
 
     func replaceBitmap(bmName: String, image: CGImage, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) {

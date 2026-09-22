@@ -178,7 +178,7 @@ struct SkeletonCanvas: View {
     var onPoseEditEnded: (() -> Void)? = nil
     /// Finger up on a straying unit. `scale` is points per scene unit. Returns whether an attach snapped.
     var onTryAttach: ((CGFloat) -> Bool)? = nil
-    var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat) -> Void)? = nil
+    var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat, _ scale: CGFloat, _ rotation: CGFloat) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     var canMutateCamera: Bool = true
     @State private var layout: SkeletonLayout?
@@ -191,8 +191,7 @@ struct SkeletonCanvas: View {
     @State private var dragRef = DragRef()
     @State private var boneCreateStartId: Int?
     @State private var boneCreateEnd: CGPoint?
-    @State private var boneModDx: CGFloat = 0
-    @State private var boneModDy: CGFloat = 0
+    @State private var boneShift = BoneShiftPreview()
     /// Android `ExposedPointsUseCase` — finger is on a straying unit's move handle or base.
     @State private var attachHold = false
 
@@ -265,8 +264,20 @@ struct SkeletonCanvas: View {
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
                         onEnded: { _ in endTouch() },
                         onDoubleTap: { handleEmptyDoubleTap(at: $0, size: proxy.size) },
+                        swallowPinch: { FeatureFlags.shiftPinchScale && shiftHoldFlag },
                         onPinchBegan: { endTouch() },
-                        onPinch: { handlePinch(focus: $0, factor: $1) }
+                        onPinch: { focus, factor in
+                            if FeatureFlags.shiftPinchScale, shiftHoldFlag {
+                                boneShift.pinch(factor)
+                            } else {
+                                handlePinch(focus: focus, factor: factor)
+                            }
+                        },
+                        onRotate: { radians in
+                            if FeatureFlags.shiftPinchScale, shiftHoldFlag {
+                                boneShift.twist(radians)
+                            }
+                        }
                     )
                 } else if mode == .camera {
                     CameraTouchOverlay(
@@ -302,8 +313,7 @@ struct SkeletonCanvas: View {
             }
             .onChange(of: shiftHoldFlag) { _, on in
                 if on {
-                    boneModDx = 0
-                    boneModDy = 0
+                    boneShift.reset()
                 } else {
                     commitBoneShift()
                     cancelShiftDrag()
@@ -647,6 +657,7 @@ struct SkeletonCanvas: View {
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let live = liveShift(for: bone.asset)
             let yOffset = (mirror ? -(bone.asset.yOffset + live.dy) : bone.asset.yOffset + live.dy) * drawn.scale
+            let pictureScale = live.scale
             context.drawLayer { ctx in
                 ctx.translateBy(
                     x: layout.originX - layout.minX * layout.scale,
@@ -656,11 +667,16 @@ struct SkeletonCanvas: View {
                 ctx.translateBy(x: bone.start.x, y: bone.start.y)
                 ctx.rotate(by: Angle(radians: angle))
                 ctx.translateBy(x: -bone.start.x, y: -bone.start.y)
+                ctx.translateBy(x: bone.start.x, y: bone.start.y)
+                ctx.rotate(by: Angle(radians: live.rotation))
                 ctx.translateBy(
-                    x: bone.start.x + (bone.asset.xOffset + live.dx) * drawn.scale,
-                    y: bone.start.y + yOffset
+                    x: (bone.asset.xOffset + live.dx) * drawn.scale * pictureScale,
+                    y: yOffset * pictureScale
                 )
-                ctx.scaleBy(x: drawn.scale, y: mirror ? -drawn.scale : drawn.scale)
+                ctx.scaleBy(
+                    x: drawn.scale * pictureScale,
+                    y: (mirror ? -drawn.scale : drawn.scale) * pictureScale
+                )
                 ctx.draw(
                     Image(decorative: bone.asset.bitmap, scale: 1),
                     at: .zero,
@@ -1031,7 +1047,7 @@ struct SkeletonCanvas: View {
     }
 
     private func endTouch() {
-        if mode == .skeleton, shiftHoldFlag || boneModDx != 0 || boneModDy != 0 {
+        if mode == .skeleton, shiftHoldFlag || !boneShift.isIdentity {
             commitBoneShift()
             touchScreen = nil
             dragRef.lastScreen = nil
@@ -1075,16 +1091,17 @@ struct SkeletonCanvas: View {
         canMutatePoseFor?(name) ?? canMutatePose
     }
 
-    private func liveShift(for asset: UnitAssets.EdgeAsset) -> (dx: CGFloat, dy: CGFloat) {
-        guard shiftHoldFlag || boneModDx != 0 || boneModDy != 0 else {
-            return (0, 0)
-        }
+    private func liveShift(for asset: UnitAssets.EdgeAsset) -> (dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
         guard let id = selectedPointId.wrappedValue, let edge = liveUnit.upperEdge(of: id) else {
-            return (0, 0)
+            return (0, 0, 1, 0)
         }
-        let same = (asset.start == edge.from && asset.end == edge.to)
-            || (asset.start == edge.to && asset.end == edge.from)
-        return same ? (boneModDx, boneModDy) : (0, 0)
+        return boneShift.live(
+            assetStart: asset.start,
+            assetEnd: asset.end,
+            edgeFrom: edge.from,
+            edgeTo: edge.to,
+            active: shiftHoldFlag
+        )
     }
 
     private func handleShift(at location: CGPoint, layout: SkeletonLayout, began: Bool) {
@@ -1097,41 +1114,24 @@ struct SkeletonCanvas: View {
             dragRef.lastScreen = location
             return
         }
-        if liveUnit.scale <= 0 {
-            fatalError("SkeletonCanvas shift with scale \(liveUnit.scale)")
-        }
         let from = liveUnit.point(id: edge.from)
         let to = liveUnit.point(id: edge.to)
-        let edgeVec = CGPoint(x: to.x - from.x, y: to.y - from.y)
-        let edgeLen2 = edgeVec.x * edgeVec.x + edgeVec.y * edgeVec.y
-        if edgeLen2 == 0 {
-            dragRef.lastScreen = location
-            return
-        }
         let prev = layout.graphPoint(screen: last)
         let now = layout.graphPoint(screen: location)
-        let move = CGPoint(x: now.x - prev.x, y: now.y - prev.y)
-        let ortho = CGPoint(x: edgeVec.y, y: -edgeVec.x)
-        let onX = Self.project(move, onto: edgeVec)
-        let onY = Self.project(move, onto: ortho)
-        var dx = hypot(onX.x, onX.y) * Self.signum(onX.x)
-        var dy = hypot(onY.x, onY.y) * Self.signum(onY.y)
-        if edgeVec.x < 0 {
-            dx *= -1
-            dy *= -1
-        }
-        boneModDx += dx / liveUnit.scale
-        boneModDy += dy / liveUnit.scale
+        boneShift.addDrag(
+            move: CGPoint(x: now.x - prev.x, y: now.y - prev.y),
+            edgeFrom: CGPoint(x: from.x, y: from.y),
+            edgeTo: CGPoint(x: to.x, y: to.y),
+            unitScale: liveUnit.scale
+        )
         dragRef.lastScreen = location
     }
 
     private func commitBoneShift() {
-        let dx = boneModDx
-        let dy = boneModDy
-        boneModDx = 0
-        boneModDy = 0
+        let shift = boneShift
+        boneShift.reset()
         dragRef.lastScreen = nil
-        if dx == 0, dy == 0 {
+        if shift.isIdentity {
             return
         }
         guard let id = selectedPointId.wrappedValue, let edge = liveUnit.upperEdge(of: id) else {
@@ -1140,7 +1140,29 @@ struct SkeletonCanvas: View {
         guard let onApplyBoneShift else {
             fatalError("SkeletonCanvas shift apply missing onApplyBoneShift")
         }
-        onApplyBoneShift(edge.from, edge.to, dx, dy)
+        let rotation = bakedRotation(shift.rotation, edge: edge)
+        onApplyBoneShift(edge.from, edge.to, shift.dx, shift.dy, shift.scale, rotation)
+    }
+
+    /// Draw mirrors a non-native flipped bitmap after the twist. Bake the opposite angle so the mirrored draw matches the preview.
+    private func bakedRotation(_ rotation: CGFloat, edge: StickmanEdge) -> CGFloat {
+        if rotation == 0 {
+            return 0
+        }
+        guard let assets else {
+            fatalError("SkeletonCanvas shift apply missing assets")
+        }
+        let key = UnitAssets.EdgeKey(
+            unitName: UnitAssets.removeNumber(liveUnit.name),
+            start: edge.from,
+            end: edge.to,
+            flipped: liveUnit.flipped
+        )
+        guard let asset = assets.getDrawable(key, state: liveUnit.assetsState) else {
+            fatalError("SkeletonCanvas shift apply missing bitmap \(key)")
+        }
+        let mirror = liveUnit.flipped && !asset.nativeFlipped
+        return mirror ? -rotation : rotation
     }
 
     private func cancelShiftDrag() {
@@ -1148,21 +1170,6 @@ struct SkeletonCanvas: View {
         dragRef.panning = false
         dragRef.lastScreen = nil
         dragRef.undoPushed = false
-    }
-
-    private static func project(_ vector: CGPoint, onto axis: CGPoint) -> CGPoint {
-        let mag2 = axis.x * axis.x + axis.y * axis.y
-        if mag2 == 0 {
-            return .zero
-        }
-        let k = (vector.x * axis.x + vector.y * axis.y) / mag2
-        return CGPoint(x: axis.x * k, y: axis.y * k)
-    }
-
-    private static func signum(_ value: CGFloat) -> CGFloat {
-        if value > 0 { return 1 }
-        if value < 0 { return -1 }
-        return 0
     }
 
     private func handleBoneCreate(at location: CGPoint, layout: SkeletonLayout, began: Bool) {
@@ -1487,8 +1494,11 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
     var onChanged: (CGPoint) -> Void
     var onEnded: (CGPoint) -> Void
     var onDoubleTap: (CGPoint) -> Void = { _ in }
+    /// When true, a pinch does not end the in-progress drag. Shift uses this to scale the picture.
+    var swallowPinch: () -> Bool = { false }
     var onPinchBegan: () -> Void
     var onPinch: (CGPoint, CGFloat) -> Void
+    var onRotate: (CGFloat) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1510,7 +1520,13 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         doubleTap.delaysTouchesEnded = false
         view.addGestureRecognizer(doubleTap)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
+        pinch.cancelsTouchesInView = false
+        pinch.delegate = context.coordinator
         view.addGestureRecognizer(pinch)
+        let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate))
+        rotate.cancelsTouchesInView = false
+        rotate.delegate = context.coordinator
+        view.addGestureRecognizer(rotate)
         context.coordinator.apply(useRawTouches: useRawTouches, to: view)
         return view
     }
@@ -1520,18 +1536,30 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
         context.coordinator.onDoubleTap = onDoubleTap
+        context.coordinator.swallowPinch = swallowPinch
         context.coordinator.onPinchBegan = onPinchBegan
         context.coordinator.onPinch = onPinch
+        context.coordinator.onRotate = onRotate
         context.coordinator.apply(useRawTouches: useRawTouches, to: uiView)
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onBegan: (CGPoint) -> Void = { _ in }
         var onChanged: (CGPoint) -> Void = { _ in }
         var onEnded: (CGPoint) -> Void = { _ in }
         var onDoubleTap: (CGPoint) -> Void = { _ in }
+        var swallowPinch: () -> Bool = { false }
         var onPinchBegan: () -> Void = {}
         var onPinch: (CGPoint, CGFloat) -> Void = { _, _ in }
+        var onRotate: (CGFloat) -> Void = { _ in }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            (gestureRecognizer is UIPinchGestureRecognizer && other is UIRotationGestureRecognizer)
+                || (gestureRecognizer is UIRotationGestureRecognizer && other is UIPinchGestureRecognizer)
+        }
         var useRawTouches = false
         private var rawActive = false
         weak var host: TouchForwardView?
@@ -1588,6 +1616,11 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
             let focus = gesture.location(in: gesture.view)
             switch gesture.state {
             case .began:
+                if swallowPinch() {
+                    rawActive = false
+                    onPinch(focus, 1)
+                    break
+                }
                 if rawActive {
                     rawActive = false
                     onEnded(focus)
@@ -1600,6 +1633,23 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
             case .ended, .cancelled, .failed:
                 onPinch(focus, gesture.scale)
                 gesture.scale = 1
+            default:
+                break
+            }
+        }
+
+        @objc func handleRotate(_ gesture: UIRotationGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                if swallowPinch() {
+                    rawActive = false
+                }
+                gesture.rotation = 0
+            case .changed, .ended, .cancelled, .failed:
+                if swallowPinch() {
+                    onRotate(gesture.rotation)
+                }
+                gesture.rotation = 0
             default:
                 break
             }
