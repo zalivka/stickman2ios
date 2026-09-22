@@ -24,6 +24,7 @@ struct SceneEditorScreen: View {
     @State private var tweenApplyRange: ClosedRange<Int>?
     @State private var showingInsert = false
     @State private var showingEditUnit = false
+    @State private var editUnitBackTick = 0
     @State private var showingEditFrame = false
     @State private var showingMenu = false
     @State private var scenePropsSheet: ScenePropsSheet?
@@ -35,6 +36,7 @@ struct SceneEditorScreen: View {
     @State private var lastSavedName: String?
     @State private var saveToast = ""
     @State private var showingFBF = false
+    @State private var showingAdvanced = false
     @State private var showingSetText = false
     @State private var setTextDraft = ""
     @State private var setTextColor = Color.black
@@ -122,8 +124,7 @@ struct SceneEditorScreen: View {
                     onAdd: addFrame,
                     onDelete: deleteSelectedFrames,
                     onCopy: copySelectedFrames,
-                    onPaste: pasteFrames,
-                    onClose: { showingEditFrame = false }
+                    onPaste: pasteFrames
                 )
                 .padding(.leading, MainPanel.width)
             }
@@ -157,9 +158,11 @@ struct SceneEditorScreen: View {
                             ),
                             tweenEnabled: tweenButtonEnabled(for: selectedUnit),
                             onTween: openTweenRange,
+                            onMore: { showingAdvanced = true },
                             onOpacityDragBegan: prepareSelectionUndo,
                             onOpacityPreview: previewSelectedOpacity,
                             onOpacityCommit: commitSelectedOpacity,
+                            backTick: editUnitBackTick,
                             onClose: { showingEditUnit = false }
                         )
                     } else {
@@ -170,8 +173,7 @@ struct SceneEditorScreen: View {
                             onSelect: { selectedUnitName = $0 },
                             onMove: movePresentUnits,
                             canPaste: clipboard.hasUnits,
-                            onPaste: pasteUnits,
-                            onClose: { showingEditUnit = false }
+                            onPaste: pasteUnits
                         )
                     }
                 }
@@ -241,10 +243,10 @@ struct SceneEditorScreen: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if !showingInsert && !showingEditFrame && !showingEditUnit {
+            if !showingInsert {
                 FullscreenBackButton(
                     extraLeading: backExtraLeading,
-                    action: goBack
+                    action: screenBack
                 )
             }
         }
@@ -306,6 +308,13 @@ struct SceneEditorScreen: View {
                     } else {
                         scene.unitAnimations.removeValue(forKey: selectedUnit.name)
                     }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAdvanced) {
+            if let selectedUnit {
+                AdvancedUnitSheet(currentNumber: UnitName.number(selectedUnit.name)) { number in
+                    applyUnitNumber(number)
                 }
             }
         }
@@ -489,6 +498,41 @@ struct SceneEditorScreen: View {
             scene.frames[frameIndex].setUnitAlpha(alpha, unitNamed: selectedUnitName)
         }
         retweenSelectedAfterPoseEdit(frames: rearrangeFrames)
+        return true
+    }
+
+    /// Android `AdvancedUnitProperties` number picker. Returns false when the number is taken.
+    private func applyUnitNumber(_ number: Int) -> Bool {
+        guard let oldName = selectedUnitName else {
+            fatalError("SceneEditorScreen unit number without selected unit")
+        }
+        let newName = UnitName.withNumber(oldName, number)
+        if newName == oldName {
+            return true
+        }
+        for frameIndex in rearrangeFrames {
+            let units = scene.frames[frameIndex].units
+            if units.contains(where: { $0.name == oldName }) && units.contains(where: { $0.name == newName }) {
+                showToast("Number \(number) already used on a frame")
+                return false
+            }
+        }
+        undo.commitTimeline(from: scene)
+        for frameIndex in rearrangeFrames where scene.frames[frameIndex].units.contains(where: { $0.name == oldName }) {
+            scene.frames[frameIndex].renameUnit(from: oldName, to: newName)
+        }
+        let stillHasOld = scene.frames.contains { $0.units.contains { $0.name == oldName } }
+        if !stillHasOld, var animation = scene.unitAnimations.removeValue(forKey: oldName) {
+            if scene.unitAnimations[newName] != nil {
+                fatalError("SceneEditorScreen animation already exists for '\(newName)'")
+            }
+            animation.unitname = newName
+            scene.unitAnimations[newName] = animation
+        }
+        selectedUnitName = newName
+        if capturedUnitName == oldName {
+            capturedUnitName = newName
+        }
         return true
     }
 
@@ -818,6 +862,22 @@ struct SceneEditorScreen: View {
             return FrameOpsPanel.width
         }
         return 0
+    }
+
+    private func screenBack() {
+        if showingEditUnit {
+            if selectedUnit == nil {
+                showingEditUnit = false
+            } else {
+                editUnitBackTick += 1
+            }
+            return
+        }
+        if showingEditFrame {
+            showingEditFrame = false
+            return
+        }
+        goBack()
     }
 
     private func goBack() {

@@ -29,10 +29,12 @@ struct UnitPropertiesPanel: View {
     var structureOwned: Bool = false
     var tweenEnabled: Bool = true
     var onTween: (() -> Void)? = nil
+    var onMore: () -> Void
     var onOpacityDragBegan: () -> Void
     var onOpacityPreview: (CGFloat) -> Void
     /// Returns false when an AUTO interior blocks the write. The live preview stays.
     var onOpacityCommit: (CGFloat) -> Bool
+    var backTick: Int
     var onClose: () -> Void
 
     @State private var showingStates = false
@@ -58,20 +60,16 @@ struct UnitPropertiesPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .overlay(alignment: .topLeading) {
-            BackCircleButton {
-                if showingOpacity {
-                    showingOpacity = false
-                } else {
-                    onClose()
-                }
-            }
-            .padding(.leading, 8)
-            .padding(.top, 8)
-        }
         .onChange(of: unit.name) { _, _ in
             showingStates = false
             showingOpacity = false
+        }
+        .onChange(of: backTick) { _, _ in
+            if showingOpacity {
+                showingOpacity = false
+            } else {
+                onClose()
+            }
         }
         .onChange(of: unit.alpha) { _, alpha in
             if showingOpacity && !opacityTracking {
@@ -89,7 +87,7 @@ struct UnitPropertiesPanel: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 6)
-                    .padding(.top, Self.listTop)
+                    .padding(.top, 8)
 
                 Button(action: onDeselect) {
                     Image(decorative: thumb, scale: 1)
@@ -125,14 +123,6 @@ struct UnitPropertiesPanel: View {
                 if SlavesRegistry.isEnslaved(unit) {
                     actionButton("Detach", icon: "props_detach", enabled: !poseLocked && !structureOwned, action: onDetach)
                 }
-                if let onTween {
-                    actionButton(
-                        structureOwned ? "Tween (AUTO)" : "Tween",
-                        icon: "props_tween",
-                        enabled: tweenEnabled && !poseLocked && !structureOwned,
-                        action: onTween
-                    )
-                }
                 // Android maps “Up” to props_down and “Down” to props_up.
                 actionButton(
                     "Up",
@@ -147,6 +137,20 @@ struct UnitPropertiesPanel: View {
                     action: onMoveBackward
                 )
                 actionButton("Copy", icon: "props_copy", enabled: !poseLocked, action: onCopy)
+                if let onTween {
+                    actionButton(
+                        structureOwned ? "Tween (AUTO)" : "Tween",
+                        icon: "props_tween",
+                        enabled: tweenEnabled && !poseLocked && !structureOwned,
+                        action: onTween
+                    )
+                }
+                actionButton(
+                    "More",
+                    icon: "props_numbers",
+                    enabled: !poseLocked && !structureOwned,
+                    action: onMore
+                )
             }
             .padding(.horizontal, 6)
             .padding(.bottom, 12)
@@ -155,7 +159,6 @@ struct UnitPropertiesPanel: View {
 
     private var statesOverlay: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: Self.listTop)
             Button {
                 showingStates = false
             } label: {
@@ -179,13 +182,13 @@ struct UnitPropertiesPanel: View {
                 }
             }
         }
+        .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.pane)
     }
 
     private var opacityOverlay: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: Self.listTop)
             Button {
                 showingOpacity = false
             } label: {
@@ -226,6 +229,7 @@ struct UnitPropertiesPanel: View {
             .padding(.bottom, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.pane)
     }
@@ -270,9 +274,6 @@ struct UnitPropertiesPanel: View {
         }
         return unit.name
     }
-
-    /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
-    private static let listTop: CGFloat = 60
 
     private var thumb: CGImage {
         let stored = assets.archive(for: unit.name)

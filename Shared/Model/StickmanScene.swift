@@ -618,6 +618,24 @@ struct StickmanFrame {
         refreshAttachments()
     }
 
+    /// Android `Unit.setNumber` plus `SlavesRegistry.onUnitNameUpdated` on this frame.
+    mutating func renameUnit(from oldName: String, to newName: String) {
+        guard let index = units.firstIndex(where: { $0.name == oldName }) else {
+            fatalError("StickmanFrame \(id) rename missing '\(oldName)'")
+        }
+        if units.contains(where: { $0.name == newName }) {
+            fatalError("StickmanFrame \(id) already has unit '\(newName)'")
+        }
+        units[index].name = newName
+        for unitIndex in units.indices {
+            for pointIndex in units[unitIndex].points.indices
+            where units[unitIndex].points[pointIndex].attachedMasterName == oldName {
+                units[unitIndex].points[pointIndex].attachedMasterName = newName
+            }
+        }
+        refreshAttachments()
+    }
+
     mutating func addCopy(_ src: StickmanUnit, name: String, at point: CGPoint, scale: CGFloat) {
         if scale <= 0 {
             fatalError("StickmanFrame \(id) addCopy scale is \(scale)")
@@ -643,6 +661,15 @@ enum UnitName {
             fatalError("UnitName '\(name)' has non-integer number")
         }
         return value
+    }
+
+    /// Android `Unit.setNumber`: 0 keeps the bare name, 1...9 appends `#n`.
+    static func withNumber(_ name: String, _ number: Int) -> String {
+        if number < 0 || number > 9 {
+            fatalError("UnitName '\(name)' number \(number) out of 0...9")
+        }
+        let pure = UnitAssets.removeNumber(name)
+        return number == 0 ? pure : "\(pure)#\(number)"
     }
 
     static func unique(base: String, existing: [String]) -> String {

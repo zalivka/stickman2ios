@@ -12,7 +12,6 @@ struct FrameOpsPanel: View {
     var onDelete: () -> Void
     var onCopy: () -> Void
     var onPaste: () -> Void
-    var onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -25,7 +24,7 @@ struct FrameOpsPanel: View {
                     action("Copy", icon: "frame_ops_copy", action: onCopy)
                     action("Paste", icon: "frame_ops_paste", enabled: canPaste, action: onPaste)
                 }
-                .padding(.top, Self.listTop)
+                .padding(.top, 8)
                 .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -33,15 +32,7 @@ struct FrameOpsPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .overlay(alignment: .topLeading) {
-            BackCircleButton(action: onClose)
-                .padding(.leading, 8)
-                .padding(.top, 8)
-        }
     }
-
-    /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
-    private static let listTop: CGFloat = 60
 
     private func action(
         _ label: String,

@@ -14,14 +14,12 @@ struct PresentUnitsPanel: View {
     var onMove: (IndexSet, Int) -> Void
     var canPaste: Bool
     var onPaste: () -> Void
-    var onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
             Self.accent
                 .frame(width: 2)
             VStack(spacing: 0) {
-                Color.clear.frame(height: Self.listTop)
                 List {
                     pasteRow
                         .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
@@ -46,15 +44,7 @@ struct PresentUnitsPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .overlay(alignment: .topLeading) {
-            BackCircleButton(action: onClose)
-                .padding(.leading, 8)
-                .padding(.top, 8)
-        }
     }
-
-    /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
-    private static let listTop: CGFloat = 60
 
     /// Front-most first (highest arrange), matching Android reverse arrange order.
     var ordered: [StickmanUnit] {

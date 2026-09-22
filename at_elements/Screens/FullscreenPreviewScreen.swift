@@ -122,20 +122,17 @@ struct FullscreenPreviewScreen: View {
     }
 
     private func canvas(_ movie: StickmanScene) -> some View {
-        SkeletonCanvas(
-            unit: Binding(
-                get: {
-                    let frame = movie.currentFrame
-                    guard let first = frame.units.first else {
-                        fatalError("FullscreenPreviewScreen frame \(frame.id) read unit")
+        let units = movie.currentFrame.units
+        return SkeletonCanvas(
+            unit: units.first.map { first in
+                Binding(
+                    get: { first },
+                    set: { _ in
+                        fatalError("FullscreenPreviewScreen canvas is not interactive")
                     }
-                    return first
-                },
-                set: { _ in
-                    fatalError("FullscreenPreviewScreen canvas is not interactive")
-                }
-            ),
-            frameUnits: movie.currentFrame.units,
+                )
+            },
+            frameUnits: units,
             assets: assets,
             backgrounds: backgrounds,
             bgName: movie.currentFrame.bgName,
