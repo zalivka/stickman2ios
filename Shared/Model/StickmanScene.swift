@@ -463,6 +463,24 @@ struct StickmanFrame {
         slaves.populate(units: units)
     }
 
+    /// Android `Unit.setAlpha(alpha, true)` — this unit and its slaves.
+    mutating func setUnitAlpha(_ alpha: CGFloat, unitNamed name: String) {
+        if alpha < 0 || alpha > 1 {
+            fatalError("StickmanFrame \(id) opacity \(alpha) for '\(name)'")
+        }
+        guard units.contains(where: { $0.name == name }) else {
+            fatalError("StickmanFrame \(id) opacity missing '\(name)'")
+        }
+        refreshAttachments()
+        let names = [name] + slaves.allSlaves(of: name)
+        for slaveName in names {
+            guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
+                fatalError("StickmanFrame \(id) opacity missing slave '\(slaveName)'")
+            }
+            units[index].alpha = alpha
+        }
+    }
+
     /// Android `Unit.flip` — mirror this unit and its slaves across this unit's base X.
     mutating func flipUnit(named name: String) {
         guard let source = units.first(where: { $0.name == name }) else {

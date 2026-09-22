@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Android UNIT panel — actions for the active scene unit.
 struct UnitPropertiesPanel: View {
@@ -28,9 +29,16 @@ struct UnitPropertiesPanel: View {
     var structureOwned: Bool = false
     var tweenEnabled: Bool = true
     var onTween: (() -> Void)? = nil
+    var onOpacityDragBegan: () -> Void
+    var onOpacityPreview: (CGFloat) -> Void
+    /// Returns false when an AUTO interior blocks the write. The live preview stays.
+    var onOpacityCommit: (CGFloat) -> Bool
     var onClose: () -> Void
 
     @State private var showingStates = false
+    @State private var showingOpacity = false
+    @State private var opacityPercent = 100
+    @State private var opacityTracking = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -41,6 +49,9 @@ struct UnitPropertiesPanel: View {
                 if showingStates {
                     statesOverlay
                 }
+                if showingOpacity {
+                    opacityOverlay
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Self.pane)
@@ -48,12 +59,24 @@ struct UnitPropertiesPanel: View {
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .overlay(alignment: .topLeading) {
-            BackCircleButton(action: onClose)
-                .padding(.leading, 8)
-                .padding(.top, 8)
+            BackCircleButton {
+                if showingOpacity {
+                    showingOpacity = false
+                } else {
+                    onClose()
+                }
+            }
+            .padding(.leading, 8)
+            .padding(.top, 8)
         }
         .onChange(of: unit.name) { _, _ in
             showingStates = false
+            showingOpacity = false
+        }
+        .onChange(of: unit.alpha) { _, alpha in
+            if showingOpacity && !opacityTracking {
+                opacityPercent = Int(alpha * 100)
+            }
         }
     }
 
@@ -94,6 +117,10 @@ struct UnitPropertiesPanel: View {
                     })
                 }
                 actionButton("Delete", icon: "props_delete", enabled: !poseLocked, action: onDelete)
+                actionButton("Opacity", icon: "props_opacity", enabled: !poseLocked) {
+                    opacityPercent = Int(unit.alpha * 100)
+                    showingOpacity = true
+                }
                 actionButton("Flip", icon: "props_flip", enabled: !poseLocked, action: onFlip)
                 if SlavesRegistry.isEnslaved(unit) {
                     actionButton("Detach", icon: "props_detach", enabled: !poseLocked && !structureOwned, action: onDetach)
@@ -151,6 +178,53 @@ struct UnitPropertiesPanel: View {
                     animateRow
                 }
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Self.pane)
+    }
+
+    private var opacityOverlay: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: Self.listTop)
+            Button {
+                showingOpacity = false
+            } label: {
+                VStack(spacing: 2) {
+                    Image(decorative: Self.icon("props_apply"), scale: 2)
+                        .frame(width: 45, height: 45)
+                    Text("\(opacityPercent)%")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Apply")
+
+            VerticalOpacityBar(
+                percent: opacityPercent,
+                onBegan: {
+                    opacityTracking = true
+                    onOpacityDragBegan()
+                },
+                onChanged: { progress in
+                    opacityPercent = progress
+                    onOpacityPreview(CGFloat(progress) / 100)
+                },
+                onEnded: {
+                    let raw = opacityPercent
+                    let snapped = raw < 5 ? 0 : raw
+                    let applied = onOpacityCommit(CGFloat(snapped) / 100)
+                    opacityPercent = applied ? snapped : raw
+                    opacityTracking = false
+                }
+            )
+            .padding(.horizontal, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.pane)
@@ -241,5 +315,95 @@ struct UnitPropertiesPanel: View {
         } catch {
             fatalError("UnitPropertiesPanel could not read \(url.path): \(error)")
         }
+    }
+}
+
+/// Android `VerticalSeekBar`: 100 at the top, 0 at the bottom.
+private struct VerticalOpacityBar: UIViewRepresentable {
+    var percent: Int
+    var onBegan: () -> Void
+    var onChanged: (Int) -> Void
+    var onEnded: () -> Void
+
+    func makeUIView(context: Context) -> OpacityBarView {
+        let view = OpacityBarView()
+        view.percent = percent
+        view.onBegan = onBegan
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+        return view
+    }
+
+    func updateUIView(_ view: OpacityBarView, context: Context) {
+        view.onBegan = onBegan
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+        view.percent = percent
+    }
+}
+
+private final class OpacityBarView: UIView {
+    var percent: Int = 100 {
+        didSet {
+            if percent != oldValue {
+                setNeedsDisplay()
+            }
+        }
+    }
+    var onBegan: () -> Void = {}
+    var onChanged: (Int) -> Void = { _ in }
+    var onEnded: () -> Void = {}
+
+    private let inset: CGFloat = 11
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        contentMode = .redraw
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(press(_:)))
+        press.minimumPressDuration = 0
+        press.allowableMovement = .greatestFiniteMagnitude
+        addGestureRecognizer(press)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("OpacityBarView init(coder:) is unused")
+    }
+
+    override func draw(_ rect: CGRect) {
+        let travel = max(bounds.height - inset * 2, 1)
+        let thumbY = inset + CGFloat(100 - percent) / 100 * travel
+        let track = UIBezierPath(
+            roundedRect: CGRect(x: bounds.midX - 2, y: inset, width: 4, height: travel),
+            cornerRadius: 2
+        )
+        UIColor.white.withAlphaComponent(0.28).setFill()
+        track.fill()
+        let thumb = UIBezierPath(ovalIn: CGRect(x: bounds.midX - 11, y: thumbY - 11, width: 22, height: 22))
+        UIColor.white.setFill()
+        thumb.fill()
+    }
+
+    @objc private func press(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            onBegan()
+            apply(gesture.location(in: self).y)
+        case .changed:
+            apply(gesture.location(in: self).y)
+        case .ended, .cancelled, .failed:
+            onEnded()
+        default:
+            break
+        }
+    }
+
+    private func apply(_ y: CGFloat) {
+        let travel = max(bounds.height - inset * 2, 1)
+        let clamped = min(max(y, inset), inset + travel)
+        let progress = max(0, 100 - Int((clamped - inset) / travel * 100))
+        percent = progress
+        onChanged(progress)
     }
 }

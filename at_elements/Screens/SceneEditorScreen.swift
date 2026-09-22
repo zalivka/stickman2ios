@@ -157,6 +157,9 @@ struct SceneEditorScreen: View {
                             ),
                             tweenEnabled: tweenButtonEnabled(for: selectedUnit),
                             onTween: openTweenRange,
+                            onOpacityDragBegan: prepareSelectionUndo,
+                            onOpacityPreview: previewSelectedOpacity,
+                            onOpacityCommit: commitSelectedOpacity,
                             onClose: { showingEditUnit = false }
                         )
                     } else {
@@ -460,6 +463,33 @@ struct SceneEditorScreen: View {
     private func fbfActive(for name: String) -> Bool {
         guard let animation = scene.unitAnimations[name] else { return false }
         return animation.inRange(scene: scene, index: scene.currentIndex)
+    }
+
+    private func previewSelectedOpacity(_ alpha: CGFloat) {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen opacity preview without selected unit")
+        }
+        scene.frames[scene.currentIndex].setUnitAlpha(alpha, unitNamed: selectedUnitName)
+    }
+
+    /// Android seek-up: snap under 5% to 0, write the selected frames, rebake AUTO.
+    /// An interior lock leaves the live preview and returns false.
+    private func commitSelectedOpacity(_ alpha: CGFloat) -> Bool {
+        guard let selectedUnitName else {
+            fatalError("SceneEditorScreen opacity commit without selected unit")
+        }
+        if let locked = rearrangeFrames.first(where: {
+            scene.unitTweens.isPoseLocked(unitName: selectedUnitName, frameIndex: $0)
+        }) {
+            showToast(scene.unitTweens.poseLockMessage(unitName: selectedUnitName, frameIndex: locked))
+            return false
+        }
+        for frameIndex in rearrangeFrames
+        where scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) {
+            scene.frames[frameIndex].setUnitAlpha(alpha, unitNamed: selectedUnitName)
+        }
+        retweenSelectedAfterPoseEdit(frames: rearrangeFrames)
+        return true
     }
 
     private func flipSelectedUnit() {
