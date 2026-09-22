@@ -26,7 +26,8 @@ struct SeekFramesBar: View {
                     let stickY = Self.stickY(index: index, windowSize: layout.windowSize)
                     let isCurrent = index == currentIndex
                     let style = stickStyle?(index)
-                    let scale = style?.scale ?? 1
+                    let requestedScale = style?.scale ?? 1
+                    let scale = isCurrent && requestedScale > 1 ? 1 : requestedScale
                     let diameter = (isCurrent ? Self.currentDiameter : Self.idleDiameter) * scale
                     let idleCenterX = Self.horizontalPad + Self.idleDiameter / 2
                     let idleCenterY = stickY + Self.idleDiameter / 2

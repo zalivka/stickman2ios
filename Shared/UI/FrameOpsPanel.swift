@@ -12,19 +12,20 @@ struct FrameOpsPanel: View {
     var onDelete: () -> Void
     var onCopy: () -> Void
     var onPaste: () -> Void
+    var onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
             Self.accent
                 .frame(width: 2)
             ScrollView {
-                VStack(spacing: 4 / 1.5) {
+                VStack(spacing: 2) {
                     action("Add", icon: "frame_ops_add", action: onAdd)
                     action("Delete", icon: "frame_ops_del", enabled: canDelete, action: onDelete)
                     action("Copy", icon: "frame_ops_copy", action: onCopy)
                     action("Paste", icon: "frame_ops_paste", enabled: canPaste, action: onPaste)
                 }
-                .padding(.top, 8)
+                .padding(.top, Self.listTop)
                 .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -32,7 +33,15 @@ struct FrameOpsPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            BackCircleButton(action: onClose)
+                .padding(.leading, 8)
+                .padding(.top, 8)
+        }
     }
+
+    /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
+    private static let listTop: CGFloat = 60
 
     private func action(
         _ label: String,
@@ -41,16 +50,15 @@ struct FrameOpsPanel: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 8 / 1.5) {
+            VStack(spacing: 2) {
                 Image(decorative: Self.icon(icon), scale: 2)
                     .frame(width: 60, height: 60)
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundStyle(Color(white: 0.87))
-                    .padding(.top, 2 / 1.5)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16 / 1.5)
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

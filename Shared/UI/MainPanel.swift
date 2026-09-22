@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MainPanel: View {
     static let width: CGFloat = 100
@@ -26,6 +27,9 @@ struct MainPanel: View {
     var editUnitActivated = false
     var editFrameActivated = false
     var menuActivated = false
+
+    @State private var undoFlashToken = 0
+    @State private var undoFlashing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,10 +86,11 @@ struct MainPanel: View {
                 chromeButton(
                     icon: Self.undoIcon,
                     title: "UNDO",
-                    color: Self.undo,
-                    activated: false,
+                    color: undoFlashing ? .black : Self.undo,
+                    activated: undoFlashing,
                     enabled: undoEnabled,
-                    action: onUndo ?? {}
+                    activatedFill: .white,
+                    action: { tapUndo(onUndo ?? {}) }
                 )
             }
             if let onReset {
@@ -109,10 +114,11 @@ struct MainPanel: View {
                 chromeButton(
                     icon: Self.undoIcon,
                     title: "UNDO",
-                    color: Self.undo,
-                    activated: false,
+                    color: undoFlashing ? .black : Self.undo,
+                    activated: undoFlashing,
                     enabled: undoEnabled,
-                    action: onUndo
+                    activatedFill: .white,
+                    action: { tapUndo(onUndo) }
                 )
             }
             Spacer(minLength: 0)
@@ -121,6 +127,20 @@ struct MainPanel: View {
         .frame(maxHeight: .infinity)
         .background(Self.pane)
         .accessibilityIdentifier("main panel")
+    }
+
+    private func tapUndo(_ action: @escaping () -> Void) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        undoFlashToken += 1
+        let token = undoFlashToken
+        undoFlashing = true
+        action()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            if token == undoFlashToken {
+                undoFlashing = false
+            }
+        }
     }
 
     private func chromeButton(

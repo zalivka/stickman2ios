@@ -1,4 +1,6 @@
+import BonePaper
 import SwiftUI
+import UIKit
 
 private enum ScenePropsSheet: String, Identifiable {
     case edit
@@ -35,6 +37,7 @@ struct SceneEditorScreen: View {
     @State private var showingFBF = false
     @State private var showingSetText = false
     @State private var setTextDraft = ""
+    @State private var setTextColor = Color.black
     @State private var setTextError = ""
     @State private var showingLeaveAlert = false
     @State private var dismissAfterSave = false
@@ -119,7 +122,8 @@ struct SceneEditorScreen: View {
                     onAdd: addFrame,
                     onDelete: deleteSelectedFrames,
                     onCopy: copySelectedFrames,
-                    onPaste: pasteFrames
+                    onPaste: pasteFrames,
+                    onClose: { showingEditFrame = false }
                 )
                 .padding(.leading, MainPanel.width)
             }
@@ -152,7 +156,8 @@ struct SceneEditorScreen: View {
                                 frameIndex: scene.currentIndex
                             ),
                             tweenEnabled: tweenButtonEnabled(for: selectedUnit),
-                            onTween: openTweenRange
+                            onTween: openTweenRange,
+                            onClose: { showingEditUnit = false }
                         )
                     } else {
                         PresentUnitsPanel(
@@ -163,7 +168,8 @@ struct SceneEditorScreen: View {
                             onSelect: { selectedUnitName = $0 },
                             onMove: movePresentUnits,
                             canPaste: clipboard.hasUnits,
-                            onPaste: pasteUnits
+                            onPaste: pasteUnits,
+                            onClose: { showingEditUnit = false }
                         )
                     }
                 }
@@ -233,7 +239,7 @@ struct SceneEditorScreen: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if !showingInsert {
+            if !showingInsert && !showingEditFrame && !showingEditUnit {
                 FullscreenBackButton(
                     extraLeading: backExtraLeading,
                     action: goBack
@@ -304,6 +310,7 @@ struct SceneEditorScreen: View {
         .sheet(isPresented: $showingSetText) {
             SetTextSheet(
                 text: $setTextDraft,
+                color: $setTextColor,
                 error: $setTextError,
                 onCancel: { showingSetText = false },
                 onApply: applySetText
@@ -583,7 +590,13 @@ struct SceneEditorScreen: View {
             cameraTweens: cameraTweens
         )
         collapseRangeToCurrent()
-        selectedUnitName = nil
+        let names = Set(scene.currentFrame.units.map(\.name))
+        if let selectedUnitName, !names.contains(selectedUnitName) {
+            self.selectedUnitName = nil
+        }
+        if let capturedUnitName, !names.contains(capturedUnitName) {
+            self.capturedUnitName = nil
+        }
     }
 
     private func copySelectedFrames() {
@@ -624,6 +637,8 @@ struct SceneEditorScreen: View {
             fatalError("SceneEditorScreen unit '\(selectedUnit.name)' type=bubble missing meta")
         }
         setTextDraft = bubble.text
+        let rgba = bubble.rgba
+        setTextColor = Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a)
         setTextError = ""
         showingSetText = true
     }
@@ -648,9 +663,35 @@ struct SceneEditorScreen: View {
                 fatalError("SceneEditorScreen unit '\(selectedUnitName)' bubble missing meta")
             }
             bubble.text = setTextDraft
+            bubble.color = Self.bubbleARGB(setTextColor)
             scene.frames[frameIndex].units[index].bubble = bubble
         }
         showingSetText = false
+    }
+
+    /// Android `BubbleMeta.setColor` writes `#` + ARGB hex, for example `#ff000000`.
+    private static func bubbleARGB(_ color: Color) -> String {
+        let ui = UIColor(color)
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        if !ui.getRed(&r, green: &g, blue: &b, alpha: &a) {
+            guard let converted = ui.cgColor.converted(
+                to: CGColorSpaceCreateDeviceRGB(),
+                intent: .defaultIntent,
+                options: nil
+            ) else {
+                fatalError("Set text color is not RGB")
+            }
+            if !UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) {
+                fatalError("Set text color is not RGB")
+            }
+        }
+        func byte(_ channel: CGFloat) -> Int {
+            min(max(Int((channel * 255).rounded()), 0), 255)
+        }
+        return String(format: "#%02x%02x%02x%02x", byte(a), byte(r), byte(g), byte(b))
     }
 
     private func copySelectedUnit() {
@@ -1084,6 +1125,7 @@ struct SceneEditorScreen: View {
 
 private struct SetTextSheet: View {
     @Binding var text: String
+    @Binding var color: Color
     @Binding var error: String
     var onCancel: () -> Void
     var onApply: () -> Void
@@ -1107,6 +1149,11 @@ private struct SetTextSheet: View {
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .lineLimit(1...6)
+                    Text("Color")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(SkeletonChrome.toolLabel)
+                        .textCase(.uppercase)
+                    BonePaperColorRow(color: $color)
                     if !error.isEmpty {
                         Text(error)
                             .font(.system(size: 16))

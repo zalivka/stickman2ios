@@ -267,7 +267,7 @@ struct CameraTweenStorage: Equatable {
 
     mutating func ensureValid(frameCount: Int) {
         sort()
-        for i in 1..<ranges.count {
+        for i in ranges.indices.dropFirst() {
             let prev = ranges[i - 1]
             let current = ranges[i]
             if prev.intersects(from: current.fromFrame, to: current.toFrame) {

@@ -28,6 +28,7 @@ struct UnitPropertiesPanel: View {
     var structureOwned: Bool = false
     var tweenEnabled: Bool = true
     var onTween: (() -> Void)? = nil
+    var onClose: () -> Void
 
     @State private var showingStates = false
 
@@ -46,6 +47,11 @@ struct UnitPropertiesPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            BackCircleButton(action: onClose)
+                .padding(.leading, 8)
+                .padding(.top, 8)
+        }
         .onChange(of: unit.name) { _, _ in
             showingStates = false
         }
@@ -53,14 +59,14 @@ struct UnitPropertiesPanel: View {
 
     private var actions: some View {
         ScrollView {
-            VStack(spacing: 8 / 1.5) {
+            VStack(spacing: 2) {
                 Text(caption)
                     .font(.system(size: 12))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 6)
-                    .padding(.top, 8)
+                    .padding(.top, Self.listTop)
 
                 Button(action: onDeselect) {
                     Image(decorative: thumb, scale: 1)
@@ -71,7 +77,7 @@ struct UnitPropertiesPanel: View {
                         .background(.white)
                 }
                 .buttonStyle(.plain)
-                .padding(.bottom, 4)
+                .padding(.bottom, 2)
                 .accessibilityLabel("Deselect \(unit.name)")
 
                 if availableStates.count > 1 {
@@ -122,13 +128,14 @@ struct UnitPropertiesPanel: View {
 
     private var statesOverlay: some View {
         VStack(spacing: 0) {
+            Color.clear.frame(height: Self.listTop)
             Button {
                 showingStates = false
             } label: {
                 Image(decorative: Self.icon("props_apply"), scale: 2)
                     .frame(width: 45, height: 45)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 2)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -162,7 +169,7 @@ struct UnitPropertiesPanel: View {
                     .foregroundStyle(active ? Self.activeGreen : .white)
             }
             .frame(maxWidth: .infinity)
-            .padding(10)
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -175,7 +182,7 @@ struct UnitPropertiesPanel: View {
             Image(decorative: Self.icon("animation_cogs"), scale: 2)
                 .frame(width: 44, height: 44)
                 .frame(maxWidth: .infinity)
-                .padding(10)
+                .padding(.vertical, 2)
                 .background(animationActive ? Self.activeGreen : Color.clear)
                 .contentShape(Rectangle())
         }
@@ -190,6 +197,9 @@ struct UnitPropertiesPanel: View {
         return unit.name
     }
 
+    /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
+    private static let listTop: CGFloat = 60
+
     private var thumb: CGImage {
         let stored = assets.archive(for: unit.name)
         return ItemLoader.thumb(from: stored.zip, name: unit.name)
@@ -203,7 +213,7 @@ struct UnitPropertiesPanel: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 6 / 1.5) {
+            VStack(spacing: 2) {
                 if let icon {
                     Image(decorative: Self.icon(icon), scale: 2)
                         .frame(width: 45, height: 45)
@@ -218,7 +228,7 @@ struct UnitPropertiesPanel: View {
                     .foregroundStyle(Self.label)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8 / 1.5)
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
