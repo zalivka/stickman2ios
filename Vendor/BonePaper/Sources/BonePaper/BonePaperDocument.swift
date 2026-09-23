@@ -24,16 +24,17 @@ final class BonePaperDocument: ObservableObject {
     // Colour metric is OKLab Euclidean distance; white↔black is 1.0.
     /// Local step: a pixel joins only if close to the neighbour it was reached from.
     static let fillNeighbourLimit: Float = 0.06
-    /// Global skip: stay within this OKLab distance of the tap. Same-colour taps in a row pick the next value.
-    static let fillSeedLimits: [Float] = [0.25, 0.40, 0.50]
+    /// Global skip: stay within this OKLab distance of the tap (first tap). Later same-colour taps add `fillSeedStep`.
+    static let fillSeedLimit: Float = 0.2
     /// `alpha * (1 - L)` above this is contour ink the fill never enters (solid black ≈ 1.0).
     static let fillInkLimit: Float = 0.55
     /// Tapped alpha (0...255) at or above this recolours an island instead of filling empty space.
     static let fillRecolorAlpha: UInt8 = 26
     /// Sampled px grown past an empty-space region and painted behind soft line edges.
     static let fillRing = sample * 3 / 2
-    /// Same-colour tap streak after the first; last `fillSeedLimits` entry is the ceiling.
-    static let fillStreakCap = fillSeedLimits.count - 1
+    /// Same-colour tap streak after the first; skip/neighbour/ink loosen this many times.
+    static let fillStreakCap = 4
+    static let fillSeedStep: Float = 0.1
     static let fillInkStep: Float = 0.1
     static let fillInkMax: Float = 0.95
 
@@ -57,7 +58,7 @@ final class BonePaperDocument: ObservableObject {
     private var strokeOpacity: CGFloat = 1
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
-    /// Last paint-bucket colour+opacity. Nil after a stroke, undo, or redo so the next tap starts at skip 0.25.
+    /// Last paint-bucket colour+opacity. Nil after a stroke, undo, or redo so the next tap starts at skip 0.20.
     private var lastFillPaint: FillPaint?
     private var fillStreak = 0
 
@@ -651,17 +652,17 @@ final class BonePaperDocument: ObservableObject {
         }
     }
 
-    /// Streak 0 is the first tap. Skip uses `fillSeedLimits`; neighbour and ink loosen with the same index.
+    /// Streak 0 is the first tap. Each later same-colour tap widens neighbour ×(1 + step) and skip/ink additively.
     private struct FillLimits {
         var neighbour: Float
         var seed: Float
         var ink: Float
 
         init(streak: Int) {
-            let step = min(streak, fillStreakCap)
-            neighbour = fillNeighbourLimit * Float(1 + step)
-            seed = fillSeedLimits[step]
-            ink = min(fillInkLimit + fillInkStep * Float(step), fillInkMax)
+            let step = Float(min(streak, fillStreakCap))
+            neighbour = fillNeighbourLimit * (1 + step)
+            seed = fillSeedLimit + fillSeedStep * step
+            ink = min(fillInkLimit + fillInkStep * step, fillInkMax)
         }
     }
 
