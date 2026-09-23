@@ -362,9 +362,13 @@ private struct BonePaperDragControl: View {
     private static let space = "bonepaper.slider"
 
     @State private var dragStartValue: CGFloat?
+    /// Seek bar stays out after a double tap or long press. A plain drag still closes it on release.
+    @State private var pinned = false
+    /// The tap that finishes a double tap or long press must not immediately close the bar.
+    @State private var swallowNextTap = false
 
     private var isActive: Bool {
-        activeSetting == setting
+        pinned || activeSetting == setting
     }
 
     private var ratio: CGFloat {
@@ -381,7 +385,7 @@ private struct BonePaperDragControl: View {
     }
 
     var body: some View {
-        VStack(spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             ZStack(alignment: .leading) {
                 if isActive {
                     track
@@ -398,10 +402,26 @@ private struct BonePaperDragControl: View {
             .coordinateSpace(name: Self.space)
             .gesture(drag)
             .simultaneousGesture(
-                TapGesture().onEnded {
-                    onActivate()
+                TapGesture(count: 2).onEnded {
+                    pinSeekBar()
                 }
             )
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                    pinSeekBar()
+                }
+            )
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    handleTap()
+                }
+            )
+            .onChange(of: activeSetting) { _, next in
+                if next != setting {
+                    pinned = false
+                    swallowNextTap = false
+                }
+            }
             Text(setting.label)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(selected || isActive ? BonePaperChrome.selected : Color.white)
@@ -508,10 +528,31 @@ private struct BonePaperDragControl: View {
                 value = range.lowerBound + t * span
             }
             .onEnded { _ in
-                activeSetting = nil
                 dragStartValue = nil
                 onSeeking(false)
+                if !pinned {
+                    activeSetting = nil
+                }
             }
+    }
+
+    private func pinSeekBar() {
+        pinned = true
+        activeSetting = setting
+        swallowNextTap = true
+        onActivate()
+    }
+
+    private func handleTap() {
+        onActivate()
+        if swallowNextTap {
+            swallowNextTap = false
+            return
+        }
+        if pinned {
+            pinned = false
+            activeSetting = nil
+        }
     }
 }
 
@@ -634,11 +675,14 @@ struct BonePaperColorStrip: View {
     @Binding var color: Color
     var onPick: () -> Void
 
+    private static let swatch: CGFloat = 30
+    private static let gap: CGFloat = 4
+
     @State private var extras: [String] = BonePaperColorStore.load()
     @State private var showingPicker = false
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Self.gap) {
             Button {
                 showingPicker = true
             } label: {
@@ -652,9 +696,9 @@ struct BonePaperColorStrip: View {
                         )
                     Circle()
                         .fill(Color(white: 0.78))
-                        .frame(width: 12, height: 12)
+                        .frame(width: 10, height: 10)
                 }
-                .frame(width: 36, height: 36)
+                .frame(width: Self.swatch, height: Self.swatch)
                 .overlay {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .stroke(Color(white: 0.45), lineWidth: 1)
@@ -664,9 +708,16 @@ struct BonePaperColorStrip: View {
             .accessibilityLabel("Color picker")
 
             BonePaperPlainScroll {
-                VStack(spacing: 8) {
-                    ForEach(swatches, id: \.self) { hex in
-                        swatchButton(hex)
+                VStack(spacing: Self.gap) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(spacing: Self.gap) {
+                            ForEach(row, id: \.self) { hex in
+                                swatchButton(hex)
+                            }
+                            if row.count == 1 {
+                                Color.clear.frame(width: Self.swatch, height: Self.swatch)
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -694,12 +745,18 @@ struct BonePaperColorStrip: View {
         extras + BonePaperColorStore.presets
     }
 
+    private var rows: [[String]] {
+        stride(from: 0, to: swatches.count, by: 2).map { index in
+            Array(swatches[index..<min(index + 2, swatches.count)])
+        }
+    }
+
     private func swatchButton(_ hex: String) -> some View {
         let swatch = BonePaperColorStore.color(from: hex)
         let selected = BonePaperColorStore.hex(from: UIColor(color)) == hex
         return RoundedRectangle(cornerRadius: 4, style: .continuous)
             .fill(swatch)
-            .frame(width: 36, height: 36)
+            .frame(width: Self.swatch, height: Self.swatch)
             .overlay {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .stroke(selected ? Color.white : Color(white: 0.25), lineWidth: selected ? 3 : 1)
