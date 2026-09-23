@@ -7,49 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		743A52BE3054CBF6000CC4A9 /* RotatingTriangleWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 743A52B33054CBF6000CC4A9 /* RotatingTriangleWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
 		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
 		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
-		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		743A52B93054CBF6000CC4A9 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 743A52973054CBF6000CC4A9 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 743A52B43054CBF6000CC4A9;
-			remoteInfo = RotatingTriangleWidget;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		743A52B83054CBF6000CC4A9 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				743A52BE3054CBF6000CC4A9 /* RotatingTriangleWidget.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		743A529F3054CBF6000CC4A9 /* at_elements.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = at_elements.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		743A52B33054CBF6000CC4A9 /* RotatingTriangleWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RotatingTriangleWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		743A52B23054CBF6000CC4A9 /* Exceptions for "RotatingTriangleWidget" folder in "RotatingTriangleWidget" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 743A52B43054CBF6000CC4A9 /* RotatingTriangleWidget */;
-		};
 		74AT00013054E000000CC4A9 /* Exceptions for "at_elements" folder in "at_elements" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -78,19 +45,6 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
-		743A52B13054CBF6000CC4A9 /* RotatingTriangleWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				743A52B23054CBF6000CC4A9 /* Exceptions for "RotatingTriangleWidget" folder in "RotatingTriangleWidget" target */,
-			);
-			path = RotatingTriangleWidget;
-			sourceTree = "<group>";
-		};
-		743A52C03054CBF6000CC4A9 /* Shared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Shared;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,13 +58,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		743A52B53054CBF6000CC4A9 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -119,9 +66,7 @@
 			children = (
 				743A52A13054CBF6000CC4A9 /* at_elements */,
 				743A52B03054CBF6000CC4A9 /* Shared */,
-				743A52B13054CBF6000CC4A9 /* RotatingTriangleWidget */,
 				743A52A03054CBF6000CC4A9 /* Products */,
-				743A52C73054CDDE000CC4A9 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -129,17 +74,8 @@
 			isa = PBXGroup;
 			children = (
 				743A529F3054CBF6000CC4A9 /* at_elements.app */,
-				743A52B33054CBF6000CC4A9 /* RotatingTriangleWidget.appex */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		743A52C73054CDDE000CC4A9 /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				743A52C03054CBF6000CC4A9 /* Shared */,
-			);
-			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -152,12 +88,10 @@
 				743A529B3054CBF6000CC4A9 /* Sources */,
 				743A529C3054CBF6000CC4A9 /* Frameworks */,
 				743A529D3054CBF6000CC4A9 /* Resources */,
-				743A52B83054CBF6000CC4A9 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				743A52BA3054CBF6000CC4A9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				743A52A13054CBF6000CC4A9 /* at_elements */,
@@ -173,29 +107,6 @@
 			productReference = 743A529F3054CBF6000CC4A9 /* at_elements.app */;
 			productType = "com.apple.product-type.application";
 		};
-		743A52B43054CBF6000CC4A9 /* RotatingTriangleWidget */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 743A52BD3054CBF6000CC4A9 /* Build configuration list for PBXNativeTarget "RotatingTriangleWidget" */;
-			buildPhases = (
-				743A52B63054CBF6000CC4A9 /* Sources */,
-				743A52B53054CBF6000CC4A9 /* Frameworks */,
-				743A52B73054CBF6000CC4A9 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				743A52B13054CBF6000CC4A9 /* RotatingTriangleWidget */,
-				743A52C03054CBF6000CC4A9 /* Shared */,
-			);
-			name = RotatingTriangleWidget;
-			packageProductDependencies = (
-			);
-			productName = RotatingTriangleWidget;
-			productReference = 743A52B33054CBF6000CC4A9 /* RotatingTriangleWidget.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -207,9 +118,6 @@
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					743A529E3054CBF6000CC4A9 = {
-						CreatedOnToolsVersion = 26.1.1;
-					};
-					743A52B43054CBF6000CC4A9 = {
 						CreatedOnToolsVersion = 26.1.1;
 					};
 				};
@@ -234,20 +142,12 @@
 			projectRoot = "";
 			targets = (
 				743A529E3054CBF6000CC4A9 /* at_elements */,
-				743A52B43054CBF6000CC4A9 /* RotatingTriangleWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		743A529D3054CBF6000CC4A9 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		743A52B73054CBF6000CC4A9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -264,22 +164,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		743A52B63054CBF6000CC4A9 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		743A52BA3054CBF6000CC4A9 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 743A52B43054CBF6000CC4A9 /* RotatingTriangleWidget */;
-			targetProxy = 743A52B93054CBF6000CC4A9 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		743A52A83054CBF8000CC4A9 /* Debug */ = {
@@ -471,66 +356,6 @@
 			};
 			name = Release;
 		};
-		743A52BB3054CBF6000CC4A9 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2X6F8N8723;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RotatingTriangleWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Triangle;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "zalivka.at-elements.RotatingTriangleWidget";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		743A52BC3054CBF6000CC4A9 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2X6F8N8723;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RotatingTriangleWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Triangle;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "zalivka.at-elements.RotatingTriangleWidget";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -552,25 +377,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		743A52BD3054CBF6000CC4A9 /* Build configuration list for PBXNativeTarget "RotatingTriangleWidget" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				743A52BB3054CBF6000CC4A9 /* Debug */,
-				743A52BC3054CBF6000CC4A9 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Vendor/FlexColorPicker;
-		};
 		74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/BonePaper;
+		};
+		74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/FlexColorPicker;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -586,15 +402,15 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		74FC00023054D100000CC4A9 /* FlexColorPicker */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */;
-			productName = FlexColorPicker;
-		};
 		74BP00023054D200000CC4A9 /* BonePaper */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */;
 			productName = BonePaper;
+		};
+		74FC00023054D100000CC4A9 /* FlexColorPicker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */;
+			productName = FlexColorPicker;
 		};
 		74KF00023054D000000CC4A9 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
