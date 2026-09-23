@@ -18,7 +18,7 @@ final class BonePaperDocument: ObservableObject {
     static let sample: Int = 2
     static let undoCap = 5
     static let defaultSide: Int = 512
-    static let maxSide: Int = 1024
+    public static let maxSide: Int = 2048
     static let growChunk: Int = 64
     // Dual-threshold region-growing flood fill (contiguous paint bucket).
     // Colour metric is OKLab Euclidean distance; white↔black is 1.0.
@@ -50,6 +50,7 @@ final class BonePaperDocument: ObservableObject {
     @Published private(set) var preview: CGImage
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
+    @Published private(set) var filling = false
 
     private var context: CGContext
     private var stroke: CGContext
@@ -61,6 +62,8 @@ final class BonePaperDocument: ObservableObject {
     /// Last paint-bucket colour+opacity. Nil after a stroke, undo, or redo so the next tap starts at skip 0.20.
     private var lastFillPaint: FillPaint?
     private var fillStreak = 0
+    /// Serial so a fill never overlaps another write to `context`.
+    private let fillQueue = DispatchQueue(label: "bonepaper.fill", qos: .userInitiated)
 
     var pixelWidth: Int { width * Self.sample }
     var pixelHeight: Int { height * Self.sample }
@@ -87,7 +90,8 @@ final class BonePaperDocument: ObservableObject {
         stroke = Self.makeBuffer(width: width * Self.sample, height: height * Self.sample)
         composite = Self.makeBuffer(width: width * Self.sample, height: height * Self.sample)
         if let source {
-            Self.drawUIKitImage(source, into: context, rect: CGRect(
+            context.interpolationQuality = .high
+            context.draw(source, in: CGRect(
                 x: 0,
                 y: 0,
                 width: width * Self.sample,
@@ -101,6 +105,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func beginStroke(erase: Bool, opacity: CGFloat) {
+        if filling { return }
         lastFillPaint = nil
         pushUndo()
         redoStack.removeAll()
@@ -118,6 +123,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func endStroke() {
+        if filling { return }
         if strokeLive {
             guard let layer = stroke.makeImage() else {
                 fatalError("BonePaperDocument stroke snapshot failed")
@@ -135,6 +141,7 @@ final class BonePaperDocument: ObservableObject {
     // Pinch/second finger: drop the live stroke and the undo snapshot from beginStroke.
     // Do not undo() — that would commit first, then eat a real earlier stroke.
     func cancelStroke() {
+        if filling { return }
         guard let snapshot = undoStack.popLast() else {
             fatalError("BonePaperDocument cancel with empty undo")
         }
@@ -145,6 +152,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func stampWorld(from start: CGPoint, to end: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
+        if filling { return }
         var a = bitmapFromWorld(start)
         var b = bitmapFromWorld(end)
         if !erase {
@@ -167,6 +175,7 @@ final class BonePaperDocument: ObservableObject {
 
     /// Paint-bucket tap. Same colour+opacity in a row loosens skip/neighbour/ink; a different colour, stroke, undo or redo resets.
     func fillWorld(at world: CGPoint, color: UIColor, opacity: CGFloat) {
+        if filling { return }
         if strokeLive {
             endStroke()
         }
@@ -186,31 +195,41 @@ final class BonePaperDocument: ObservableObject {
         let paint = Self.fillPaint(color: color, opacity: opacity)
         fillStreak = lastFillPaint == paint ? fillStreak + 1 : 0
         lastFillPaint = paint
-        // Opaque/semi-opaque seed → recolour island. Transparent seed → fill empty space, stop at ink.
         let recolor = pixels[py * stride + px * 4 + 3] >= Self.fillRecolorAlpha
-        var mask = Self.fillRegion(
-            pixels: pixels,
-            width: pixelWidth,
-            height: pixelHeight,
-            stride: stride,
-            seedX: px,
-            seedY: py,
-            recolor: recolor,
-            limits: FillLimits(streak: fillStreak)
-        )
+        let limits = FillLimits(streak: fillStreak)
+        let width = pixelWidth
+        let height = pixelHeight
         pushUndo()
         redoStack.removeAll()
-        if recolor {
-            Self.recolor(pixels: pixels, mask: mask, width: pixelWidth, stride: stride, paint: paint)
-        } else {
-            Self.growRing(pixels: pixels, mask: &mask, width: pixelWidth, height: pixelHeight, stride: stride)
-            Self.paintBehind(pixels: pixels, mask: mask, width: pixelWidth, stride: stride, paint: paint)
-        }
-        publishPreview()
         publishStacks()
+        filling = true
+        fillQueue.async {
+            var mask = Self.fillRegion(
+                pixels: pixels,
+                width: width,
+                height: height,
+                stride: stride,
+                seedX: px,
+                seedY: py,
+                recolor: recolor,
+                limits: limits
+            )
+            if recolor {
+                Self.recolor(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
+            } else {
+                Self.growRing(pixels: pixels, mask: &mask, width: width, height: height, stride: stride)
+                Self.paintBehind(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
+            }
+            DispatchQueue.main.async {
+                self.publishPreview()
+                self.publishStacks()
+                self.filling = false
+            }
+        }
     }
 
     func stampDotWorld(at point: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
+        if filling { return }
         var p = bitmapFromWorld(point)
         if !erase {
             let shift = ensureFits(points: [p], radius: size / 2)
@@ -233,6 +252,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func undo() {
+        if filling { return }
         if strokeLive {
             endStroke()
         }
@@ -244,6 +264,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func redo() {
+        if filling { return }
         if strokeLive {
             endStroke()
         }
@@ -255,6 +276,9 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func export() -> BonePaperExport {
+        if filling {
+            fatalError("BonePaperDocument export during fill")
+        }
         if strokeLive {
             endStroke()
         }
@@ -451,20 +475,6 @@ final class BonePaperDocument: ObservableObject {
         if need <= 0 { return 0 }
         let step = CGFloat(growChunk)
         return Int(ceil(need / step) * step)
-    }
-
-    private static func drawUIKitImage(
-        _ image: CGImage,
-        into context: CGContext,
-        rect: CGRect,
-        interpolation: CGInterpolationQuality = .high
-    ) {
-        context.saveGState()
-        context.translateBy(x: 0, y: rect.height)
-        context.scaleBy(x: 1, y: -1)
-        context.interpolationQuality = interpolation
-        context.draw(image, in: rect)
-        context.restoreGState()
     }
 
     private static func makeBuffer(width: Int, height: Int) -> CGContext {

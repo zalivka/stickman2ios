@@ -1,7 +1,7 @@
 import SwiftUI
 
 public struct BonePaperScreen: View {
-    public static let worldSide = 1024
+    public static var worldSide: Int { BonePaperDocument.maxSide }
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var document: BonePaperDocument
@@ -139,6 +139,21 @@ public struct BonePaperScreen: View {
                     )
                     .padding(.bottom, safe.bottom)
                     .opacity(chromeOpacity)
+                }
+                .overlay {
+                    if document.filling {
+                        ZStack {
+                            Color.black.opacity(0.35).ignoresSafeArea()
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                    .controlSize(.large)
+                                    .tint(.white)
+                                Text("Filling")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    }
                 }
             }
             .allowsHitTesting(!leaving)

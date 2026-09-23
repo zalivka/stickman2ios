@@ -511,6 +511,7 @@ final class BonePaperDrawView: UIView {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if document?.filling == true { return }
         if tool == .pan { return }
         if event?.allTouches?.count != 1 {
             abortStroke()
@@ -525,6 +526,7 @@ final class BonePaperDrawView: UIView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if document?.filling == true { return }
         if event?.allTouches?.count != 1 {
             abortStroke()
             return
@@ -574,6 +576,12 @@ final class BonePaperDrawView: UIView {
     }
 
     private func finishStroke() {
+        if document?.filling == true {
+            lastWorld = nil
+            pendingView = nil
+            stroking = false
+            return
+        }
         if tool == .fill {
             if let point = lastWorld {
                 document?.fillWorld(at: point, color: color, opacity: opacity)

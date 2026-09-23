@@ -387,6 +387,11 @@ struct SkeletonScreen: View {
         if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
             fatalError("SkeletonScreen '\(title)' bone '\(asset.bmName)' size \(asset.bitmap.width)x\(asset.bitmap.height)")
         }
+        let limit = BonePaperScreen.worldSide
+        if asset.bitmap.width > limit || asset.bitmap.height > limit {
+            showToast("This picture is too big (\(asset.bitmap.width)×\(asset.bitmap.height)). Maximum side is \(limit).")
+            return
+        }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
         let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
         let edit = BonePaperEdit(
