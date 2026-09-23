@@ -20,8 +20,22 @@ final class BonePaperDocument: ObservableObject {
     static let defaultSide: Int = 512
     static let maxSide: Int = 1024
     static let growChunk: Int = 64
-    /// Per-channel 0...255. High so AA fringes join the tapped region.
-    static let fillTolerance = 128
+    // Dual-threshold region-growing flood fill (contiguous paint bucket).
+    // Colour metric is OKLab Euclidean distance; white↔black is 1.0.
+    /// Local step: a pixel joins only if close to the neighbour it was reached from.
+    static let fillNeighbourLimit: Float = 0.06
+    /// Global skip: stay within this OKLab distance of the tap. Same-colour taps in a row pick the next value.
+    static let fillSeedLimits: [Float] = [0.25, 0.40, 0.50]
+    /// `alpha * (1 - L)` above this is contour ink the fill never enters (solid black ≈ 1.0).
+    static let fillInkLimit: Float = 0.55
+    /// Tapped alpha (0...255) at or above this recolours an island instead of filling empty space.
+    static let fillRecolorAlpha: UInt8 = 26
+    /// Sampled px grown past an empty-space region and painted behind soft line edges.
+    static let fillRing = sample * 3 / 2
+    /// Same-colour tap streak after the first; last `fillSeedLimits` entry is the ceiling.
+    static let fillStreakCap = fillSeedLimits.count - 1
+    static let fillInkStep: Float = 0.1
+    static let fillInkMax: Float = 0.95
 
     var worldSize: Int { Self.maxSide }
 
@@ -43,6 +57,9 @@ final class BonePaperDocument: ObservableObject {
     private var strokeOpacity: CGFloat = 1
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
+    /// Last paint-bucket colour+opacity. Nil after a stroke, undo, or redo so the next tap starts at skip 0.25.
+    private var lastFillPaint: FillPaint?
+    private var fillStreak = 0
 
     var pixelWidth: Int { width * Self.sample }
     var pixelHeight: Int { height * Self.sample }
@@ -83,6 +100,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     func beginStroke(erase: Bool, opacity: CGFloat) {
+        lastFillPaint = nil
         pushUndo()
         redoStack.removeAll()
         if erase {
@@ -146,6 +164,7 @@ final class BonePaperDocument: ObservableObject {
         }
     }
 
+    /// Paint-bucket tap. Same colour+opacity in a row loosens skip/neighbour/ink; a different colour, stroke, undo or redo resets.
     func fillWorld(at world: CGPoint, color: UIColor, opacity: CGFloat) {
         if strokeLive {
             endStroke()
@@ -163,29 +182,29 @@ final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument fill stride \(stride) width \(pixelWidth)")
         }
         let pixels = data.assumingMemoryBound(to: UInt8.self)
-        let fill = Self.premultiplied(color: color, opacity: opacity)
-        let seedIndex = py * stride + px * 4
-        let target = (
-            pixels[seedIndex],
-            pixels[seedIndex + 1],
-            pixels[seedIndex + 2],
-            pixels[seedIndex + 3]
-        )
-        if target == fill {
-            return
-        }
-        pushUndo()
-        redoStack.removeAll()
-        Self.floodFill(
+        let paint = Self.fillPaint(color: color, opacity: opacity)
+        fillStreak = lastFillPaint == paint ? fillStreak + 1 : 0
+        lastFillPaint = paint
+        // Opaque/semi-opaque seed → recolour island. Transparent seed → fill empty space, stop at ink.
+        let recolor = pixels[py * stride + px * 4 + 3] >= Self.fillRecolorAlpha
+        var mask = Self.fillRegion(
             pixels: pixels,
             width: pixelWidth,
             height: pixelHeight,
             stride: stride,
             seedX: px,
             seedY: py,
-            target: target,
-            fill: fill
+            recolor: recolor,
+            limits: FillLimits(streak: fillStreak)
         )
+        pushUndo()
+        redoStack.removeAll()
+        if recolor {
+            Self.recolor(pixels: pixels, mask: mask, width: pixelWidth, stride: stride, paint: paint)
+        } else {
+            Self.growRing(pixels: pixels, mask: &mask, width: pixelWidth, height: pixelHeight, stride: stride)
+            Self.paintBehind(pixels: pixels, mask: mask, width: pixelWidth, stride: stride, paint: paint)
+        }
         publishPreview()
         publishStacks()
     }
@@ -217,6 +236,7 @@ final class BonePaperDocument: ObservableObject {
             endStroke()
         }
         guard let previous = undoStack.popLast() else { return }
+        lastFillPaint = nil
         redoStack.append(capture())
         restore(previous)
         publishStacks()
@@ -227,6 +247,7 @@ final class BonePaperDocument: ObservableObject {
             endStroke()
         }
         guard let next = redoStack.popLast() else { return }
+        lastFillPaint = nil
         undoStack.append(capture())
         restore(next)
         publishStacks()
@@ -465,7 +486,7 @@ final class BonePaperDocument: ObservableObject {
         )
     }
 
-    private static func premultiplied(color: UIColor, opacity: CGFloat) -> (UInt8, UInt8, UInt8, UInt8) {
+    private static func fillPaint(color: UIColor, opacity: CGFloat) -> FillPaint {
         if opacity <= 0 {
             fatalError("BonePaperDocument fill opacity is \(opacity)")
         }
@@ -476,79 +497,204 @@ final class BonePaperDocument: ObservableObject {
         ), let c = rgb.components, c.count >= 4 else {
             fatalError("BonePaperDocument fill color is not RGB")
         }
-        let alpha = max(0, min(c[3] * opacity, 1))
-        return (
-            UInt8(clamping: Int((c[0] * alpha * 255).rounded())),
-            UInt8(clamping: Int((c[1] * alpha * 255).rounded())),
-            UInt8(clamping: Int((c[2] * alpha * 255).rounded())),
-            UInt8(clamping: Int((alpha * 255).rounded()))
+        let channel = { (v: CGFloat) in Int((max(0, min(v, 1)) * 255).rounded()) }
+        return FillPaint(r: channel(c[0]), g: channel(c[1]), b: channel(c[2]), a: channel(c[3] * opacity))
+    }
+
+    private static let srgbToLinear: [Float] = (0..<256).map { v in
+        let c = Float(v) / 255
+        return c <= 0.04045 ? c / 12.92 : powf((c + 0.055) / 1.055, 2.4)
+    }
+
+    /// Un-premultiply RGBA at byte `i`, then sRGB → linear → OKLab (Björn Ottosson).
+    private static func lab(_ pixels: UnsafeMutablePointer<UInt8>, _ i: Int) -> FillLab {
+        let alpha = Int(pixels[i + 3])
+        if alpha == 0 {
+            return FillLab(L: 0, a: 0, b: 0, alpha: 0)
+        }
+        let r = srgbToLinear[min(255, (Int(pixels[i]) * 255 + alpha / 2) / alpha)]
+        let g = srgbToLinear[min(255, (Int(pixels[i + 1]) * 255 + alpha / 2) / alpha)]
+        let b = srgbToLinear[min(255, (Int(pixels[i + 2]) * 255 + alpha / 2) / alpha)]
+        let l = cbrtf(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        let m = cbrtf(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        let s = cbrtf(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        return FillLab(
+            L: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            a: 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            b: 0.0259040371 * l + 0.7827717876 * m - 0.8086757660 * s,
+            alpha: Float(alpha) / 255
         )
     }
 
-    private static func floodFill(
+    /// 4-connected stack flood fill. A neighbour joins when:
+    /// 1. not transparent (recolour) / not ink (empty fill, unless the tap was on ink);
+    /// 2. OKLab distance to the previous pixel < neighbour limit (region growing);
+    /// 3. OKLab distance to the tap < skip/seed limit (global cap).
+    private static func fillRegion(
         pixels: UnsafeMutablePointer<UInt8>,
         width: Int,
         height: Int,
         stride: Int,
         seedX: Int,
         seedY: Int,
-        target: (UInt8, UInt8, UInt8, UInt8),
-        fill: (UInt8, UInt8, UInt8, UInt8)
-    ) {
-        func write(_ x: Int, _ y: Int) {
-            let i = y * stride + x * 4
-            pixels[i] = fill.0
-            pixels[i + 1] = fill.1
-            pixels[i + 2] = fill.2
-            pixels[i + 3] = fill.3
+        recolor: Bool,
+        limits: FillLimits
+    ) -> [UInt8] {
+        let seed = lab(pixels, seedY * stride + seedX * 4)
+        // Tapping a dark line turns walls off so the contour itself can be recoloured.
+        let walls = seed.ink <= limits.ink
+        let distance: (FillLab, FillLab) -> Float = recolor ? FillLab.colorDistance : FillLab.coverDistance
+        var mask = [UInt8](repeating: 0, count: width * height)
+        mask[seedY * width + seedX] = 1
+        var stack = [Int32(seedY * width + seedX)]
+        func visit(_ x: Int, _ y: Int, from current: FillLab) {
+            let m = y * width + x
+            if mask[m] != 0 { return }
+            let next = lab(pixels, y * stride + x * 4)
+            if recolor, next.alpha == 0 { return }
+            if walls, next.ink > limits.ink { return }
+            if distance(next, current) >= limits.neighbour { return }
+            if distance(next, seed) >= limits.seed { return }
+            mask[m] = 1
+            stack.append(Int32(m))
         }
-        func isTarget(_ x: Int, _ y: Int) -> Bool {
-            let i = y * stride + x * 4
-            let pixel = (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3])
-            if pixel == fill {
-                return false
+        while let top = stack.popLast() {
+            let m = Int(top)
+            let x = m % width
+            let y = m / width
+            let current = lab(pixels, y * stride + x * 4)
+            if x > 0 { visit(x - 1, y, from: current) }
+            if x + 1 < width { visit(x + 1, y, from: current) }
+            if y > 0 { visit(x, y - 1, from: current) }
+            if y + 1 < height { visit(x, y + 1, from: current) }
+        }
+        return mask
+    }
+
+    /// Dilate the empty-space mask into AA fringes (mask 2). Opaque ink is claimed but not crossed.
+    private static func growRing(
+        pixels: UnsafeMutablePointer<UInt8>,
+        mask: inout [UInt8],
+        width: Int,
+        height: Int,
+        stride: Int
+    ) {
+        func claim(_ n: Int, into next: inout [Int32]) {
+            if mask[n] != 0 { return }
+            let alpha = pixels[(n / width) * stride + (n % width) * 4 + 3]
+            if alpha == 0 { return }
+            mask[n] = 2
+            if alpha < 255 {
+                next.append(Int32(n))
             }
-            return abs(Int(pixel.0) - Int(target.0)) <= fillTolerance
-                && abs(Int(pixel.1) - Int(target.1)) <= fillTolerance
-                && abs(Int(pixel.2) - Int(target.2)) <= fillTolerance
-                && abs(Int(pixel.3) - Int(target.3)) <= fillTolerance
+        }
+        var frontier = [Int32]()
+        for m in mask.indices where mask[m] == 1 {
+            frontier.append(Int32(m))
+        }
+        for _ in 0..<fillRing {
+            var next = [Int32]()
+            for top in frontier {
+                let m = Int(top)
+                let x = m % width
+                let y = m / width
+                if x > 0 { claim(m - 1, into: &next) }
+                if x + 1 < width { claim(m + 1, into: &next) }
+                if y > 0 { claim(m - width, into: &next) }
+                if y + 1 < height { claim(m + width, into: &next) }
+            }
+            frontier = next
+        }
+    }
+
+    /// Destination-over into mask 1+2: line edges stay on top, so the fill tucks under the AA fringe.
+    private static func paintBehind(
+        pixels: UnsafeMutablePointer<UInt8>,
+        mask: [UInt8],
+        width: Int,
+        stride: Int,
+        paint: FillPaint
+    ) {
+        let r = paint.r * paint.a
+        let g = paint.g * paint.a
+        let b = paint.b * paint.a
+        let a = paint.a * 255
+        for m in mask.indices where mask[m] != 0 {
+            let i = (m / width) * stride + (m % width) * 4
+            let keep = 255 - Int(pixels[i + 3])
+            pixels[i] = UInt8(clamping: Int(pixels[i]) + (r * keep + 32512) / 65025)
+            pixels[i + 1] = UInt8(clamping: Int(pixels[i + 1]) + (g * keep + 32512) / 65025)
+            pixels[i + 2] = UInt8(clamping: Int(pixels[i + 2]) + (b * keep + 32512) / 65025)
+            pixels[i + 3] = UInt8(clamping: Int(pixels[i + 3]) + (a * keep + 32512) / 65025)
+        }
+    }
+
+    /// Island recolour: write paint RGB at the pixel's own alpha so the silhouette stays.
+    private static func recolor(
+        pixels: UnsafeMutablePointer<UInt8>,
+        mask: [UInt8],
+        width: Int,
+        stride: Int,
+        paint: FillPaint
+    ) {
+        let o = paint.a
+        func mix(_ dst: UInt8, _ channel: Int, _ alpha: Int) -> UInt8 {
+            let src = (channel * alpha + 127) / 255
+            return UInt8(clamping: (Int(dst) * (255 - o) + src * o + 127) / 255)
+        }
+        for m in mask.indices where mask[m] == 1 {
+            let i = (m / width) * stride + (m % width) * 4
+            let alpha = Int(pixels[i + 3])
+            pixels[i] = mix(pixels[i], paint.r, alpha)
+            pixels[i + 1] = mix(pixels[i + 1], paint.g, alpha)
+            pixels[i + 2] = mix(pixels[i + 2], paint.b, alpha)
+        }
+    }
+
+    /// Streak 0 is the first tap. Skip uses `fillSeedLimits`; neighbour and ink loosen with the same index.
+    private struct FillLimits {
+        var neighbour: Float
+        var seed: Float
+        var ink: Float
+
+        init(streak: Int) {
+            let step = min(streak, fillStreakCap)
+            neighbour = fillNeighbourLimit * Float(1 + step)
+            seed = fillSeedLimits[step]
+            ink = min(fillInkLimit + fillInkStep * Float(step), fillInkMax)
+        }
+    }
+
+    /// Straight (not premultiplied) 0...255; `a` includes tool opacity.
+    private struct FillPaint: Equatable {
+        var r: Int
+        var g: Int
+        var b: Int
+        var a: Int
+    }
+
+    /// OKLab + straight alpha. `ink` is how much the pixel reads as a dark contour.
+    private struct FillLab {
+        var L: Float
+        var a: Float
+        var b: Float
+        var alpha: Float
+
+        var ink: Float { alpha * (1 - L) }
+
+        /// Recolour metric: chroma/lightness only. Transparent pixels are rejected before this.
+        static func colorDistance(_ p: FillLab, _ q: FillLab) -> Float {
+            let dL = p.L - q.L
+            let da = p.a - q.a
+            let db = p.b - q.b
+            return (dL * dL + da * da + db * db).squareRoot()
         }
 
-        var stack = [(seedX, seedY)]
-        while let (startX, y) = stack.popLast() {
-            if !isTarget(startX, y) {
-                continue
-            }
-            var x = startX
-            while x > 0, isTarget(x - 1, y) {
-                x -= 1
-            }
-            var spanUp = false
-            var spanDown = false
-            while x < width, isTarget(x, y) {
-                write(x, y)
-                if y > 0 {
-                    if isTarget(x, y - 1) {
-                        if !spanUp {
-                            stack.append((x, y - 1))
-                            spanUp = true
-                        }
-                    } else {
-                        spanUp = false
-                    }
-                }
-                if y + 1 < height {
-                    if isTarget(x, y + 1) {
-                        if !spanDown {
-                            stack.append((x, y + 1))
-                            spanDown = true
-                        }
-                    } else {
-                        spanDown = false
-                    }
-                }
-                x += 1
-            }
+        /// Colour of barely covered pixels matters little; alpha steps count at half weight.
+        static func coverDistance(_ p: FillLab, _ q: FillLab) -> Float {
+            let color = colorDistance(p, q)
+            let dA = (p.alpha - q.alpha) * 0.5
+            return (min(p.alpha, q.alpha) * color * color + dA * dA).squareRoot()
         }
     }
 

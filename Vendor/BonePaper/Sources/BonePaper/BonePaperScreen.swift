@@ -113,7 +113,9 @@ public struct BonePaperScreen: View {
                     VStack(spacing: BonePaperChrome.pad) {
                         BonePaperApply(onApply: apply)
                         BonePaperColorStrip(color: $color) {
-                            tool = .pen
+                            if tool != .fill {
+                                tool = .pen
+                            }
                         }
                     }
                     .frame(maxHeight: .infinity, alignment: .top)

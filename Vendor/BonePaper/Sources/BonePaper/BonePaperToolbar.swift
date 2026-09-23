@@ -18,8 +18,11 @@ enum BonePaperChrome {
 
     static var railIconInset: CGFloat { (leftRail - tool) / 2 }
 
-    /// iPhone 12 mini (`iPhone13,1`) and 13 mini (`iPhone14,4`).
-    static var hidesMoveTool: Bool {
+    /// Fill took the move chip's slot; pinch still pans.
+    static let showsMoveTool = false
+
+    /// iPhone 12 mini (`iPhone13,1`) and 13 mini (`iPhone14,4`): no room for the top chip.
+    static var hidesTopChip: Bool {
         let id = machineIdentifier
         return id == "iPhone13,1" || id == "iPhone14,4"
     }
@@ -191,12 +194,21 @@ struct BonePaperStrokeControls: View {
         GeometryReader { geo in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 3) {
-                    if !BonePaperChrome.hidesMoveTool {
+                    if BonePaperChrome.showsMoveTool, !BonePaperChrome.hidesTopChip {
                         BonePaperPanChip(selected: tool == .pan) {
                             var transaction = Transaction()
                             transaction.disablesAnimations = true
                             withTransaction(transaction) {
                                 tool = .pan
+                            }
+                        }
+                    }
+                    if !BonePaperChrome.showsMoveTool, !BonePaperChrome.hidesTopChip {
+                        BonePaperFillChip(selected: tool == .fill) {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                tool = .fill
                             }
                         }
                     }
@@ -219,7 +231,7 @@ struct BonePaperStrokeControls: View {
                         color: color,
                         selected: false,
                         activeSetting: $activeSetting,
-                        onActivate: { tool = .pen },
+                        onActivate: { if tool != .fill { tool = .pen } },
                         onSeeking: onSeeking
                     )
                     BonePaperDragControl(
@@ -268,6 +280,36 @@ private struct BonePaperPanChip: View {
         .onTapGesture(perform: onSelect)
         .transaction { $0.animation = nil }
         .accessibilityLabel("Move")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Android `drawable-xxxhdpi/kurwa_fill`.
+private struct BonePaperFillChip: View {
+    var selected: Bool
+    var onSelect: () -> Void
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Image(uiImage: BonePaperChrome.chromeImage("kurwa_fill"))
+                .resizable()
+                .scaledToFit()
+                .frame(width: 30, height: 30)
+                .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
+                .background {
+                    if selected {
+                        BonePaperChrome.selected
+                            .transition(.identity)
+                    }
+                }
+            Text("fill")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(selected ? BonePaperChrome.selected : Color.white)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .transaction { $0.animation = nil }
+        .accessibilityLabel("Fill")
         .accessibilityAddTraits(.isButton)
     }
 }
