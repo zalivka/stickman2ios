@@ -21,21 +21,27 @@ public struct BonePaperScreen: View {
     private let onion: CGImage?
     private let placement: BonePaperPlacement?
     private let onApply: ((BonePaperExport) -> Void)?
+    private let onClose: (() -> Void)?
 
     public init() {
         self.init(source: nil, boneStart: nil, boneTip: nil, onion: nil, onApply: nil)
     }
 
     /// With `placement`, present without the cover animation and a clear presentation background:
-    /// the screen zooms from the caller's bone and back on its own.
+    /// the screen zooms from the caller's bone and back on its own, then calls `onClose`,
+    /// which must remove the cover without animation.
     public init(
         source: CGImage?,
         boneStart: CGPoint?,
         boneTip: CGPoint?,
         onion: CGImage? = nil,
         placement: BonePaperPlacement? = nil,
-        onApply: ((BonePaperExport) -> Void)?
+        onApply: ((BonePaperExport) -> Void)?,
+        onClose: (() -> Void)? = nil
     ) {
+        if placement != nil, onClose == nil {
+            fatalError("BonePaperScreen placement without onClose")
+        }
         if let onion, onion.width != Self.worldSide || onion.height != Self.worldSide {
             fatalError("BonePaperScreen onion \(onion.width)x\(onion.height) != \(Self.worldSide)")
         }
@@ -53,6 +59,7 @@ public struct BonePaperScreen: View {
         self.onion = onion
         self.placement = placement
         self.onApply = onApply
+        self.onClose = onClose
     }
 
     public var body: some View {
@@ -96,17 +103,6 @@ public struct BonePaperScreen: View {
                         .padding(.top, safe.top + BonePaperChrome.pad)
                         .allowsHitTesting(false)
                     }
-                }
-                .overlay(alignment: .top) {
-                    BonePaperFillTestButton(selected: tool == .fill) {
-                        var transaction = Transaction()
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) {
-                            tool = .fill
-                        }
-                    }
-                    .padding(.top, safe.top + BonePaperChrome.pad)
-                    .opacity(chromeOpacity)
                 }
                 .overlay(alignment: .topLeading) {
                     BonePaperBackButton(onBack: { leave() })
@@ -167,7 +163,7 @@ public struct BonePaperScreen: View {
         if leaving {
             return
         }
-        guard placement != nil else {
+        guard placement != nil, let onClose else {
             dismiss()
             return
         }
@@ -175,12 +171,6 @@ public struct BonePaperScreen: View {
         withAnimation(.easeInOut(duration: BonePaperStageView.transitionDuration)) {
             chromeOpacity = 0
         }
-        stage.zoomBack(duration: BonePaperStageView.transitionDuration) {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                dismiss()
-            }
-        }
+        stage.zoomBack(duration: BonePaperStageView.transitionDuration, completion: onClose)
     }
 }

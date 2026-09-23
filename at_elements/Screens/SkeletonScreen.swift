@@ -194,6 +194,13 @@ struct SkeletonScreen: View {
                 placement: session.placement,
                 onApply: { export in
                     applyBonePaper(bmName: session.bmName, export: export)
+                },
+                onClose: session.placement == nil ? nil : {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        bonePaperEdit = nil
+                    }
                 }
             )
             .presentationBackground(.clear)
@@ -302,7 +309,7 @@ struct SkeletonScreen: View {
             flipped: unit.flipped
         )
         let nativeFlipped = assets.getDrawable(drawnKey, state: unit.assetsState)?.nativeFlipped ?? false
-        let mirror = unit.flipped && !nativeFlipped
+        let mirror = FeatureFlags.bonePaperKeepsBoneAngle && unit.flipped && !nativeFlipped
         let onion = SkeletonOnion.worldOverlay(
             unit: unit,
             assets: assets,
@@ -314,21 +321,31 @@ struct SkeletonScreen: View {
             boneStartPNG: start,
             mirror: mirror
         )
+        layerEpoch += 1
+        presentBonePaper(
+            asset: asset,
+            length: length,
+            onion: onion,
+            placement: FeatureFlags.bonePaperKeepsBoneAngle
+                ? bonePaperPlacement(start: startPt, end: endPt, mirror: mirror, unitScale: unit.scale)
+                : nil
+        )
+    }
+
+    private func bonePaperPlacement(start: StickmanPoint, end: StickmanPoint, mirror: Bool, unitScale: CGFloat) -> BonePaperPlacement {
         guard let layout = editSession.layout else {
             fatalError("SkeletonScreen '\(title)' edit before the canvas laid out")
         }
-        let joint = layout.screenPoint(x: startPt.x, y: startPt.y)
-        let placement = BonePaperPlacement(
+        let joint = layout.screenPoint(x: start.x, y: start.y)
+        return BonePaperPlacement(
             jointScreen: CGPoint(
                 x: editSession.canvasOrigin.x + joint.x,
                 y: editSession.canvasOrigin.y + joint.y
             ),
-            angle: atan2(endPt.y - startPt.y, endPt.x - startPt.x),
+            angle: atan2(end.y - start.y, end.x - start.x),
             mirror: mirror,
-            pointsPerPixel: layout.scale * unit.scale
+            pointsPerPixel: layout.scale * unitScale
         )
-        layerEpoch += 1
-        presentBonePaper(asset: asset, length: length, onion: onion, placement: placement)
     }
 
     /// Android gallery NEW BONE: dummy picture at `DEFAULT_LENGTH`, then Kurwa with pen.

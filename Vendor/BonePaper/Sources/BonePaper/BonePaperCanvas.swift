@@ -80,6 +80,7 @@ struct BonePaperCanvas: UIViewRepresentable {
 /// Holds the paper under one transform: joint at `anchorScreen`, turned by `angle`, optionally mirrored, scaled by `zoom`.
 final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
     static let transitionDuration: TimeInterval = 0.3
+    static let fadeOutDuration: TimeInterval = 0.2
     static let minZoom: CGFloat = 0.1
     static let maxZoom: CGFloat = 8
 
@@ -230,7 +231,12 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
             self.paper.setBackdropAlpha(0)
             self.applyTransform()
         } completion: { _ in
-            completion()
+            // Cross-fade into the caller's picture underneath; the cover may still slide, but it is empty by then.
+            UIView.animate(withDuration: Self.fadeOutDuration, delay: 0, options: [.curveEaseOut]) {
+                self.paper.alpha = 0
+            } completion: { _ in
+                completion()
+            }
         }
     }
 

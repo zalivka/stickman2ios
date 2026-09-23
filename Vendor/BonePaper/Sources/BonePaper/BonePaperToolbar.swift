@@ -60,25 +60,6 @@ enum BonePaperChrome {
     }
 }
 
-struct BonePaperFillTestButton: View {
-    var selected: Bool
-    var onSelect: () -> Void
-
-    var body: some View {
-        Text("Fill")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .frame(height: BonePaperChrome.tool)
-            .background(selected ? BonePaperChrome.selected : BonePaperChrome.pane)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-            .transaction { $0.animation = nil }
-            .accessibilityLabel("Fill")
-            .accessibilityAddTraits(.isButton)
-    }
-}
-
 struct BonePaperBackButton: View {
     var onBack: () -> Void
 
