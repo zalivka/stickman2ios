@@ -1,6 +1,40 @@
 import SwiftUI
 import UIKit
 
+/// Where the bone sat on the caller's screen. BonePaper opens with the bitmap exactly there, then only zooms.
+public struct BonePaperPlacement {
+    /// Joint pixel (bone start) in window coordinates.
+    public var jointScreen: CGPoint
+    /// Bone direction on screen, radians, y down (`atan2(dy, dx)`).
+    public var angle: CGFloat
+    /// The bitmap is drawn with y negated around the bone.
+    public var mirror: Bool
+    /// Screen points per bitmap pixel.
+    public var pointsPerPixel: CGFloat
+
+    public init(jointScreen: CGPoint, angle: CGFloat, mirror: Bool, pointsPerPixel: CGFloat) {
+        if pointsPerPixel <= 0 {
+            fatalError("BonePaperPlacement pointsPerPixel \(pointsPerPixel)")
+        }
+        self.jointScreen = jointScreen
+        self.angle = angle
+        self.mirror = mirror
+        self.pointsPerPixel = pointsPerPixel
+    }
+}
+
+/// Lets the screen run the exit zoom on the UIKit stage.
+final class BonePaperStage {
+    weak var view: BonePaperStageView?
+
+    func zoomBack(duration: TimeInterval, completion: @escaping () -> Void) {
+        guard let view else {
+            fatalError("BonePaperStage zoomBack with no view")
+        }
+        view.zoomBack(duration: duration, completion: completion)
+    }
+}
+
 struct BonePaperCanvas: UIViewRepresentable {
     @ObservedObject var document: BonePaperDocument
     var tool: BonePaperTool
@@ -10,37 +44,45 @@ struct BonePaperCanvas: UIViewRepresentable {
     var boneStart: CGPoint?
     var boneTip: CGPoint?
     var onion: CGImage?
+    var placement: BonePaperPlacement?
+    var stage: BonePaperStage
     var zoom: Binding<CGFloat>
     var fitInsets: UIEdgeInsets
 
-    func makeUIView(context: Context) -> BonePaperScrollView {
-        let scroll = BonePaperScrollView()
-        apply(scroll)
-        return scroll
+    func makeUIView(context: Context) -> BonePaperStageView {
+        let view = BonePaperStageView(placement: placement)
+        stage.view = view
+        apply(view)
+        return view
     }
 
-    func updateUIView(_ scroll: BonePaperScrollView, context: Context) {
-        apply(scroll)
+    func updateUIView(_ view: BonePaperStageView, context: Context) {
+        apply(view)
     }
 
-    private func apply(_ scroll: BonePaperScrollView) {
-        scroll.paper.document = document
-        scroll.paper.tool = tool
-        scroll.paper.color = color
-        scroll.paper.brushSize = brushSize
-        scroll.paper.opacity = opacity
-        scroll.paper.boneStart = boneStart
-        scroll.paper.boneTip = boneTip
-        scroll.paper.onion = onion
-        scroll.onZoom = { zoom.wrappedValue = $0 }
-        scroll.setPanMode(tool == .pan)
-        scroll.fitInsets = fitInsets
-        scroll.layoutPaper(side: CGFloat(document.worldSize))
-        scroll.paper.show(document)
+    private func apply(_ view: BonePaperStageView) {
+        view.paper.document = document
+        view.paper.tool = tool
+        view.paper.color = color
+        view.paper.brushSize = brushSize
+        view.paper.opacity = opacity
+        view.paper.boneStart = boneStart
+        view.paper.boneTip = boneTip
+        view.paper.onion = onion
+        view.onZoom = { zoom.wrappedValue = $0 }
+        view.setPanMode(tool == .pan)
+        view.fitInsets = fitInsets
+        view.layoutPaper(side: CGFloat(document.worldSize))
+        view.paper.show(document)
     }
 }
 
-final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
+/// Holds the paper under one transform: joint at `anchorScreen`, turned by `angle`, optionally mirrored, scaled by `zoom`.
+final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
+    static let transitionDuration: TimeInterval = 0.3
+    static let minZoom: CGFloat = 0.1
+    static let maxZoom: CGFloat = 8
+
     let paper = BonePaperDrawView()
     var onZoom: ((CGFloat) -> Void)?
     var fitInsets: UIEdgeInsets = .zero {
@@ -48,43 +90,60 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
             if oldValue == fitInsets {
                 return
             }
-            didFit = false
+            needsFit = true
             setNeedsLayout()
         }
     }
-    private var didFit = false
+
+    private let placement: BonePaperPlacement?
+    private let backdrop = UIView()
+    private let pan = UIPanGestureRecognizer()
+    private let pinch = UIPinchGestureRecognizer()
     private var paperSide: CGFloat = 0
+    private let angle: CGFloat
+    private let mirror: Bool
+    /// World point (bitmap pixel units) pinned to `anchorScreen`.
+    private var anchorWorld: CGPoint = .zero
+    private var anchorScreen: CGPoint = .zero
+    private var zoom: CGFloat = 1
+    private var placed = false
+    private var needsFit = true
+    private var entryScreen: CGPoint = .zero
+    private var entryZoom: CGFloat = 1
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(placement: BonePaperPlacement?) {
+        self.placement = placement
+        angle = placement?.angle ?? 0
+        mirror = placement?.mirror ?? false
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        clipsToBounds = true
+        backdrop.backgroundColor = BonePaperDrawView.paneGray
+        backdrop.isUserInteractionEnabled = false
+        addSubview(backdrop)
         addSubview(paper)
-        minimumZoomScale = 0.1
-        maximumZoomScale = 8
-        delegate = self
-        delaysContentTouches = false
-        panGestureRecognizer.minimumNumberOfTouches = 2
-        pinchGestureRecognizer?.isEnabled = true
-        pinchGestureRecognizer?.addTarget(self, action: #selector(pinchMayStealStroke))
-        bouncesZoom = true
-        backgroundColor = BonePaperDrawView.paneGray
-        contentInsetAdjustmentBehavior = .never
-    }
-
-    // ScrollView owns the pinch; the paper view may not see the second finger.
-    @objc private func pinchMayStealStroke(_ pinch: UIPinchGestureRecognizer) {
-        if pinch.state == .began || pinch.state == .changed {
-            paper.abortStroke()
+        pan.addTarget(self, action: #selector(handlePan))
+        pan.minimumNumberOfTouches = 2
+        pan.delegate = self
+        addGestureRecognizer(pan)
+        pinch.addTarget(self, action: #selector(handlePinch))
+        pinch.delegate = self
+        addGestureRecognizer(pinch)
+        if placement != nil {
+            backdrop.alpha = 0
+            paper.setBackdropAlpha(0)
+            paper.setFrameOpacity(0, duration: 0)
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("BonePaperScrollView coder")
+        fatalError("BonePaperStageView coder")
     }
 
     func setPanMode(_ on: Bool) {
         paper.isUserInteractionEnabled = !on
-        panGestureRecognizer.minimumNumberOfTouches = on ? 1 : 2
+        pan.minimumNumberOfTouches = on ? 1 : 2
     }
 
     func layoutPaper(side: CGFloat) {
@@ -93,80 +152,237 @@ final class BonePaperScrollView: UIScrollView, UIScrollViewDelegate {
         }
         paperSide = side
         paper.bounds = CGRect(x: 0, y: 0, width: side, height: side)
-        paper.center = CGPoint(x: side / 2, y: side / 2)
-        contentSize = CGSize(width: side, height: side)
-        didFit = false
+        needsFit = true
+        setNeedsLayout()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if !didFit, bounds.width > 0, bounds.height > 0, paperSide > 0 {
-            didFit = true
-            fitDrawing()
-            paper.setZoom(zoomScale)
-            onZoom?(zoomScale)
+        backdrop.frame = bounds
+        guard bounds.width > 0, bounds.height > 0, paperSide > 0, window != nil else {
             return
         }
+        if !placed {
+            placed = true
+            needsFit = false
+            if let placement {
+                enter(placement)
+            } else {
+                fitLevel()
+            }
+            return
+        }
+        if needsFit {
+            needsFit = false
+            fitLevel()
+        }
     }
 
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        paper
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        (gestureRecognizer === pan && other === pinch) || (gestureRecognizer === pinch && other === pan)
     }
 
-    func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        paper.setZoom(zoomScale)
-        centerPaper()
-        onZoom?(zoomScale)
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let delta = gesture.translation(in: self)
+        gesture.setTranslation(.zero, in: self)
+        anchorScreen.x += delta.x
+        anchorScreen.y += delta.y
+        applyTransform()
     }
 
-    private func fitDrawing() {
+    // Stage owns the pinch; the paper view may not see the second finger.
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        if gesture.state == .began || gesture.state == .changed {
+            paper.abortStroke()
+        }
+        let focus = gesture.location(in: self)
+        let next = min(max(zoom * gesture.scale, Self.minZoom), Self.maxZoom)
+        gesture.scale = 1
+        let factor = next / zoom
+        anchorScreen = CGPoint(
+            x: focus.x + (anchorScreen.x - focus.x) * factor,
+            y: focus.y + (anchorScreen.y - focus.y) * factor
+        )
+        zoom = next
+        applyTransform()
+        paper.setZoom(zoom)
+        onZoom?(zoom)
+    }
+
+    func zoomBack(duration: TimeInterval, completion: @escaping () -> Void) {
+        if placement == nil {
+            fatalError("BonePaperStageView zoomBack without placement")
+        }
+        anchorWorld = jointWorld()
+        anchorScreen = entryScreen
+        zoom = entryZoom
+        paper.setFrameOpacity(0, duration: duration)
+        UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseInOut]) {
+            self.backdrop.alpha = 0
+            self.paper.setBackdropAlpha(0)
+            self.applyTransform()
+        } completion: { _ in
+            completion()
+        }
+    }
+
+    private func enter(_ placement: BonePaperPlacement) {
+        guard paper.boneStart != nil, paper.boneTip != nil else {
+            fatalError("BonePaperStageView placement without a bone")
+        }
+        anchorWorld = jointWorld()
+        entryScreen = convert(placement.jointScreen, from: nil)
+        entryZoom = placement.pointsPerPixel
+        anchorScreen = entryScreen
+        zoom = entryZoom
+        applyTransform()
+        paper.setZoom(zoom)
+
+        let mid = boneMidWorld()
+        let midScreen = screenPoint(mid)
+        let target = fitZoom()
+        anchorScreen = CGPoint(
+            x: midScreen.x - offset(mid, zoom: target).x,
+            y: midScreen.y - offset(mid, zoom: target).y
+        )
+        zoom = target
+        keepDrawingInside()
+        paper.setZoom(zoom)
+        onZoom?(zoom)
+        paper.setFrameOpacity(1, duration: Self.transitionDuration)
+        UIView.animate(withDuration: Self.transitionDuration, delay: 0, options: [.curveEaseInOut]) {
+            self.backdrop.alpha = 1
+            self.paper.setBackdropAlpha(1)
+            self.applyTransform()
+        }
+    }
+
+    private func fitLevel() {
         guard let document = paper.document else {
-            fatalError("BonePaperScrollView fit with no document")
+            fatalError("BonePaperStageView fit with no document")
         }
-        let drawW = CGFloat(document.width)
-        let drawH = CGFloat(document.height)
-        let availW = max(bounds.width - fitInsets.left - fitInsets.right, 1)
-        let availH = max(bounds.height - fitInsets.top - fitInsets.bottom, 1)
-        let raw = min(availW / drawW, availH / drawH)
-        zoomScale = min(max(raw, minimumZoomScale), maximumZoomScale)
-        let center: CGPoint
-        if let start = paper.boneStart, let tip = paper.boneTip {
-            center = CGPoint(
-                x: CGFloat(document.originX) + CGFloat(document.extraLeft) + (start.x + tip.x) / 2,
-                y: CGFloat(document.originY) + CGFloat(document.extraTop) + (start.y + tip.y) / 2
-            )
+        zoom = fitZoom()
+        let avail = availRect()
+        if paper.boneStart != nil, paper.boneTip != nil {
+            anchorWorld = boneMidWorld()
         } else {
-            center = CGPoint(
-                x: CGFloat(document.originX) + drawW / 2,
-                y: CGFloat(document.originY) + drawH / 2
+            anchorWorld = CGPoint(
+                x: CGFloat(document.originX) + CGFloat(document.width) / 2,
+                y: CGFloat(document.originY) + CGFloat(document.height) / 2
             )
         }
-        centerWorld(center)
+        anchorScreen = CGPoint(x: avail.midX, y: avail.midY)
+        applyTransform()
+        paper.setZoom(zoom)
+        onZoom?(zoom)
     }
 
-    private func centerWorld(_ world: CGPoint) {
-        let desired = CGPoint(
-            x: world.x * zoomScale - (bounds.width + fitInsets.left - fitInsets.right) / 2,
-            y: world.y * zoomScale - (bounds.height + fitInsets.top - fitInsets.bottom) / 2
-        )
-        let zoomedW = paper.bounds.width * zoomScale
-        let zoomedH = paper.bounds.height * zoomScale
-        contentInset = UIEdgeInsets(
-            top: max(-desired.y, 0),
-            left: max(-desired.x, 0),
-            bottom: max(desired.y + bounds.height - zoomedH, 0),
-            right: max(desired.x + bounds.width - zoomedW, 0)
-        )
-        contentOffset = desired
+    private func fitZoom() -> CGFloat {
+        guard let document = paper.document else {
+            fatalError("BonePaperStageView fit with no document")
+        }
+        let box = rotatedSize(width: CGFloat(document.width), height: CGFloat(document.height))
+        let avail = availRect()
+        let raw = min(avail.width / box.width, avail.height / box.height)
+        return min(max(raw, Self.minZoom), Self.maxZoom)
     }
 
-    private func centerPaper() {
-        let zoomedW = paper.bounds.width * zoomScale
-        let zoomedH = paper.bounds.height * zoomScale
-        let insetX = max((bounds.width - zoomedW) * 0.5, 0)
-        let insetY = max((bounds.height - zoomedH) * 0.5, 0)
-        contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
+    /// Slide the anchor so the turned drawing box stays in the free area, centered where it is larger.
+    private func keepDrawingInside() {
+        guard let document = paper.document else {
+            fatalError("BonePaperStageView clamp with no document")
+        }
+        let avail = availRect()
+        let box = rotatedSize(width: CGFloat(document.width), height: CGFloat(document.height))
+        let center = screenPoint(CGPoint(
+            x: CGFloat(document.originX) + CGFloat(document.width) / 2,
+            y: CGFloat(document.originY) + CGFloat(document.height) / 2
+        ))
+        let halfW = box.width * zoom / 2
+        let halfH = box.height * zoom / 2
+        anchorScreen.x += Self.shift(center: center.x, half: halfW, low: avail.minX, high: avail.maxX)
+        anchorScreen.y += Self.shift(center: center.y, half: halfH, low: avail.minY, high: avail.maxY)
+    }
+
+    private static func shift(center: CGFloat, half: CGFloat, low: CGFloat, high: CGFloat) -> CGFloat {
+        if half * 2 >= high - low {
+            return (low + high) / 2 - center
+        }
+        if center - half < low {
+            return low - (center - half)
+        }
+        if center + half > high {
+            return high - (center + half)
+        }
+        return 0
+    }
+
+    private func availRect() -> CGRect {
+        CGRect(
+            x: fitInsets.left,
+            y: fitInsets.top,
+            width: max(bounds.width - fitInsets.left - fitInsets.right, 1),
+            height: max(bounds.height - fitInsets.top - fitInsets.bottom, 1)
+        )
+    }
+
+    private func rotatedSize(width: CGFloat, height: CGFloat) -> CGSize {
+        let c = abs(cos(angle))
+        let s = abs(sin(angle))
+        return CGSize(width: c * width + s * height, height: s * width + c * height)
+    }
+
+    private func jointWorld() -> CGPoint {
+        guard let document = paper.document, let start = paper.boneStart else {
+            fatalError("BonePaperStageView joint with no bone")
+        }
+        return CGPoint(
+            x: CGFloat(document.originX + document.extraLeft) + start.x,
+            y: CGFloat(document.originY + document.extraTop) + start.y
+        )
+    }
+
+    private func boneMidWorld() -> CGPoint {
+        guard let document = paper.document, let start = paper.boneStart, let tip = paper.boneTip else {
+            fatalError("BonePaperStageView midpoint with no bone")
+        }
+        return CGPoint(
+            x: CGFloat(document.originX + document.extraLeft) + (start.x + tip.x) / 2,
+            y: CGFloat(document.originY + document.extraTop) + (start.y + tip.y) / 2
+        )
+    }
+
+    private func linear(zoom: CGFloat) -> CGAffineTransform {
+        let c = cos(angle) * zoom
+        let s = sin(angle) * zoom
+        let m: CGFloat = mirror ? -1 : 1
+        return CGAffineTransform(a: c, b: s, c: -m * s, d: m * c, tx: 0, ty: 0)
+    }
+
+    /// Screen offset of `world` from the anchor at `zoom`.
+    private func offset(_ world: CGPoint, zoom: CGFloat) -> CGPoint {
+        CGPoint(x: world.x - anchorWorld.x, y: world.y - anchorWorld.y).applying(linear(zoom: zoom))
+    }
+
+    private func screenPoint(_ world: CGPoint) -> CGPoint {
+        let d = offset(world, zoom: zoom)
+        return CGPoint(x: anchorScreen.x + d.x, y: anchorScreen.y + d.y)
+    }
+
+    private func applyTransform() {
+        let t = linear(zoom: zoom)
+        let half = paperSide / 2
+        let fromCenter = CGPoint(x: anchorWorld.x - half, y: anchorWorld.y - half).applying(t)
+        paper.transform = t
+        paper.center = CGPoint(x: anchorScreen.x - fromCenter.x, y: anchorScreen.y - fromCenter.y)
     }
 }
 
@@ -195,8 +411,8 @@ final class BonePaperDrawView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isMultipleTouchEnabled = false
-        isOpaque = true
-        backgroundColor = Self.paneGray
+        isOpaque = false
+        backgroundColor = .clear
         checker.isUserInteractionEnabled = false
         checker.backgroundColor = Self.checkerColor
         onionView.isUserInteractionEnabled = false
@@ -227,6 +443,24 @@ final class BonePaperDrawView: UIView {
         super.layoutSubviews()
         checker.frame = bounds
         onionView.frame = bounds
+    }
+
+    /// Checker and onion; the bitmap and bone marks stay visible through the transition. Animatable inside `UIView.animate`.
+    func setBackdropAlpha(_ alpha: CGFloat) {
+        checker.alpha = alpha
+        onionView.alpha = alpha
+    }
+
+    /// The pink frame is a bare layer, so `UIView.animate` does not drive it.
+    func setFrameOpacity(_ opacity: Float, duration: TimeInterval) {
+        CATransaction.begin()
+        if duration > 0 {
+            CATransaction.setAnimationDuration(duration)
+        } else {
+            CATransaction.setDisableActions(true)
+        }
+        frameLayer.opacity = opacity
+        CATransaction.commit()
     }
 
     func setZoom(_ zoom: CGFloat) {

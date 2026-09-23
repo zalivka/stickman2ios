@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Shared mutable editor session so canvas touch callbacks always see live hold/selection state.
@@ -10,6 +11,10 @@ final class SkeletonEditSession {
     var exposeVacantPoints = false
     /// Bumped to force SwiftUI refresh when selection or hold mode changes outside @State.
     var revision = 0
+    /// Canvas zoom and pan as last drawn, so BonePaper can open with the bone where it was on screen.
+    var layout: SkeletonLayout?
+    /// Canvas top-left in window coordinates.
+    var canvasOrigin: CGPoint = .zero
 
     func setHoldMode(_ on: Bool) {
         boneCreateHoldMode = on

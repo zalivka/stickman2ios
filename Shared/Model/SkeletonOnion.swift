@@ -11,7 +11,8 @@ enum SkeletonOnion {
         worldSize: Int,
         pngWidth: Int,
         pngHeight: Int,
-        boneStartPNG: CGPoint
+        boneStartPNG: CGPoint,
+        mirror: Bool
     ) -> CGImage? {
         if worldSize < 1 {
             fatalError("SkeletonOnion worldSize \(worldSize)")
@@ -79,6 +80,8 @@ enum SkeletonOnion {
         let raster = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
             let cg = ctx.cgContext
             cg.translateBy(x: worldBoneStart.x, y: worldBoneStart.y)
+            // BonePaper mirrors the whole paper for a mirrored bone, so the onion is stored unmirrored.
+            cg.scaleBy(x: 1, y: mirror ? -1 : 1)
             cg.rotate(by: -editAngle)
             cg.translateBy(x: -editStart.x, y: -editStart.y)
             for bone in bones {

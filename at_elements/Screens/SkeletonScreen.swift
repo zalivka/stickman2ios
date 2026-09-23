@@ -191,10 +191,12 @@ struct SkeletonScreen: View {
                 boneStart: session.boneStart,
                 boneTip: session.boneTip,
                 onion: session.onion,
+                placement: session.placement,
                 onApply: { export in
                     applyBonePaper(bmName: session.bmName, export: export)
                 }
             )
+            .presentationBackground(.clear)
         }
         .sheet(item: $pointProps) { draft in
             EditPointDialog(
@@ -234,6 +236,7 @@ struct SkeletonScreen: View {
         let boneStart: CGPoint
         let boneTip: CGPoint
         let onion: CGImage?
+        let placement: BonePaperPlacement?
         let bmName: String
     }
 
@@ -270,7 +273,7 @@ struct SkeletonScreen: View {
         guard let asset = assets.firstAsset(bmName: bmName, unitName: unit.name) else {
             fatalError("SkeletonScreen '\(title)' gallery edit unknown bm '\(bmName)'")
         }
-        presentBonePaper(asset: asset, length: UnitAssets.defaultBoneLength, onion: nil)
+        presentBonePaper(asset: asset, length: UnitAssets.defaultBoneLength, onion: nil, placement: nil)
     }
 
     private func openBonePaper(from: Int, to: Int) {
@@ -292,6 +295,14 @@ struct SkeletonScreen: View {
             length: length
         )
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
+        let drawnKey = UnitAssets.EdgeKey(
+            unitName: UnitAssets.removeNumber(unit.name),
+            start: from,
+            end: to,
+            flipped: unit.flipped
+        )
+        let nativeFlipped = assets.getDrawable(drawnKey, state: unit.assetsState)?.nativeFlipped ?? false
+        let mirror = unit.flipped && !nativeFlipped
         let onion = SkeletonOnion.worldOverlay(
             unit: unit,
             assets: assets,
@@ -300,10 +311,24 @@ struct SkeletonScreen: View {
             worldSize: BonePaperScreen.worldSide,
             pngWidth: asset.bitmap.width,
             pngHeight: asset.bitmap.height,
-            boneStartPNG: start
+            boneStartPNG: start,
+            mirror: mirror
+        )
+        guard let layout = editSession.layout else {
+            fatalError("SkeletonScreen '\(title)' edit before the canvas laid out")
+        }
+        let joint = layout.screenPoint(x: startPt.x, y: startPt.y)
+        let placement = BonePaperPlacement(
+            jointScreen: CGPoint(
+                x: editSession.canvasOrigin.x + joint.x,
+                y: editSession.canvasOrigin.y + joint.y
+            ),
+            angle: atan2(endPt.y - startPt.y, endPt.x - startPt.x),
+            mirror: mirror,
+            pointsPerPixel: layout.scale * unit.scale
         )
         layerEpoch += 1
-        presentBonePaper(asset: asset, length: length, onion: onion)
+        presentBonePaper(asset: asset, length: length, onion: onion, placement: placement)
     }
 
     /// Android gallery NEW BONE: dummy picture at `DEFAULT_LENGTH`, then Kurwa with pen.
@@ -315,22 +340,33 @@ struct SkeletonScreen: View {
         let length = UnitAssets.defaultBoneLength
         let asset = assets.createEmptyGalleryBone(unitName: unit.name, length: length)
         layerEpoch += 1
-        presentBonePaper(asset: asset, length: length, onion: nil)
+        presentBonePaper(asset: asset, length: length, onion: nil, placement: nil)
     }
 
-    private func presentBonePaper(asset: UnitAssets.EdgeAsset, length: CGFloat, onion: CGImage?) {
+    private func presentBonePaper(
+        asset: UnitAssets.EdgeAsset,
+        length: CGFloat,
+        onion: CGImage?,
+        placement: BonePaperPlacement?
+    ) {
         if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
             fatalError("SkeletonScreen '\(title)' bone '\(asset.bmName)' size \(asset.bitmap.width)x\(asset.bitmap.height)")
         }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
         let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
-        bonePaperEdit = BonePaperEdit(
+        let edit = BonePaperEdit(
             source: asset.bitmap,
             boneStart: start,
             boneTip: tip,
             onion: onion,
+            placement: placement,
             bmName: asset.bmName
         )
+        var transaction = Transaction()
+        transaction.disablesAnimations = placement != nil
+        withTransaction(transaction) {
+            bonePaperEdit = edit
+        }
     }
 
     private func applyBonePaper(bmName: String, export: BonePaperExport) {

@@ -292,8 +292,12 @@ struct SkeletonCanvas: View {
                     )
                 }
             }
-            .onAppear { freezeLayout(in: proxy.size) }
+            .onAppear {
+                editSession?.canvasOrigin = proxy.frame(in: .global).origin
+                freezeLayout(in: proxy.size)
+            }
             .onChange(of: proxy.size) { _, newSize in
+                editSession?.canvasOrigin = proxy.frame(in: .global).origin
                 freezeLayout(in: newSize)
             }
             .onChange(of: currentIndex) { _, _ in
@@ -696,6 +700,7 @@ struct SkeletonCanvas: View {
     private func freezeLayout(in size: CGSize) {
         let fit = SkeletonLayout.fit(sceneWidth: sceneWidth, sceneHeight: sceneHeight, in: size)
         layout = fit
+        editSession?.layout = fit
         layoutSize = size
         fitScale = fit.scale
         snapHandlers(to: fit)
@@ -710,6 +715,7 @@ struct SkeletonCanvas: View {
             maxScale: fitScale * 6
         )
         layout = next
+        editSession?.layout = next
         snapHandlers(to: next)
     }
 
@@ -1033,7 +1039,9 @@ struct SkeletonCanvas: View {
             return
         }
         guard dragRef.panning, let last = dragRef.lastScreen else { return }
-        layout = current.panned(dx: location.x - last.x, dy: location.y - last.y)
+        let next = current.panned(dx: location.x - last.x, dy: location.y - last.y)
+        layout = next
+        editSession?.layout = next
         dragRef.lastScreen = location
     }
 
