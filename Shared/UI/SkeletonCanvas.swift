@@ -182,6 +182,12 @@ struct SkeletonCanvas: View {
     var onPoseEditEnded: (() -> Void)? = nil
     /// Finger up on a straying unit. `scale` is points per scene unit. Returns whether an attach snapped.
     var onTryAttach: ((CGFloat) -> Bool)? = nil
+    /// Android `TouchUpResult.unitMoved` — finger up after a point or handler drag changed the pose.
+    var onUnitMoved: (() -> Void)? = nil
+    /// Android `DrawingConfig.mUseHandlers`.
+    var showsHandlers: Bool = true
+    /// Android `NavigablePresenter.mAllowSceneMovements` — empty drag pans, pinch zooms.
+    var allowsSceneMovements: Bool = true
     var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat, _ scale: CGFloat, _ rotation: CGFloat) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     var canMutateCamera: Bool = true
@@ -212,6 +218,7 @@ struct SkeletonCanvas: View {
         var touchOffsetY: CGFloat = 0
         var panning = false
         var undoPushed = false
+        var moved = false
     }
 
     var body: some View {
@@ -720,7 +727,7 @@ struct SkeletonCanvas: View {
     }
 
     private func handlePinch(focus: CGPoint, factor: CGFloat) {
-        guard let current = layout else { return }
+        guard allowsSceneMovements, let current = layout else { return }
         let next = current.pinched(
             around: focus,
             factor: factor,
@@ -884,6 +891,7 @@ struct SkeletonCanvas: View {
     }
 
     private func drawHandlers(context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard showsHandlers else { return }
         guard mode != .editor || selectedUnitName.wrappedValue != nil else { return }
         if dragRef.handler != nil || dragRef.nodeId != nil { return }
         let side = CGFloat(HandlerArtwork.move.width) / UIScreen.main.scale
@@ -930,7 +938,7 @@ struct SkeletonCanvas: View {
             return
         }
         if began {
-            if mode == .editor, selectedUnitName.wrappedValue != nil,
+            if mode == .editor, showsHandlers, selectedUnitName.wrappedValue != nil,
                let handle = hitHandler(at: location, layout: current) {
                 if !poseEditable(for: selectedUnitName.wrappedValue ?? liveUnit.name) {
                     onLockedEdit?()
@@ -984,7 +992,7 @@ struct SkeletonCanvas: View {
                         dragRef.touchOffsetY = 0
                     }
                 }
-                dragRef.panning = dragRef.nodeId == nil
+                dragRef.panning = allowsSceneMovements && dragRef.nodeId == nil
                 if mode == .skeleton {
                     selectedPointId.wrappedValue = dragRef.nodeId
                     if dragRef.nodeId != nil, !dragRef.undoPushed {
@@ -1013,6 +1021,9 @@ struct SkeletonCanvas: View {
             dragRef.lastScreen = location
         }
         if let kind = dragRef.handler {
+            if !began {
+                dragRef.moved = true
+            }
             let graph = current.graphPoint(screen: location)
             let dx = graph.x - dragRef.handlerX
             let dy = graph.y - dragRef.handlerY
@@ -1040,6 +1051,9 @@ struct SkeletonCanvas: View {
             return
         }
         if let id = dragRef.nodeId {
+            if !began {
+                dragRef.moved = true
+            }
             let graphPoint = current.graphPoint(screen: location)
             let destX = graphPoint.x - dragRef.touchOffsetX
             let destY = graphPoint.y - dragRef.touchOffsetY
@@ -1080,6 +1094,7 @@ struct SkeletonCanvas: View {
             return
         }
         let didPoseEdit = mode == .editor && dragRef.undoPushed
+        let unitMoved = didPoseEdit && dragRef.moved
         let editedStray = didPoseEdit && SlavesRegistry.isStraying(liveUnit)
         let sceneScale = layout?.scale
         touchScreen = nil
@@ -1088,6 +1103,7 @@ struct SkeletonCanvas: View {
         dragRef.lastScreen = nil
         dragRef.panning = false
         dragRef.undoPushed = false
+        dragRef.moved = false
         dragRef.touchOffsetX = 0
         dragRef.touchOffsetY = 0
         attachHold = false
@@ -1105,6 +1121,9 @@ struct SkeletonCanvas: View {
                 }
             }
             onPoseEditEnded?()
+        }
+        if unitMoved {
+            onUnitMoved?()
         }
     }
 
@@ -1191,6 +1210,7 @@ struct SkeletonCanvas: View {
         dragRef.panning = false
         dragRef.lastScreen = nil
         dragRef.undoPushed = false
+        dragRef.moved = false
     }
 
     private func handleBoneCreate(at location: CGPoint, layout: SkeletonLayout, began: Bool) {

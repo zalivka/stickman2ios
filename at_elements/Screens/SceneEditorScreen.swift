@@ -2,6 +2,18 @@ import BonePaper
 import SwiftUI
 import UIKit
 
+/// Android `OBPracticeMove.InEditor`: pose the character, step through the frames, watch.
+private enum TutorialStep {
+    /// Everything but the canvas hidden until the first pose drag.
+    case move
+    /// Frames column shown, hint hole on Next.
+    case nextFrame
+    /// Posing the remaining frames.
+    case animate
+    /// Last frame reached: only Play, hint hole on it.
+    case play
+}
+
 private enum ScenePropsSheet: String, Identifiable {
     case edit
     case customSize
@@ -47,9 +59,20 @@ struct SceneEditorScreen: View {
     @StateObject private var clipboard = CopyPasteBuffer()
     @StateObject private var undo = SceneUndo()
     @State private var frameInsertFlash = 0
+    @State private var tutorialStep: TutorialStep?
+    @State private var playHintScheduled = false
+    @State private var tutorialNextPress = 0
     @Environment(\.dismiss) private var dismiss
 
-    init(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets = BackgroundAssets()) {
+    /// Android `MainEditor.SIMPLE_TUTORIAL` — set once Play is pressed from the tutorial hint.
+    static let tutorialDoneKey = "simple_tutorial"
+
+    init(
+        scene: StickmanScene,
+        assets: UnitAssets,
+        backgrounds: BackgroundAssets = BackgroundAssets(),
+        tutorial: Bool = false
+    ) {
         if scene.frames.isEmpty {
             fatalError("SceneEditorScreen has no frames")
         }
@@ -70,24 +93,28 @@ struct SceneEditorScreen: View {
         )
         _selectedUnitName = State(initialValue: nil)
         _savedDocument = State(initialValue: SceneSaver.documentBytes(scene: scene))
+        _tutorialStep = State(initialValue: tutorial ? .move : nil)
     }
 
     var body: some View {
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
-                MainPanel(
-                    onPlay: { showingPreview = true },
-                    onInsert: toggleInsert,
-                    onEditUnit: toggleEditUnit,
-                    onEditFrame: toggleEditFrame,
-                    onUndo: performUndo,
-                    undoEnabled: undo.canUndo,
-                    onMenu: toggleMenu,
-                    insertActivated: showingInsert,
-                    editUnitActivated: showingEditUnit,
-                    editFrameActivated: showingEditFrame,
-                    menuActivated: showingMenu
-                )
+                if showsMainPanel {
+                    MainPanel(
+                        onPlay: play,
+                        onInsert: toggleInsert,
+                        onEditUnit: toggleEditUnit,
+                        onEditFrame: toggleEditFrame,
+                        onUndo: performUndo,
+                        undoEnabled: undo.canUndo,
+                        onMenu: toggleMenu,
+                        insertActivated: showingInsert,
+                        editUnitActivated: showingEditUnit,
+                        editFrameActivated: showingEditFrame,
+                        menuActivated: showingMenu,
+                        onlyPlay: tutorialStep == .play
+                    )
+                }
                 SkeletonCanvas(
                     unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
                     frameUnits: scene.currentFrame.units,
@@ -111,7 +138,10 @@ struct SceneEditorScreen: View {
                     },
                     onTryAttach: { scale in
                         tryAttachSelected(sceneScale: scale)
-                    }
+                    },
+                    onUnitMoved: tutorialUnitMoved,
+                    showsHandlers: tutorialStep == nil,
+                    allowsSceneMovements: tutorialStep == nil
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
@@ -193,22 +223,27 @@ struct SceneEditorScreen: View {
             }
         }
         .overlay(alignment: .trailing) {
-            DualNavigationChrome(
-                frameCount: scene.frames.count,
-                currentIndex: currentIndexBinding,
-                range: $range,
-                mode: $mode,
-                onEnterRange: {
-                    undo.commitEnteringRange(from: scene, indices: Array(range))
-                },
-                onLeaveRange: {
-                    undo.clearRangeBaseline()
-                },
-                onNextAtEnd: addFrame,
-                onHoldCopy: copyHeldStructure,
-                flashToken: frameInsertFlash,
-                stickStyle: tweenStickStyle
-            )
+            if tutorialStep != .move {
+                DualNavigationChrome(
+                    frameCount: scene.frames.count,
+                    currentIndex: currentIndexBinding,
+                    range: $range,
+                    mode: $mode,
+                    onEnterRange: {
+                        undo.commitEnteringRange(from: scene, indices: Array(range))
+                    },
+                    onLeaveRange: {
+                        undo.clearRangeBaseline()
+                    },
+                    onNextAtEnd: addFrame,
+                    onHoldCopy: copyHeldStructure,
+                    flashToken: frameInsertFlash,
+                    stickStyle: tweenStickStyle,
+                    onNextAdvanced: tutorialNextAdvanced,
+                    spotlightsNext: tutorialStep == .nextFrame,
+                    nextPressToken: tutorialNextPress
+                )
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .onChange(of: range) { _, _ in
@@ -246,11 +281,34 @@ struct SceneEditorScreen: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if !showingInsert {
+            if tutorialStep == nil, !showingInsert {
                 FullscreenBackButton(
                     extraLeading: backExtraLeading,
                     action: screenBack
                 )
+            }
+        }
+        .overlayPreferenceValue(TutorialHoleKey.self) { anchor in
+            tutorialSpotlight(anchor)
+        }
+        .overlay(alignment: .topLeading) {
+            if tutorialStep != nil {
+                Button(action: skipTutorial) {
+                    Text("Skip")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Self.tutorialSkipGray)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, (showsMainPanel ? MainPanel.width : 0) + 8)
+                .padding(.top, 8)
+            }
+        }
+        .onAppear {
+            if tutorialStep == .move {
+                showToast("Move me to start animating", seconds: 3.5)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -378,6 +436,84 @@ struct SceneEditorScreen: View {
             }
         }
     }
+
+    private var showsMainPanel: Bool {
+        tutorialStep == nil || tutorialStep == .play
+    }
+
+    private func play() {
+        if tutorialStep == .play {
+            tutorialStep = nil
+            UserDefaults.standard.set(true, forKey: Self.tutorialDoneKey)
+        }
+        showingPreview = true
+    }
+
+    /// Android `OBInterpolation` Skip — leave without the save prompt.
+    private func skipTutorial() {
+        UserDefaults.standard.set(true, forKey: Self.tutorialDoneKey)
+        dismiss()
+    }
+
+    private func tutorialTargetTap() {
+        switch tutorialStep {
+        case .nextFrame:
+            tutorialNextPress += 1
+        case .play:
+            play()
+        case .move, .animate, nil:
+            fatalError("SceneEditorScreen tutorial hole tap without a hint")
+        }
+    }
+
+    private func tutorialUnitMoved() {
+        if tutorialStep == .move {
+            tutorialStep = .nextFrame
+        }
+    }
+
+    /// Android `InEditor.onNextFrame` — the Play hint 1 s after Next lands on the last frame.
+    private func tutorialNextAdvanced() {
+        guard tutorialStep == .nextFrame || tutorialStep == .animate else { return }
+        tutorialStep = .animate
+        if playHintScheduled || scene.currentIndex != scene.frames.count - 1 {
+            return
+        }
+        playHintScheduled = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            tutorialStep = .play
+        }
+    }
+
+    private var tutorialHint: Text? {
+        switch tutorialStep {
+        case .nextFrame:
+            let title: Text = Text("Good to be alive!")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(Self.tutorialGreen)
+            return title + Text("\nTap the blue arrow to go to the next frame")
+        case .play:
+            return Text("Watch the cartoon")
+        case .move, .animate, nil:
+            return nil
+        }
+    }
+
+    @ViewBuilder
+    private func tutorialSpotlight(_ anchor: Anchor<CGRect>?) -> some View {
+        if let anchor, let text = tutorialHint {
+            GeometryReader { geo in
+                TutorialSpotlight(target: geo[anchor], text: text, onTargetTap: tutorialTargetTap)
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    /// Android `tips_select_next_frame` title `#00ff31`.
+    private static let tutorialGreen = Color(red: 0, green: 1, blue: 0x31 / 255)
+    /// Android `boarding4_skip` text `#AAAAAA`.
+    private static let tutorialSkipGray = Color(white: 0xaa / 255)
 
     private func toggleMenu() {
         showingMenu.toggle()
@@ -977,10 +1113,10 @@ struct SceneEditorScreen: View {
         }
     }
 
-    private func showToast(_ text: String) {
+    private func showToast(_ text: String, seconds: Double = 2) {
         saveToast = text
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             if saveToast == text {
                 saveToast = ""
             }
@@ -1450,20 +1586,28 @@ struct StonedummyScreen: View {
 
 struct DemoSceneScreen: View {
     private let load: () -> (StickmanScene, UnitAssets, BackgroundAssets)
+    private let tutorial: Bool
     @State private var loaded: (StickmanScene, UnitAssets, BackgroundAssets)?
 
-    init(resource: String, subdirectory: String = "demo") {
+    init(resource: String, subdirectory: String = "demo", tutorial: Bool = false) {
         load = { SceneLoader.load(resource: resource, subdirectory: subdirectory) }
+        self.tutorial = tutorial
     }
 
     init(url: URL) {
         load = { SceneLoader.load(url: url) }
+        tutorial = false
     }
 
     var body: some View {
         Group {
             if let loaded {
-                SceneEditorScreen(scene: loaded.0, assets: loaded.1, backgrounds: loaded.2)
+                SceneEditorScreen(
+                    scene: loaded.0,
+                    assets: loaded.1,
+                    backgrounds: loaded.2,
+                    tutorial: tutorial
+                )
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

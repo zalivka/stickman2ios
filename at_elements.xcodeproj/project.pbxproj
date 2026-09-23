@@ -36,6 +36,7 @@
 				demo,
 				packs,
 				testdata,
+				tutorial,
 			);
 			path = at_elements;
 			sourceTree = "<group>";

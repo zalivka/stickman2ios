@@ -14,6 +14,12 @@ struct DualNavigationChrome: View {
     var onHoldCopy: ((_ sourceIndex: Int, _ destIndex: Int) -> Void)? = nil
     var flashToken: Int = 0
     var stickStyle: ((Int) -> (color: Color?, scale: CGFloat))? = nil
+    /// Android tutorial `MainEditor.onNextFramePressed` → `InEditor.onNextFrame`: Next moved onto an existing frame.
+    var onNextAdvanced: (() -> Void)? = nil
+    /// Tutorial hint hole on the Next button.
+    var spotlightsNext: Bool = false
+    /// Android `FullscreenHint` hole tap → `performClick`: each bump presses Next.
+    var nextPressToken: Int = 0
 
     @State private var pageWindow = SeekFramesPageWindow()
 
@@ -31,6 +37,9 @@ struct DualNavigationChrome: View {
                 )
                 .frame(maxHeight: .infinity)
             }
+        }
+        .onChange(of: nextPressToken) { _, _ in
+            next()
         }
     }
 
@@ -59,27 +68,31 @@ struct DualNavigationChrome: View {
             )
             .frame(maxHeight: .infinity)
 
-            navButton(idle: Self.nextIdle, pressed: Self.nextPressed) {
-                let source = currentIndex
-                if currentIndex >= frameCount - 1 {
-                    onNextAtEnd?()
-                    if currentIndex != source {
-                        onHoldCopy?(source, currentIndex)
-                    }
-                    return
-                }
-                currentIndex += 1
-                onHoldCopy?(source, currentIndex)
-            } longPress: {
+            navButton(idle: Self.nextIdle, pressed: Self.nextPressed, tap: next) {
                 currentIndex = SeekFramesBar.nextPage(
                     current: currentIndex,
                     frameCount: frameCount,
                     windowSize: pageWindow.size
                 )
             }
+            .tutorialHole(spotlightsNext)
         }
         .frame(width: SeekFramesBar.barWidth)
         .background(Color.clear)
+    }
+
+    private func next() {
+        let source = currentIndex
+        if currentIndex >= frameCount - 1 {
+            onNextAtEnd?()
+            if currentIndex != source {
+                onHoldCopy?(source, currentIndex)
+            }
+            return
+        }
+        currentIndex += 1
+        onHoldCopy?(source, currentIndex)
+        onNextAdvanced?()
     }
 
     private func enterRange() {

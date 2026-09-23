@@ -29,6 +29,8 @@ struct MainPanel: View {
     var editUnitActivated = false
     var editFrameActivated = false
     var menuActivated = false
+    /// Tutorial play hint: every other control keeps its slot but is invisible and untappable.
+    var onlyPlay = false
 
     @State private var undoFlashToken = 0
     @State private var undoFlashing = false
@@ -48,6 +50,8 @@ struct MainPanel: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Menu")
+                .opacity(onlyPlay ? 0 : 1)
+                .allowsHitTesting(!onlyPlay)
             }
             chromeButton(
                 icon: Self.playIcon,
@@ -55,8 +59,10 @@ struct MainPanel: View {
                 color: Self.play,
                 activated: false,
                 enabled: playEnabled,
+                isPlay: true,
                 action: onPlay
             )
+            .tutorialHole(onlyPlay)
             if let onInsert {
                 chromeButton(
                     icon: insertActivated ? Self.insertIconSel : Self.insertIcon,
@@ -154,9 +160,11 @@ struct MainPanel: View {
         activated: Bool,
         enabled: Bool = true,
         activatedFill: Color = insertActive,
+        isPlay: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let hidden = onlyPlay && !isPlay
+        return Button(action: action) {
             VStack(spacing: 4) {
                 Image(decorative: icon, scale: UIScreen.main.scale)
                     .resizable()
@@ -172,8 +180,8 @@ struct MainPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
+        .disabled(!enabled || hidden)
+        .opacity(hidden ? 0 : (enabled ? 1 : 0.4))
     }
 
     private static let navIcon = chromeImage("main_btn_nav")

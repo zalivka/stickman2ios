@@ -125,11 +125,15 @@ private struct MakePane: View {
                 )
             }
             .navigationDestination(isPresented: $openCartoon) {
-                SceneEditorScreen(
-                    scene: .empty(),
-                    assets: UnitAssets(),
-                    backgrounds: BackgroundAssets()
-                )
+                if UserDefaults.standard.bool(forKey: SceneEditorScreen.tutorialDoneKey) {
+                    SceneEditorScreen(
+                        scene: .empty(),
+                        assets: UnitAssets(),
+                        backgrounds: BackgroundAssets()
+                    )
+                } else {
+                    DemoSceneScreen(resource: "intro", subdirectory: "tutorial", tutorial: true)
+                }
             }
             .navigationDestination(isPresented: $openItems) {
                 CustomItemsListScreen()
