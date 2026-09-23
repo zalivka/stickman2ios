@@ -4,6 +4,9 @@ import UIKit
 enum SceneThumbRenderer {
     static let smallSize = CGSize(width: 64, height: 64)
     static let bigSize = CGSize(width: 160, height: 64)
+    private static let itemPosterSize = CGSize(width: 480, height: 480)
+    private static let itemThumbSize = CGSize(width: 196, height: 196)
+    private static let itemPadding: CGFloat = 0.1
 
     @MainActor
     static func pair(
@@ -13,6 +16,70 @@ enum SceneThumbRenderer {
     ) -> (small: Data, big: Data) {
         let shot = screenshot(scene: scene, assets: assets, backgrounds: backgrounds)
         return (png(cover(shot, size: smallSize)), png(cover(shot, size: bigSize)))
+    }
+
+    /// Android `EditView.screenshotItemPoster` (480, 10% pad) and `CustomUnitIO.thumbFromPoster` (196 on white).
+    @MainActor
+    static func itemPair(unit: StickmanUnit, assets: UnitAssets) -> (thumb: Data, poster: Data) {
+        let poster = screenshotItem(unit: unit, assets: assets, size: itemPosterSize)
+        let thumb = cover(poster, size: itemThumbSize)
+        return (png(thumb), png(poster))
+    }
+
+    @MainActor
+    private static func screenshotItem(unit: StickmanUnit, assets: UnitAssets, size: CGSize) -> UIImage {
+        if unit.points.isEmpty {
+            fatalError("SceneThumbRenderer item '\(unit.name)' has no points")
+        }
+        let layout = posterLayout(unit: unit, assets: assets, size: size)
+        let canvas = SkeletonCanvas(
+            unit: Binding(
+                get: { unit },
+                set: { _ in
+                    fatalError("SceneThumbRenderer item canvas is not interactive")
+                }
+            ),
+            frameUnits: [unit],
+            assets: assets,
+            sceneWidth: size.width,
+            sceneHeight: size.height,
+            mode: .itemPoster,
+            posterLayout: layout,
+            showSkeleton: false
+        )
+        .frame(width: size.width, height: size.height)
+        let renderer = ImageRenderer(content: canvas)
+        renderer.scale = 1
+        renderer.proposedSize = ProposedViewSize(size)
+        guard let image = renderer.uiImage, image.size.width >= 1, image.size.height >= 1 else {
+            fatalError("SceneThumbRenderer item screenshot is empty")
+        }
+        return image
+    }
+
+    private static func posterLayout(unit: StickmanUnit, assets: UnitAssets, size: CGSize) -> SkeletonLayout {
+        var xs = unit.points.map(\.x)
+        var ys = unit.points.map(\.y)
+        for corner in assets.assetCornerPoints(for: unit, state: unit.assetsState) {
+            xs.append(corner.x)
+            ys.append(corner.y)
+        }
+        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else {
+            fatalError("SceneThumbRenderer item '\(unit.name)' has no bounds")
+        }
+        var bounds = CGRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
+        bounds = bounds.insetBy(dx: -bounds.width * itemPadding, dy: -bounds.height * itemPadding)
+        let scale = min(size.width / bounds.width, size.height / bounds.height)
+        if scale <= 0 {
+            fatalError("SceneThumbRenderer item scale is \(scale)")
+        }
+        return SkeletonLayout(
+            minX: 0,
+            minY: 0,
+            scale: scale,
+            originX: size.width / 2 - bounds.midX * scale,
+            originY: size.height / 2 - bounds.midY * scale
+        )
     }
 
     @MainActor

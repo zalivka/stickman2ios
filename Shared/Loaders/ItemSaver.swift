@@ -4,14 +4,24 @@ enum ItemSaver {
     static let pack = "@"
 
     /// Entries regenerated from the edited unit. Everything else is copied from the source archive.
-    private static let regenerated: Set<String> = ["model.xml", "assets.xml", "meta.txt"]
+    /// `thumb.png` and `poster.png` are redrawn; copying them kept the picture from before the edit.
+    private static let regenerated: Set<String> = [
+        "model.xml", "assets.xml", "meta.txt", "thumb.png", "poster.png"
+    ]
 
     static func generateName() -> String {
         let millis = Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero))
         return String(format: "Item_%d", millis % 1000)
     }
 
-    static func save(unit: StickmanUnit, assets: UnitAssets, source: Data?, name rawName: String) throws -> URL {
+    static func save(
+        unit: StickmanUnit,
+        assets: UnitAssets,
+        source: Data?,
+        name rawName: String,
+        thumb: Data,
+        poster: Data
+    ) throws -> URL {
         if !SceneSaver.isGoodFileName(rawName) {
             fatalError("ItemSaver illegal name '\(rawName)'")
         }
@@ -51,6 +61,8 @@ enum ItemSaver {
         }
         files.append((name: "\(name).name", data: Data()))
         files.append((name: "meta.txt", data: meta(name: name, scale: unit.scale)))
+        files.append((name: "thumb.png", data: thumb))
+        files.append((name: "poster.png", data: poster))
 
         let zip = ZipStore.archive(files)
         let fm = FileManager.default

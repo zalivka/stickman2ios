@@ -105,6 +105,8 @@ enum SkeletonCanvasMode {
     case camera
     case background
     case skeleton
+    /// Bitmaps only, fitted by `posterLayout`, on white. Used for item thumbs.
+    case itemPoster
 }
 
 struct SkeletonCanvas: View {
@@ -159,6 +161,8 @@ struct SkeletonCanvas: View {
     var sceneFill: Color = Self.sceneFill
     var canvasPane: Color = Self.pane
     var mode: SkeletonCanvasMode = .editor
+    /// When set, drawing uses this layout instead of fitting the whole scene. Item posters set it.
+    var posterLayout: SkeletonLayout? = nil
     var showSkeleton: Bool = true
     /// Live hold/selection flags — reference type so touch closures never see a stale copy.
     var editSession: SkeletonEditSession?
@@ -222,6 +226,8 @@ struct SkeletonCanvas: View {
                     drawCheckerboard(context: &context, size: size, layout: layout)
                 case .preview:
                     context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.previewBackdrop))
+                case .itemPoster:
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.white))
                 }
                 switch mode {
                 case .editor:
@@ -251,6 +257,10 @@ struct SkeletonCanvas: View {
                 case .background:
                     drawScene(context: &context, layout: layout)
                     drawSceneBound(context: &context, layout: layout)
+                    for drawn in unitsToDraw {
+                        drawUnit(drawn, context: &context, layout: layout)
+                    }
+                case .itemPoster:
                     for drawn in unitsToDraw {
                         drawUnit(drawn, context: &context, layout: layout)
                     }
@@ -691,6 +701,9 @@ struct SkeletonCanvas: View {
     }
 
     private func resolvedLayout(size: CGSize) -> SkeletonLayout {
+        if let posterLayout {
+            return posterLayout
+        }
         if let layout, layoutSize == size {
             return layout
         }

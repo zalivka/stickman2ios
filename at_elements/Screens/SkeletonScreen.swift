@@ -23,6 +23,7 @@ struct SkeletonScreen: View {
     @State private var layerEpoch = 0
     @State private var exposeVacantPoints = false
     @State private var showingPreview = false
+    @State private var showingSave = false
     @State private var bonePaperEdit: BonePaperEdit?
     @State private var editSession = SkeletonEditSession()
     @State private var canUndo = false
@@ -184,6 +185,23 @@ struct SkeletonScreen: View {
         .onAppear(perform: loadIfNeeded)
         .fullScreenCover(isPresented: $showingPreview) {
             previewScreen
+        }
+        .sheet(isPresented: $showingSave) {
+            SkeletonSaveScreen(
+                onClose: { showingSave = false },
+                onSaveNew: { name in
+                    saveItem(name: name) {
+                        showingSave = false
+                        showToast("Saved!")
+                    }
+                },
+                onOverwrite: { item in
+                    saveItem(name: item.systemName) {
+                        showingSave = false
+                        showToast("Saved!")
+                    }
+                }
+            )
         }
         .fullScreenCover(item: $bonePaperEdit) { session in
             BonePaperScreen(
@@ -659,21 +677,42 @@ struct SkeletonScreen: View {
 
     private func saveAs() {
         showingMenu = false
+        guard scene != nil else {
+            fatalError("SkeletonScreen '\(title)' save before load")
+        }
+        guard assets != nil else {
+            fatalError("SkeletonScreen '\(title)' has no assets to save")
+        }
+        showingSave = true
+    }
+
+    private func saveItem(name: String, then finish: @escaping () -> Void) {
         guard let scene else {
             fatalError("SkeletonScreen '\(title)' save before load")
         }
         guard let assets else {
             fatalError("SkeletonScreen '\(title)' has no assets to save")
         }
+        if scene.currentFrame.units.isEmpty {
+            fatalError("SkeletonScreen '\(title)' save with no unit")
+        }
         let unit = scene.currentFrame.units[0]
-        let name = ItemSaver.freeName()
         let source = sourceZip
+        let images = SceneThumbRenderer.itemPair(unit: unit, assets: assets)
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                _ = try ItemSaver.save(unit: unit, assets: assets, source: source, name: name)
+                _ = try ItemSaver.save(
+                    unit: unit,
+                    assets: assets,
+                    source: source,
+                    name: name,
+                    thumb: images.thumb,
+                    poster: images.poster
+                )
             } catch {
                 fatalError("SkeletonScreen could not save '\(name)': \(error)")
             }
+            DispatchQueue.main.async(execute: finish)
         }
     }
 

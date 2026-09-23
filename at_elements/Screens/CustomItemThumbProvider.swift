@@ -1,6 +1,10 @@
 import Foundation
 import Kingfisher
 
+struct MissingThumb: Error {
+    var file: String
+}
+
 struct CustomItemThumbProvider: ImageDataProvider {
     let url: URL
     let cacheKey: String
@@ -16,7 +20,8 @@ struct CustomItemThumbProvider: ImageDataProvider {
             do {
                 let zip = try Data(contentsOf: url)
                 if !ZipStore.contains("thumb.png", in: zip) {
-                    fatalError("CustomItemThumbProvider '\(url.lastPathComponent)' has no thumb.png")
+                    handler(.failure(MissingThumb(file: url.lastPathComponent)))
+                    return
                 }
                 handler(.success(ZipStore.data(named: "thumb.png", in: zip)))
             } catch {
