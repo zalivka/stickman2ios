@@ -293,6 +293,12 @@ struct SkeletonCanvas: View {
                                 handlePinch(focus: focus, factor: factor)
                             }
                         },
+                        onPinchPan: { dx, dy in
+                            if FeatureFlags.shiftPinchScale, shiftHoldFlag {
+                                return
+                            }
+                            handlePinchPan(dx: dx, dy: dy)
+                        },
                         onRotate: { radians in
                             if FeatureFlags.shiftPinchScale, shiftHoldFlag {
                                 boneShift.twist(radians)
@@ -755,6 +761,14 @@ struct SkeletonCanvas: View {
             minScale: fitScale * 0.6,
             maxScale: fitScale * 6
         )
+        layout = next
+        editSession?.layout = next
+        snapHandlers(to: next)
+    }
+
+    private func handlePinchPan(dx: CGFloat, dy: CGFloat) {
+        guard allowsSceneMovements, let current = layout else { return }
+        let next = current.panned(dx: dx, dy: dy)
         layout = next
         editSession?.layout = next
         snapHandlers(to: next)
@@ -1563,6 +1577,8 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
     var swallowPinch: () -> Bool = { false }
     var onPinchBegan: () -> Void
     var onPinch: (CGPoint, CGFloat) -> Void
+    /// Two-finger slide: how far the pinch midpoint moved since the last update.
+    var onPinchPan: (CGFloat, CGFloat) -> Void = { _, _ in }
     var onRotate: (CGFloat) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
@@ -1604,6 +1620,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         context.coordinator.swallowPinch = swallowPinch
         context.coordinator.onPinchBegan = onPinchBegan
         context.coordinator.onPinch = onPinch
+        context.coordinator.onPinchPan = onPinchPan
         context.coordinator.onRotate = onRotate
         context.coordinator.apply(useRawTouches: useRawTouches, to: uiView)
     }
@@ -1616,7 +1633,9 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         var swallowPinch: () -> Bool = { false }
         var onPinchBegan: () -> Void = {}
         var onPinch: (CGPoint, CGFloat) -> Void = { _, _ in }
+        var onPinchPan: (CGFloat, CGFloat) -> Void = { _, _ in }
         var onRotate: (CGFloat) -> Void = { _ in }
+        private var pinchFocus: CGPoint?
 
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
@@ -1681,6 +1700,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
             let focus = gesture.location(in: gesture.view)
             switch gesture.state {
             case .began:
+                pinchFocus = nil
                 if swallowPinch() {
                     rawActive = false
                     onPinch(focus, 1)
@@ -1692,12 +1712,19 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
                 }
                 onPinchBegan()
                 onPinch(focus, 1)
+                pinchFocus = focus
             case .changed:
+                // Lifting one of three fingers jumps the midpoint; a pinch here is always two.
+                if gesture.numberOfTouches == 2, let last = pinchFocus {
+                    onPinchPan(focus.x - last.x, focus.y - last.y)
+                }
+                pinchFocus = gesture.numberOfTouches == 2 && !swallowPinch() ? focus : nil
                 onPinch(focus, gesture.scale)
                 gesture.scale = 1
             case .ended, .cancelled, .failed:
                 onPinch(focus, gesture.scale)
                 gesture.scale = 1
+                pinchFocus = nil
             default:
                 break
             }
