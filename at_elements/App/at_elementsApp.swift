@@ -50,7 +50,7 @@ private struct ManifestBootView: View {
         }
         .onOpenURL { url in
             if ready {
-                importScene(url)
+                importIncoming(url)
             } else {
                 pendingURL = url
             }
@@ -65,7 +65,7 @@ private struct ManifestBootView: View {
             ready = true
             if let url = pendingURL {
                 pendingURL = nil
-                importScene(url)
+                importIncoming(url)
             }
         }
         .overlay {
@@ -84,12 +84,22 @@ private struct ManifestBootView: View {
         }
     }
 
-    private func importScene(_ url: URL) {
-        do {
-            try IncomingScene.importURL(url)
-            showToast("Scene copied")
-        } catch {
-            showToast("error")
+    private func importIncoming(_ url: URL) {
+        Task { @MainActor in
+            do {
+                switch url.pathExtension.lowercased() {
+                case CustomItems.ext:
+                    try await IncomingItem.importURL(url)
+                    showToast("Item copied")
+                case SceneSaver.ext:
+                    try IncomingScene.importURL(url)
+                    showToast("Scene copied")
+                default:
+                    showToast("error")
+                }
+            } catch {
+                showToast("error")
+            }
         }
     }
 
