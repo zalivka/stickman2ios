@@ -5,17 +5,20 @@ struct SpeedCurveEditor: UIViewRepresentable {
     var frameCount: Int
     var points: [SpeedPoint]
     var highlightIndex: Int
+    var interactive: Bool = true
     var onChange: ([SpeedPoint]) -> Void
 
     func makeUIView(context: Context) -> SpeedCurveView {
         let view = SpeedCurveView()
         view.onChange = onChange
+        view.isUserInteractionEnabled = interactive
         view.apply(frameCount: frameCount, points: points, highlightIndex: highlightIndex)
         return view
     }
 
     func updateUIView(_ view: SpeedCurveView, context: Context) {
         view.onChange = onChange
+        view.isUserInteractionEnabled = interactive
         view.apply(frameCount: frameCount, points: points, highlightIndex: highlightIndex)
     }
 }

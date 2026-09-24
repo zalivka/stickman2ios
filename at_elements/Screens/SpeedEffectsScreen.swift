@@ -19,56 +19,44 @@ struct SpeedEffectsScreen: View {
     }
 
     var body: some View {
-        ZStack {
-            if let movie {
-                canvas(movie)
-                if phase == .finished {
-                    ReplayOverlay(text: overlayText, onTap: tapOverlay)
+        HStack(spacing: 0) {
+            sidePanel
+            ZStack {
+                if let movie {
+                    canvas(movie)
+                    if phase == .finished {
+                        ReplayOverlay(text: overlayText, onTap: tapOverlay)
+                    }
+                    if phase != .generating {
+                        HStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            PreviewSeekBar(progress: progressBinding)
+                                .frame(maxHeight: .infinity)
+                                .padding(16)
+                        }
+                    }
+                } else {
+                    SkeletonCanvas.previewBackdrop
                 }
                 if phase != .generating {
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        PreviewSeekBar(progress: progressBinding)
-                            .frame(maxHeight: .infinity)
-                            .padding(16)
-                    }
+                    SpeedCurveEditor(
+                        frameCount: scene.frames.count,
+                        points: scene.speedModifier.points,
+                        highlightIndex: highlightIndex,
+                        interactive: phase != .playing,
+                        onChange: applyCurve
+                    )
+                    .padding(.trailing, PreviewSeekBar.width + 16)
+                    .allowsHitTesting(phase != .playing)
                 }
-            } else {
-                SkeletonCanvas.previewBackdrop
+                if phase == .generating {
+                    ReplayOverlay(text: overlayText, onTap: {})
+                }
             }
-            if phase != .generating {
-                SpeedCurveEditor(
-                    frameCount: scene.frames.count,
-                    points: scene.speedModifier.points,
-                    highlightIndex: highlightIndex,
-                    onChange: applyCurve
-                )
-                .padding(.trailing, PreviewSeekBar.width + 16)
-                .allowsHitTesting(phase != .playing)
-            }
-            if phase == .generating {
-                ReplayOverlay(text: overlayText, onTap: {})
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(SkeletonCanvas.previewBackdrop)
         .ignoresSafeArea()
-        .overlay(alignment: .topLeading) {
-            HStack(alignment: .center, spacing: 16) {
-                if showPlay {
-                    speedButton(title: "Play", icon: "main_btn_play", action: playOrApply)
-                }
-                FullscreenBackButton(besideMainPanel: false, padded: false, action: { dismiss() })
-            }
-            .padding(.leading, 8)
-            .padding(.top, 8)
-        }
-        .overlay(alignment: .bottomLeading) {
-            if showUndo {
-                speedButton(title: "Undo", icon: "main_btn_undo", color: MainPanel.undo, action: undoCurve)
-                    .padding(.leading, 8)
-                    .padding(.bottom, 20)
-            }
-        }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -84,9 +72,31 @@ struct SpeedEffectsScreen: View {
 
     private var chromeIdle: Bool { phase != .generating && phase != .playing }
 
-    private var showPlay: Bool { chromeIdle && (needsApply || phase != .finished) }
+    /// Android `VarSpeedFragment.showPlaybackStopped` — Play is visible whenever playback is idle.
+    private var showPlay: Bool { chromeIdle }
 
     private var showUndo: Bool { chromeIdle && canUndo }
+
+    private var sidePanel: some View {
+        VStack(spacing: 24) {
+            BackCircleButton(action: { dismiss() })
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+            if showPlay {
+                speedButton(title: "Play", icon: "main_btn_play", action: playOrApply)
+                    .frame(maxWidth: .infinity)
+            }
+            Spacer(minLength: 0)
+            if showUndo {
+                speedButton(title: "Undo", icon: "main_btn_undo", color: MainPanel.undo, action: undoCurve)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 20)
+            }
+        }
+        .frame(width: MainPanel.width)
+        .frame(maxHeight: .infinity)
+        .background(MainPanel.pane)
+    }
 
     private var highlightIndex: Int {
         movie?.currentFrame.originFrameIndex ?? 0
@@ -276,12 +286,18 @@ struct SpeedEffectsScreen: View {
         }
     }
 
+    /// Android `doStartPlayback(..., fromStart: false)`: resume unless already on the last frame.
     private func startPlaying() {
         guard var playing = movie else {
             fatalError("SpeedEffectsScreen play with no movie")
         }
-        playing.currentIndex = 0
-        movie = playing
+        if playing.frames.isEmpty {
+            fatalError("SpeedEffectsScreen play with no frames")
+        }
+        if playing.currentIndex >= playing.frames.count - 1 {
+            playing.currentIndex = 0
+            movie = playing
+        }
         phase = .playing
         needsApply = false
     }
