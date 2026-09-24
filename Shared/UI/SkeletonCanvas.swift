@@ -191,6 +191,7 @@ struct SkeletonCanvas: View {
     var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat, _ scale: CGFloat, _ rotation: CGFloat) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     var canMutateCamera: Bool = true
+    var onBackgroundChange: ((PictureMove) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
@@ -307,6 +308,17 @@ struct SkeletonCanvas: View {
                         onPrepareUndo: onPrepareUndo,
                         onChange: cameraChangeHandler
                     )
+                } else if mode == .background, let name = bgName, name.hasPrefix("usermade:") {
+                    CameraTouchOverlay(
+                        currentIndex: currentIndex,
+                        cameraMove: bgMove,
+                        layoutScale: resolvedLayout(size: proxy.size).scale,
+                        windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
+                        canMutate: true,
+                        onLocked: {},
+                        onPrepareUndo: nil,
+                        onChange: backgroundChangeHandler
+                    )
                 }
             }
             .onAppear {
@@ -356,6 +368,13 @@ struct SkeletonCanvas: View {
             fatalError("SkeletonCanvas camera mode missing onCameraChange")
         }
         return onCameraChange
+    }
+
+    private var backgroundChangeHandler: (PictureMove) -> Void {
+        guard let onBackgroundChange else {
+            fatalError("SkeletonCanvas background mode missing onBackgroundChange")
+        }
+        return onBackgroundChange
     }
 
     private var unitsToDraw: [StickmanUnit] {
@@ -784,7 +803,9 @@ struct SkeletonCanvas: View {
         if let name = bgName, name.hasPrefix("usermade:") {
             let origin = layout.screenPoint(x: 0, y: 0)
             context.drawLayer { layer in
-                layer.clip(to: Path(rect))
+                if mode != .background {
+                    layer.clip(to: Path(rect))
+                }
                 layer.translateBy(x: origin.x, y: origin.y)
                 layer.scaleBy(x: layout.scale, y: layout.scale)
                 drawSceneContent(context: &layer)

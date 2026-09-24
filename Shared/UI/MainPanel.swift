@@ -5,6 +5,7 @@ struct MainPanel: View {
     static let width: CGFloat = 100
     static let pane = Color(red: 0x24 / 255, green: 0x25 / 255, blue: 0x30 / 255)
     static let play = Color(red: 1, green: 0x90 / 255, blue: 0)
+    static let draw = Color(red: 0, green: 0xD7 / 255, blue: 1)
     static let insert = Color(red: 0x72 / 255, green: 0xbd / 255, blue: 0)
     static let insertActive = Color(red: 0x85 / 255, green: 0xb8 / 255, blue: 0x39 / 255)
     static let editUnit = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
@@ -16,7 +17,9 @@ struct MainPanel: View {
 
     var onPlay: () -> Void = {}
     var playEnabled: Bool = true
+    var onDraw: (() -> Void)? = nil
     var onInsert: (() -> Void)? = nil
+    var onAdd: (() -> Void)? = nil
     var onEditUnit: (() -> Void)? = nil
     var onEditFrame: (() -> Void)? = nil
     var onUndo: (() -> Void)? = nil
@@ -63,6 +66,15 @@ struct MainPanel: View {
                 action: onPlay
             )
             .tutorialHole(onlyPlay)
+            if let onDraw {
+                chromeButton(
+                    icon: Self.drawIcon,
+                    title: "DRAW",
+                    color: Self.draw,
+                    activated: false,
+                    action: onDraw
+                )
+            }
             if let onInsert {
                 chromeButton(
                     icon: insertActivated ? Self.insertIconSel : Self.insertIcon,
@@ -70,6 +82,15 @@ struct MainPanel: View {
                     color: insertActivated ? .white : Self.insert,
                     activated: insertActivated,
                     action: onInsert
+                )
+            }
+            if let onAdd {
+                chromeButton(
+                    icon: Self.insertIcon,
+                    title: "ADD",
+                    color: Self.insert,
+                    activated: false,
+                    action: onAdd
                 )
             }
             if let onEditUnit {
@@ -186,6 +207,7 @@ struct MainPanel: View {
 
     private static let navIcon = chromeImage("main_btn_nav")
     private static let playIcon = chromeImage("main_btn_play")
+    private static let drawIcon = chromeImage("bg_btn_draw")
     private static let insertIcon = chromeImage("main_btn_insert")
     private static let insertIconSel = chromeImage("main_btn_insert_sel")
     private static let propsIcon = chromeImage("main_btn_props")

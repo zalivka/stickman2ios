@@ -137,52 +137,62 @@ enum SceneLoader {
         // and omit bg_name. Android wraps that PNG as usermade and stamps every frame.
         if names.contains("bg.png") {
             let png = ZipStore.data(named: "bg.png", in: zip)
-            let image = BackgroundAssets.decode(png, name: "bg.png")
-            let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
-            let bgName = "usermade:\(own)"
-            backgrounds.install(
-                name: bgName,
-                image: image,
-                archive: ZipStore.archive([(name: "bg.png", data: png)])
-            )
-            for i in scene.frames.indices {
-                scene.frames[i].bgName = bgName
+            if let image = BackgroundAssets.tryDecode(png) {
+                let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
+                let bgName = "usermade:\(own)"
+                backgrounds.install(
+                    name: bgName,
+                    image: image,
+                    archive: ZipStore.archive([(name: "bg.png", data: png)])
+                )
+                for i in scene.frames.indices {
+                    scene.frames[i].bgName = bgName
+                }
+            } else {
+                backgrounds.recordLoadError("\(BackgroundStore.Failure.notAnImage("bg.png"))")
             }
         }
-        var seen: Set<String> = []
+        var failed: Set<String> = []
         for frame in scene.frames {
-            guard let bgName = frame.bgName else { continue }
-            if bgName.hasPrefix("#") { continue }
-            if !bgName.hasPrefix("usermade:") {
-                fatalError("SceneLoader '\(resource).ats' unknown bg_name '\(bgName)'")
+            guard let bgName = frame.bgName, !bgName.hasPrefix("#") else { continue }
+            if backgrounds.hasImage(for: bgName) || failed.contains(bgName) { continue }
+            do {
+                try installSceneBackground(bgName, zip: zip, names: names, into: backgrounds)
+            } catch {
+                failed.insert(bgName)
+                print("SceneLoader '\(resource).ats' background: \(error)")
+                backgrounds.recordLoadError("\(error)")
             }
-            if seen.contains(bgName) { continue }
-            seen.insert(bgName)
-            if backgrounds.hasImage(for: bgName) {
-                continue
+        }
+        if !failed.isEmpty {
+            for i in scene.frames.indices {
+                if let bgName = scene.frames[i].bgName, failed.contains(bgName) {
+                    scene.frames[i].bgName = "#ffffff"
+                    scene.frames[i].bgMove = .identity
+                }
             }
-            let own = ownName(bgName)
-            let entry = "_bgs/\(own).zip"
-            if !names.contains(entry) {
-                fatalError("SceneLoader '\(resource).ats' missing '\(entry)'")
-            }
-            let nested = ZipStore.data(named: entry, in: zip)
-            let innerNames = ZipStore.names(in: nested)
-            let imageName: String
-            if innerNames.contains("bg.png") {
-                imageName = "bg.png"
-            } else if innerNames.contains("bg.jpg") {
-                imageName = "bg.jpg"
-            } else {
-                fatalError("SceneLoader '\(entry)' has no bg.png or bg.jpg")
-            }
-            backgrounds.install(
-                name: bgName,
-                image: BackgroundAssets.decode(ZipStore.data(named: imageName, in: nested), name: imageName),
-                archive: nested
-            )
         }
         return backgrounds
+    }
+
+    /// Scene-embedded `_bgs/<own>.zip` first, then the device `bgs` / `bgs_ro` archives.
+    private static func installSceneBackground(
+        _ bgName: String,
+        zip: Data,
+        names: [String],
+        into backgrounds: BackgroundAssets
+    ) throws {
+        guard bgName.hasPrefix(BackgroundStore.usermadePrefix),
+              bgName.count > BackgroundStore.usermadePrefix.count
+        else {
+            throw BackgroundStore.Failure.unsupported(bgName)
+        }
+        let entry = "_bgs/\(ownName(bgName)).zip"
+        if names.contains(entry) {
+            try backgrounds.installArchive(name: bgName, archive: ZipStore.data(named: entry, in: zip))
+            return
+        }
+        try BackgroundResolver.install(bgName, into: backgrounds)
     }
 
     private static func ensureAssets(scene: StickmanScene, assets: UnitAssets, resource: String) {
@@ -461,12 +471,6 @@ enum SceneXML {
                 }
                 if bgName.hasPrefix("#") {
                     _ = HexRGB.parse(bgName)
-                } else if bgName.hasPrefix("usermade:") {
-                    if SceneLoader.ownName(bgName).isEmpty {
-                        fatalError("SceneLoader frame \(id) bg_name '\(bgName)' has empty own name")
-                    }
-                } else {
-                    fatalError("SceneLoader frame \(id) unknown bg_name '\(bgName)'")
                 }
                 frameId = id
                 frameBgName = bgName

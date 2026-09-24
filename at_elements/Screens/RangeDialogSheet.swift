@@ -243,7 +243,7 @@ struct RangeFramePreview: View {
         }
         let frame = scene.frames[index]
         return SkeletonCanvas(
-            unit: Binding(
+            unit: frame.units.isEmpty ? nil : Binding(
                 get: {
                     guard let first = frame.units.first else {
                         fatalError("RangeFramePreview empty frame read unit")

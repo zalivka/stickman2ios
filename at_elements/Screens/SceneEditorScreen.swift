@@ -307,7 +307,9 @@ struct SceneEditorScreen: View {
             }
         }
         .onAppear {
-            if tutorialStep == .move {
+            if !backgrounds.loadErrors.isEmpty {
+                showToast(backgrounds.loadErrors.joined(separator: "\n"), seconds: 3.5)
+            } else if tutorialStep == .move {
                 showToast("Move me to start animating", seconds: 3.5)
             }
         }

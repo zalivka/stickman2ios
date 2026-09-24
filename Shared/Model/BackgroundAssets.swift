@@ -5,6 +5,8 @@ import ImageIO
 final class BackgroundAssets {
     private var images: [String: CGImage] = [:]
     private var archives: [String: Data] = [:]
+    /// Backgrounds a loaded scene referenced but could not show; those frames fall back to white.
+    private(set) var loadErrors: [String] = []
 
     func image(for name: String) -> CGImage {
         guard let image = images[name] else {
@@ -30,6 +32,21 @@ final class BackgroundAssets {
         }
     }
 
+    /// A `usermade:` archive with `bg.png` or `bg.jpg`, kept whole so the scene saves it as `_bgs/<own>.zip`.
+    func installArchive(name: String, archive: Data) throws {
+        guard let entry = BackgroundStore.rasterEntry(in: archive) else {
+            throw BackgroundStore.Failure.noRaster(name)
+        }
+        guard let image = Self.tryDecode(ZipStore.data(named: entry, in: archive)) else {
+            throw BackgroundStore.Failure.notAnImage(name)
+        }
+        install(name: name, image: image, archive: archive)
+    }
+
+    func recordLoadError(_ message: String) {
+        loadErrors.append(message)
+    }
+
     func archive(for name: String) -> Data {
         guard let zip = archives[name] else {
             fatalError("BackgroundAssets missing archive for '\(name)'")
@@ -38,12 +55,16 @@ final class BackgroundAssets {
     }
 
     static func decode(_ data: Data, name: String) -> CGImage {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        guard let image = tryDecode(data) else {
             fatalError("BackgroundAssets '\(name)' is not an image")
         }
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            fatalError("BackgroundAssets '\(name)' has no image frames")
-        }
         return image
+    }
+
+    static func tryDecode(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 }

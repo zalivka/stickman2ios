@@ -8,7 +8,7 @@ struct DualNavigationChrome: View {
     @Binding var mode: DualNavigation.Mode
     var onEnterRange: (() -> Void)? = nil
     var onLeaveRange: (() -> Void)? = nil
-    /// Android `MainEditor.onNextFramePressed` when `isEnd()` — clone last frame. Camera/bg omit this.
+    /// Android `MainEditor.onNextFramePressed` when `isEnd()` — clone the last frame.
     var onNextAtEnd: (() -> Void)? = nil
     /// Android `copyTouchHeldStructureToFrameIfNoConflicts` after a next/prev tap.
     var onHoldCopy: ((_ sourceIndex: Int, _ destIndex: Int) -> Void)? = nil

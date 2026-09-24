@@ -1,6 +1,6 @@
+import FlexColorPicker
 import SwiftUI
 import UIKit
-import FlexColorPicker
 
 enum SolidBackgrounds {
     /// Android BgAnimatorActivity2 default solid suggestions.
@@ -27,7 +27,10 @@ struct BgAnimatorScreen: View {
     @State private var showingPreview = false
     @State private var showingColorPicker = false
     @State private var extraColors: [String] = []
-    @State private var pendingRangeHex: String?
+    /// Android `mTempBgs`: every background applied in this session, kept in the strip.
+    @State private var tempBackgrounds: [String] = []
+    @State private var showingChooser = false
+    @State private var pendingRangeBg: String?
 
     init(scene: Binding<StickmanScene>, assets: UnitAssets, backgrounds: BackgroundAssets) {
         if scene.wrappedValue.frames.isEmpty {
@@ -51,74 +54,65 @@ struct BgAnimatorScreen: View {
                 MainPanel(
                     onPlay: { showingPreview = true },
                     playEnabled: scene.frames.count >= 2,
+                    onDraw: {},
+                    onAdd: { showingChooser = true },
                     onReset: resetBackground
                 )
-                SolidBackgroundStrip(
-                    colors: thumbColors,
-                    selected: scene.currentFrame.bgName,
-                    onPick: applyBackground,
-                    onLongPress: beginRangePick,
-                    onAdd: { showingColorPicker = true }
-                )
-                if let hex = pendingRangeHex {
-                    RangePicker(
-                        title: "Apply the background to a range of frames",
-                        frameCount: scene.frames.count,
-                        initialRange: rangePickInitial,
-                        preview: { index in
-                            AnyView(
-                                RangeFramePreview(
-                                    scene: scene,
-                                    index: index,
-                                    assets: assets,
-                                    backgrounds: backgrounds
-                                )
-                            )
-                        },
-                        onCancel: { pendingRangeHex = nil },
-                        onApply: { span in
-                            applyBackground(hex, to: span)
-                            range = span
-                            navMode = .range
-                            pendingRangeHex = nil
-                        }
-                    )
-                } else {
-                    SkeletonCanvas(
-                        unit: unitBinding,
-                        frameUnits: scene.currentFrame.units,
-                        assets: assets,
+                ZStack(alignment: .leading) {
+                    workArea
+                    BackgroundStrip(
+                        names: stripNames,
+                        pictureMode: pictureStrip,
                         backgrounds: backgrounds,
-                        bgName: scene.currentFrame.bgName,
-                        bgMove: scene.currentFrame.bgMove,
-                        cameraMove: scene.currentFrame.cameraMove,
-                        sceneWidth: scene.width,
-                        sceneHeight: scene.height,
-                        currentIndex: scene.currentIndex,
-                        mode: .background,
-                        showSkeleton: false
+                        selected: scene.currentFrame.bgName,
+                        onPick: applyBackground,
+                        onLongPress: beginRangePick,
+                        onAdd: { showingColorPicker = true }
                     )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(SkeletonCanvas.pane)
                 }
             }
         }
         .overlay(alignment: .trailing) {
-            if pendingRangeHex == nil {
-                DualNavigationChrome(
+            DualNavigationChrome(
                     frameCount: scene.frames.count,
                     currentIndex: currentIndexBinding,
                     range: $range,
-                    mode: $navMode
+                    mode: $navMode,
+                    onNextAtEnd: { scene.addFrame() }
                 )
-            }
         }
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(
-                extraLeading: SolidBackgroundStrip.width,
-                action: pendingRangeHex == nil ? nil : { pendingRangeHex = nil }
+                extraLeading: BackgroundStrip.width(pictureMode: pictureStrip)
             )
+        }
+        .overlay {
+            if let bgName = pendingRangeBg {
+                RangePicker(
+                    title: "Apply the background to a range of frames",
+                    frameCount: scene.frames.count,
+                    initialRange: rangePickInitial,
+                    preview: { index in
+                        AnyView(
+                            RangeFramePreview(
+                                scene: scene,
+                                index: index,
+                                assets: assets,
+                                backgrounds: backgrounds
+                            )
+                        )
+                    },
+                    onCancel: { pendingRangeBg = nil },
+                    onApply: { span in
+                        applyBackground(bgName, to: span)
+                        range = span
+                        navMode = .range
+                        pendingRangeBg = nil
+                    }
+                )
+                .ignoresSafeArea()
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -132,6 +126,38 @@ struct BgAnimatorScreen: View {
                 showingColorPicker = false
             }
         }
+        .sheet(isPresented: $showingChooser) {
+            BgChooserSheet(
+                sceneWidth: scene.width,
+                sceneHeight: scene.height,
+                backgrounds: backgrounds,
+                onPick: { bgName in
+                    showingChooser = false
+                    applyBackground(bgName)
+                },
+                onCancel: { showingChooser = false }
+            )
+        }
+    }
+
+    private var workArea: some View {
+        SkeletonCanvas(
+                unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
+                frameUnits: scene.currentFrame.units,
+                assets: assets,
+                backgrounds: backgrounds,
+                bgName: scene.currentFrame.bgName,
+                bgMove: scene.currentFrame.bgMove,
+                cameraMove: scene.currentFrame.cameraMove,
+                sceneWidth: scene.width,
+                sceneHeight: scene.height,
+                currentIndex: scene.currentIndex,
+                mode: .background,
+                showSkeleton: false,
+                onBackgroundChange: applyBgMove
+            )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SkeletonCanvas.pane)
     }
 
     private var pickerInitialColor: UIColor {
@@ -163,6 +189,26 @@ struct BgAnimatorScreen: View {
         let gi = min(max(Int((g * 255).rounded()), 0), 255)
         let bi = min(max(Int((b * 255).rounded()), 0), 255)
         return String(format: "#%02X%02X%02X", ri, gi, bi)
+    }
+
+    /// Picture backgrounds use the large swatches. An all-solid strip stays at the color size.
+    private var pictureStrip: Bool {
+        !stripNames.allSatisfy { $0.hasPrefix("#") }
+    }
+
+    /// Android `BgAdapter.reset`: once any non-solid background is in play, the strip lists the
+    /// scene's backgrounds (solids included) plus this session's picks, instead of color suggestions.
+    private var stripNames: [String] {
+        var seen = Set<String>()
+        var used: [String] = []
+        for name in scene.frames.compactMap(\.bgName) + tempBackgrounds where !seen.contains(name) {
+            seen.insert(name)
+            used.append(name)
+        }
+        if used.allSatisfy({ $0.hasPrefix("#") }) {
+            return thumbColors
+        }
+        return used
     }
 
     private var thumbColors: [String] {
@@ -234,34 +280,63 @@ struct BgAnimatorScreen: View {
         }
     }
 
-    private func beginRangePick(_ hex: String) {
-        _ = HexRGB.parse(hex)
+    private func beginRangePick(_ bgName: String) {
         if scene.frames.count < 2 {
-            applyBackground(hex)
+            applyBackground(bgName)
             return
         }
-        pendingRangeHex = hex
+        pendingRangeBg = bgName
     }
 
-    private func applyBackground(_ hex: String) {
+    private func applyBackground(_ bgName: String) {
         switch navMode {
         case .frames:
             let index = scene.currentIndex
-            applyBackground(hex, to: index...index)
+            applyBackground(bgName, to: index...index)
         case .range:
-            applyBackground(hex, to: range)
+            applyBackground(bgName, to: range)
         }
     }
 
-    private func applyBackground(_ hex: String, to span: ClosedRange<Int>) {
-        rememberColor(hex)
-        _ = HexRGB.parse(hex)
+    /// Android `applyBackground`: every frame in the span gets the name and the fitted move.
+    private func applyBackground(_ bgName: String, to span: ClosedRange<Int>) {
+        if span.lowerBound < 0 || span.upperBound >= scene.frames.count {
+            fatalError("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
+        }
+        let move: PictureMove
+        if bgName.hasPrefix("#") {
+            rememberColor(bgName)
+            move = .identity
+        } else {
+            move = BackgroundResolver.fittedMove(
+                image: backgrounds.image(for: bgName),
+                sceneWidth: scene.width,
+                sceneHeight: scene.height
+            )
+        }
+        if !tempBackgrounds.contains(bgName) {
+            tempBackgrounds.append(bgName)
+        }
+        for index in span {
+            scene.frames[index].bgName = bgName
+            scene.frames[index].bgMove = move
+        }
+    }
+
+    private func applyBgMove(_ move: PictureMove) {
+        let span: ClosedRange<Int>
+        switch navMode {
+        case .frames:
+            let index = scene.currentIndex
+            span = index...index
+        case .range:
+            span = range
+        }
         if span.lowerBound < 0 || span.upperBound >= scene.frames.count {
             fatalError("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
         }
         for index in span {
-            scene.frames[index].bgName = hex
-            scene.frames[index].bgMove = .identity
+            scene.frames[index].bgMove = move
         }
     }
 
@@ -297,70 +372,94 @@ struct BgAnimatorScreen: View {
     }
 }
 
-private struct SolidBackgroundStrip: View {
-    static let width: CGFloat = 52
+private struct BackgroundStrip: View {
+    static let colorWidth: CGFloat = 52
+    static let pictureWidth: CGFloat = 88
+    private static let colorSwatch: CGFloat = 36
+    private static let pictureSwatch: CGFloat = 72
 
-    var colors: [String]
+    var names: [String]
+    var pictureMode: Bool
+    var backgrounds: BackgroundAssets
     var selected: String?
     var onPick: (String) -> Void
     var onLongPress: (String) -> Void
     var onAdd: () -> Void
 
+    static func width(pictureMode: Bool) -> CGFloat {
+        pictureMode ? pictureWidth : colorWidth
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                ForEach(colors, id: \.self) { hex in
-                    let rgba = HexRGB.parse(hex)
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
-                        .frame(width: 36, height: 36)
+                ForEach(names, id: \.self) { name in
+                    let side = pictureMode ? Self.pictureSwatch : Self.colorSwatch
+                    swatch(name)
+                        .frame(width: side, height: side)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .stroke(
-                                    isSelected(hex) ? Color.white : Color(white: 0.25),
-                                    lineWidth: isSelected(hex) ? 3 : 1
+                                    isSelected(name) ? Color.white : Color(white: 0.25),
+                                    lineWidth: isSelected(name) ? 3 : 1
                                 )
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         .onTapGesture {
-                            onPick(hex)
+                            onPick(name)
                         }
                         .onLongPressGesture(minimumDuration: 0.35, perform: {
-                            onLongPress(hex)
+                            onLongPress(name)
                         })
-                        .accessibilityLabel(hex)
+                        .accessibilityLabel(name)
                         .accessibilityAddTraits(.isButton)
                 }
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(Color(white: 0.45), lineWidth: 1)
-                        }
+                if !pictureMode {
+                    let side = Self.colorSwatch
+                    Button(action: onAdd) {
+                        Image(systemName: "plus")
+                            .font(.system(size: side * 0.4, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: side, height: side)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add color")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add color")
             }
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
         }
-        .frame(width: Self.width)
+        .frame(width: Self.width(pictureMode: pictureMode))
         .frame(maxHeight: .infinity)
-        .background(MainPanel.pane)
+        .background(Color.black.opacity(0.35))
         .accessibilityIdentifier("background colors")
     }
 
-    private func isSelected(_ hex: String) -> Bool {
+    @ViewBuilder
+    private func swatch(_ name: String) -> some View {
+        if name.hasPrefix("#") {
+            let rgba = HexRGB.parse(name)
+            Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a)
+        } else {
+            Image(decorative: backgrounds.image(for: name), scale: 1)
+                .resizable()
+                .scaledToFill()
+        }
+    }
+
+    private func isSelected(_ name: String) -> Bool {
         guard let selected else {
             return false
         }
-        if !selected.hasPrefix("#") {
-            return false
+        if !name.hasPrefix("#") || !selected.hasPrefix("#") {
+            return name == selected
         }
-        let a = HexRGB.parse(hex)
+        let a = HexRGB.parse(name)
         let b = HexRGB.parse(selected)
         return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a
     }

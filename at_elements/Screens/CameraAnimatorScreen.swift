@@ -49,7 +49,7 @@ struct CameraAnimatorScreen: View {
                     tweenEnabled: scene.frames.count >= 2
                 )
                 SkeletonCanvas(
-                    unit: unitBinding,
+                    unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
                     frameUnits: scene.currentFrame.units,
                     assets: assets,
                     backgrounds: backgrounds,
@@ -76,6 +76,7 @@ struct CameraAnimatorScreen: View {
                 currentIndex: currentIndexBinding,
                 range: $range,
                 mode: $navMode,
+                onNextAtEnd: { scene.addFrame() },
                 stickStyle: tweenStickStyle
             )
         }
