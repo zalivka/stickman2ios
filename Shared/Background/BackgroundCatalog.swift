@@ -24,6 +24,31 @@ enum BackgroundCatalog {
         return folders
     }
 
+    /// Drawn backgrounds in `bgs`, newest first; nil when there are none.
+    static func userFolder() -> Folder? {
+        var entries: [BackgroundEntry] = []
+        for url in BackgroundStore.userArchives() {
+            let own = url.deletingPathExtension().lastPathComponent
+            let archive: Data
+            do {
+                archive = try Data(contentsOf: url, options: .mappedIfSafe)
+            } catch {
+                fatalError("BackgroundCatalog cannot read \(url.path): \(error)")
+            }
+            if BackgroundStore.rasterEntry(in: archive) == nil {
+                continue
+            }
+            guard let thumb = thumb(in: archive) else {
+                continue
+            }
+            entries.append(BackgroundEntry(source: .user(ownName: own), thumb: thumb))
+        }
+        if entries.isEmpty {
+            return nil
+        }
+        return Folder(packName: BackgroundEntry.userFolder, title: "My backgrounds", entries: entries)
+    }
+
     /// Pack `bgs/<name>.zip`, as Android `ExternalPack.getPackBgs`.
     static func packArchive(packName: String, ownName: String) throws -> Data {
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))

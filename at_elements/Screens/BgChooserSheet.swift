@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Android `BgChooserFragment`: folders on the left, backgrounds of the selected folder on the right.
 /// Picking materializes the sized cache archive and installs it into `backgrounds` before `onPick`.
@@ -6,11 +7,17 @@ struct BgChooserSheet: View {
     var sceneWidth: CGFloat
     var sceneHeight: CGFloat
     var backgrounds: BackgroundAssets
+    var colorInitial: UIColor
+    /// `bgName`s on the open scene. Delete stays off for these.
+    var usedNames: Set<String>
     var onPick: (String) -> Void
+    var onEdit: (BackgroundEntry) -> Void
+    var onDelete: (BackgroundEntry) -> Bool
     var onCancel: () -> Void
 
     @State private var folders: [BackgroundCatalog.Folder]?
     @State private var selected: String?
+    @State private var showingColor = false
     @State private var toast = ""
 
     private static let thumbSize: CGFloat = 110
@@ -52,6 +59,12 @@ struct BgChooserSheet: View {
             }
         }
         .onAppear(perform: loadFolders)
+        .sheet(isPresented: $showingColor) {
+            FlexColorPickerSheet(initial: colorInitial) { color in
+                showingColor = false
+                onPick(SolidBackgrounds.hex(from: color))
+            }
+        }
     }
 
     @ViewBuilder
@@ -82,6 +95,9 @@ struct BgChooserSheet: View {
             VStack(spacing: 8) {
                 actionRow("Pick", fill: Self.pickFill, ink: Self.pickInk, symbol: "photo")
                 actionRow("Draw", fill: Self.drawFill, ink: Self.drawInk, symbol: "paintbrush.pointed")
+                actionRow("Color", fill: Self.colorFill, ink: Self.colorInk, symbol: "paintpalette") {
+                    showingColor = true
+                }
                 ForEach(folders) { folder in
                     Button {
                         selected = folder.packName
@@ -109,9 +125,17 @@ struct BgChooserSheet: View {
     private static let pickInk = Color(red: 0x07 / 255, green: 0x23 / 255, blue: 0x3A / 255)
     private static let drawFill = Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
     private static let drawInk = Color(red: 0x38 / 255, green: 0x21 / 255, blue: 0)
+    private static let colorFill = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue: 0xFD / 255)
+    private static let colorInk = Color(red: 0x2E / 255, green: 0x10 / 255, blue: 0x65 / 255)
 
-    private func actionRow(_ title: String, fill: Color, ink: Color, symbol: String) -> some View {
-        Button(action: {}) {
+    private func actionRow(
+        _ title: String,
+        fill: Color,
+        ink: Color,
+        symbol: String,
+        action: @escaping () -> Void = {}
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
                     .font(.system(size: 16, weight: .bold))
@@ -137,19 +161,48 @@ struct BgChooserSheet: View {
                 spacing: 8
             ) {
                 ForEach(folder.entries) { entry in
-                    Button {
-                        pick(entry)
-                    } label: {
-                        thumb(entry)
-                            .frame(width: Self.thumbSize, height: Self.thumbSize)
-                            .clipped()
-                            .background(Color.white)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(entry.id)
+                    entryButton(entry)
                 }
             }
             .padding(8)
+        }
+    }
+
+    @ViewBuilder
+    private func entryButton(_ entry: BackgroundEntry) -> some View {
+        let button = Button {
+            pick(entry)
+        } label: {
+            thumb(entry)
+                .frame(width: Self.thumbSize, height: Self.thumbSize)
+                .clipped()
+                .background(Color.white)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.id)
+        if case .user = entry.source {
+            button.contextMenu {
+                Button("Edit") { onEdit(entry) }
+                Button("Delete", role: .destructive) { remove(entry) }
+                    .disabled(usedNames.contains(entry.id))
+            }
+        } else {
+            button
+        }
+    }
+
+    private func remove(_ entry: BackgroundEntry) {
+        if !onDelete(entry) {
+            return
+        }
+        guard var folders else { return }
+        for index in folders.indices {
+            folders[index].entries.removeAll { $0.id == entry.id }
+        }
+        let kept = folders.filter { !$0.entries.isEmpty }
+        self.folders = kept
+        if let selected, !kept.contains(where: { $0.packName == selected }) {
+            self.selected = kept.first?.packName
         }
     }
 
@@ -173,7 +226,7 @@ struct BgChooserSheet: View {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let loaded = BackgroundCatalog.packFolders()
+            let loaded = [BackgroundCatalog.userFolder()].compactMap { $0 } + BackgroundCatalog.packFolders()
             DispatchQueue.main.async {
                 folders = loaded
             }

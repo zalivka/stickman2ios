@@ -1,3 +1,4 @@
+import BonePaper
 import FlexColorPicker
 import SwiftUI
 import UIKit
@@ -15,6 +16,37 @@ enum SolidBackgrounds {
     ]
 
     static let reset = "#FFFFFF"
+
+    static func hex(from color: UIColor) -> String {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        if !color.getRed(&r, green: &g, blue: &b, alpha: &a) {
+            guard let converted = color.cgColor.converted(
+                to: CGColorSpaceCreateDeviceRGB(),
+                intent: .defaultIntent,
+                options: nil
+            ) else {
+                fatalError("SolidBackgrounds color is not RGB")
+            }
+            if !UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) {
+                fatalError("SolidBackgrounds converted color is not RGB")
+            }
+        }
+        let ri = min(max(Int((r * 255).rounded()), 0), 255)
+        let gi = min(max(Int((g * 255).rounded()), 0), 255)
+        let bi = min(max(Int((b * 255).rounded()), 0), 255)
+        return String(format: "#%02X%02X%02X", ri, gi, bi)
+    }
+}
+
+private struct DrawSession: Identifiable {
+    let id = UUID()
+    let sheet: BonePaperSheet
+    let buffer: CGImage?
+    /// When set, Apply overwrites this `usermade:` background instead of creating a new one.
+    var replaceName: String? = nil
 }
 
 struct BgAnimatorScreen: View {
@@ -31,6 +63,10 @@ struct BgAnimatorScreen: View {
     @State private var tempBackgrounds: [String] = []
     @State private var showingChooser = false
     @State private var pendingRangeBg: String?
+    @State private var drawSession: DrawSession?
+    @State private var toast = ""
+    @State private var backgroundRevision = 0
+    @StateObject private var undo = SceneUndo()
 
     init(scene: Binding<StickmanScene>, assets: UnitAssets, backgrounds: BackgroundAssets) {
         if scene.wrappedValue.frames.isEmpty {
@@ -54,8 +90,10 @@ struct BgAnimatorScreen: View {
                 MainPanel(
                     onPlay: { showingPreview = true },
                     playEnabled: scene.frames.count >= 2,
-                    onDraw: {},
+                    onDraw: openDraw,
                     onAdd: { showingChooser = true },
+                    onUndo: performUndo,
+                    undoEnabled: undo.canUndo,
                     onReset: resetBackground
                 )
                 ZStack(alignment: .leading) {
@@ -67,6 +105,7 @@ struct BgAnimatorScreen: View {
                         selected: scene.currentFrame.bgName,
                         onPick: applyBackground,
                         onLongPress: beginRangePick,
+                        onEdit: { openEdit(bgName: $0) },
                         onAdd: { showingColorPicker = true }
                     )
                 }
@@ -114,6 +153,20 @@ struct BgAnimatorScreen: View {
                 .ignoresSafeArea()
             }
         }
+        .overlay {
+            if !toast.isEmpty {
+                Text(toast)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.bottom, 48)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -122,7 +175,7 @@ struct BgAnimatorScreen: View {
         }
         .sheet(isPresented: $showingColorPicker) {
             FlexColorPickerSheet(initial: pickerInitialColor) { color in
-                applyBackground(Self.hexRGB(from: color))
+                applyBackground(SolidBackgrounds.hex(from: color))
                 showingColorPicker = false
             }
         }
@@ -131,12 +184,199 @@ struct BgAnimatorScreen: View {
                 sceneWidth: scene.width,
                 sceneHeight: scene.height,
                 backgrounds: backgrounds,
+                colorInitial: pickerInitialColor,
+                usedNames: Set(scene.frames.compactMap(\.bgName)),
                 onPick: { bgName in
                     showingChooser = false
                     applyBackground(bgName)
                 },
+                onEdit: { entry in
+                    if openEdit(entry) {
+                        showingChooser = false
+                    }
+                },
+                onDelete: deleteCustomBackground,
                 onCancel: { showingChooser = false }
             )
+        }
+        .fullScreenCover(item: $drawSession) { session in
+            Group {
+                if let buffer = session.buffer {
+                    BonePaperScreen(sheet: session.sheet, buffer: buffer) { export in
+                        applyDrawn(export, sheet: session.sheet, replaceName: session.replaceName)
+                    }
+                } else {
+                    BonePaperScreen(sheet: session.sheet) { export in
+                        applyDrawn(export, sheet: session.sheet, replaceName: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Blank scene-sized page over the frame's solid color, white under a picture.
+    private func openDraw() {
+        let width = Int(scene.width.rounded())
+        let height = Int(scene.height.rounded())
+        let limit = BonePaperScreen.worldSide
+        if width > limit || height > limit {
+            showToast("This scene is too big to draw (\(width)×\(height)). Maximum side is \(limit).")
+            return
+        }
+        drawSession = DrawSession(
+            sheet: BonePaperSheet(width: width, height: height, paper: pickerInitialColor.withAlphaComponent(1)),
+            buffer: nil
+        )
+    }
+
+    /// Reopens a saved custom background. The PNG is the paint buffer, copied in without scaling.
+    private func openEdit(_ entry: BackgroundEntry) -> Bool {
+        guard case .user(let own) = entry.source else {
+            fatalError("BgAnimatorScreen edit of non-user background \(entry.id)")
+        }
+        let bgName = BackgroundStore.usermadePrefix + own
+        let image: CGImage
+        do {
+            let url = try BackgroundStore.archiveURL(usermade: bgName)
+            let archive = try Data(contentsOf: url)
+            guard let raster = BackgroundStore.rasterEntry(in: archive) else {
+                throw BackgroundStore.Failure.noRaster(bgName)
+            }
+            guard let decoded = BackgroundAssets.tryDecode(ZipStore.data(named: raster, in: archive)) else {
+                throw BackgroundStore.Failure.notAnImage(bgName)
+            }
+            image = decoded
+        } catch {
+            print("BgAnimatorScreen edit \(entry.id): \(error)")
+            showToast("Cannot process the background \(entry.id)")
+            return false
+        }
+        let sample = 2
+        if image.width % sample != 0 || image.height % sample != 0 {
+            showToast("Cannot process the background \(entry.id)")
+            return false
+        }
+        let width = image.width / sample
+        let height = image.height / sample
+        let limit = BonePaperScreen.worldSide
+        if width > limit || height > limit {
+            showToast("This picture is too big (\(image.width)×\(image.height)). Maximum side is \(limit).")
+            return false
+        }
+        drawSession = DrawSession(
+            sheet: BonePaperSheet(width: width, height: height, paper: Self.topLeftColor(image)),
+            buffer: image,
+            replaceName: bgName
+        )
+        return true
+    }
+
+    private func openEdit(bgName: String) {
+        guard bgName.hasPrefix(BackgroundStore.usermadePrefix) else {
+            return
+        }
+        let own = SceneLoader.ownName(bgName)
+        _ = openEdit(BackgroundEntry(source: .user(ownName: own), thumb: nil))
+    }
+
+    private func deleteCustomBackground(_ entry: BackgroundEntry) -> Bool {
+        guard case .user(let own) = entry.source else {
+            fatalError("BgAnimatorScreen delete of non-user background \(entry.id)")
+        }
+        let bgName = BackgroundStore.usermadePrefix + own
+        do {
+            try BackgroundStore.deleteUser(ownName: own)
+        } catch {
+            print("BgAnimatorScreen delete \(entry.id): \(error)")
+            showToast("Cannot process the background \(entry.id)")
+            return false
+        }
+        tempBackgrounds.removeAll { $0 == bgName }
+        for index in scene.frames.indices where scene.frames[index].bgName == bgName {
+            scene.frames[index].bgName = SolidBackgrounds.reset
+            scene.frames[index].bgMove = .identity
+        }
+        return true
+    }
+
+    private static func topLeftColor(_ image: CGImage) -> UIColor {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let ctx = CGContext(
+            data: &pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            fatalError("BgAnimatorScreen top-left color context failed")
+        }
+        ctx.draw(
+            image,
+            in: CGRect(x: 0, y: 1 - CGFloat(image.height), width: CGFloat(image.width), height: CGFloat(image.height))
+        )
+        let a = CGFloat(pixel[3]) / 255
+        if a == 0 {
+            return .white
+        }
+        return UIColor(red: CGFloat(pixel[0]) / 255 / a, green: CGFloat(pixel[1]) / 255 / a, blue: CGFloat(pixel[2]) / 255 / a, alpha: 1)
+    }
+
+    private func applyDrawn(_ export: BonePaperExport, sheet: BonePaperSheet, replaceName: String?) {
+        let scale = 2
+        if export.image.width != sheet.width * scale || export.image.height != sheet.height * scale {
+            fatalError("BgAnimatorScreen drawn \(export.image.width)x\(export.image.height) != \(sheet.width * scale)x\(sheet.height * scale)")
+        }
+        let image = Self.flatten(export.image, over: sheet.paper)
+        if let replaceName {
+            let archive: Data
+            do {
+                archive = try BackgroundStore.replaceDrawn(replaceName, image: image)
+            } catch {
+                print("BgAnimatorScreen draw: \(error)")
+                showToast("\(error)")
+                return
+            }
+            backgrounds.install(name: replaceName, image: image, archive: archive)
+            backgroundRevision += 1
+            return
+        }
+        let saved: (bgName: String, archive: Data)
+        do {
+            saved = try BackgroundStore.saveDrawn(image)
+        } catch {
+            print("BgAnimatorScreen draw: \(error)")
+            showToast("\(error)")
+            return
+        }
+        backgrounds.install(name: saved.bgName, image: image, archive: saved.archive)
+        applyBackground(saved.bgName)
+    }
+
+    private static func flatten(_ image: CGImage, over paper: UIColor) -> CGImage {
+        let size = CGSize(width: image.width, height: image.height)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            paper.withAlphaComponent(1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
+        }
+        guard let flat = rendered.cgImage else {
+            fatalError("BgAnimatorScreen flatten failed")
+        }
+        return flat
+    }
+
+    private func showToast(_ text: String) {
+        toast = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if toast == text {
+                toast = ""
+            }
         }
     }
 
@@ -147,6 +387,7 @@ struct BgAnimatorScreen: View {
                 assets: assets,
                 backgrounds: backgrounds,
                 bgName: scene.currentFrame.bgName,
+                backgroundRevision: backgroundRevision,
                 bgMove: scene.currentFrame.bgMove,
                 cameraMove: scene.currentFrame.cameraMove,
                 sceneWidth: scene.width,
@@ -154,6 +395,7 @@ struct BgAnimatorScreen: View {
                 currentIndex: scene.currentIndex,
                 mode: .background,
                 showSkeleton: false,
+                onPrepareUndo: { undo.commitTimeline(from: scene) },
                 onBackgroundChange: applyBgMove
             )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -166,29 +408,6 @@ struct BgAnimatorScreen: View {
         }
         let rgba = HexRGB.parse(name)
         return UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a)
-    }
-
-    private static func hexRGB(from color: UIColor) -> String {
-        var r: CGFloat = 0
-        var g: CGFloat = 0
-        var b: CGFloat = 0
-        var a: CGFloat = 0
-        if !color.getRed(&r, green: &g, blue: &b, alpha: &a) {
-            guard let converted = color.cgColor.converted(
-                to: CGColorSpaceCreateDeviceRGB(),
-                intent: .defaultIntent,
-                options: nil
-            ) else {
-                fatalError("BgAnimatorScreen color is not RGB")
-            }
-            if !UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) {
-                fatalError("BgAnimatorScreen converted color is not RGB")
-            }
-        }
-        let ri = min(max(Int((r * 255).rounded()), 0), 255)
-        let gi = min(max(Int((g * 255).rounded()), 0), 255)
-        let bi = min(max(Int((b * 255).rounded()), 0), 255)
-        return String(format: "#%02X%02X%02X", ri, gi, bi)
     }
 
     /// Picture backgrounds use the large swatches. An all-solid strip stays at the color size.
@@ -303,6 +522,7 @@ struct BgAnimatorScreen: View {
         if span.lowerBound < 0 || span.upperBound >= scene.frames.count {
             fatalError("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
         }
+        undo.commitTimeline(from: scene)
         let move: PictureMove
         if bgName.hasPrefix("#") {
             rememberColor(bgName)
@@ -344,6 +564,17 @@ struct BgAnimatorScreen: View {
         applyBackground(SolidBackgrounds.reset)
     }
 
+    private func performUndo() {
+        if !undo.canUndo {
+            return
+        }
+        undo.restore(into: &scene)
+        let last = scene.frames.count - 1
+        let low = min(max(range.lowerBound, 0), last)
+        let high = min(max(range.upperBound, low), last)
+        range = low...high
+    }
+
     private var currentIndexBinding: Binding<Int> {
         Binding(
             get: { scene.currentIndex },
@@ -372,6 +603,21 @@ struct BgAnimatorScreen: View {
     }
 }
 
+private struct UsedBackgroundEditMenu: ViewModifier {
+    var name: String
+    var onEdit: (String) -> Void
+
+    func body(content: Content) -> some View {
+        if name.hasPrefix("#") {
+            content
+        } else {
+            content.contextMenu {
+                Button("Edit") { onEdit(name) }
+            }
+        }
+    }
+}
+
 private struct BackgroundStrip: View {
     static let colorWidth: CGFloat = 52
     static let pictureWidth: CGFloat = 88
@@ -384,6 +630,7 @@ private struct BackgroundStrip: View {
     var selected: String?
     var onPick: (String) -> Void
     var onLongPress: (String) -> Void
+    var onEdit: (String) -> Void
     var onAdd: () -> Void
 
     static func width(pictureMode: Bool) -> CGFloat {
@@ -412,6 +659,7 @@ private struct BackgroundStrip: View {
                         .onLongPressGesture(minimumDuration: 0.35, perform: {
                             onLongPress(name)
                         })
+                        .modifier(UsedBackgroundEditMenu(name: name, onEdit: onEdit))
                         .accessibilityLabel(name)
                         .accessibilityAddTraits(.isButton)
                 }
@@ -465,7 +713,7 @@ private struct BackgroundStrip: View {
     }
 }
 
-private struct FlexColorPickerSheet: UIViewControllerRepresentable {
+struct FlexColorPickerSheet: UIViewControllerRepresentable {
     var initial: UIColor
     var onApply: (UIColor) -> Void
 

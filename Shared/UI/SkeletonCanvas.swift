@@ -153,6 +153,8 @@ struct SkeletonCanvas: View {
     var assets: UnitAssets?
     var backgrounds: BackgroundAssets?
     var bgName: String?
+    /// Bumped when a picture's pixels are replaced in place, so the canvas redraws them.
+    var backgroundRevision: Int = 0
     var bgMove: PictureMove = .identity
     var cameraMove: PictureMove = .identity
     var sceneWidth: CGFloat
@@ -316,7 +318,7 @@ struct SkeletonCanvas: View {
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
                         canMutate: true,
                         onLocked: {},
-                        onPrepareUndo: nil,
+                        onPrepareUndo: onPrepareUndo,
                         onChange: backgroundChangeHandler
                     )
                 }
@@ -858,6 +860,7 @@ struct SkeletonCanvas: View {
     private func drawSceneContent(context: inout GraphicsContext) {
         let rect = CGRect(x: 0, y: 0, width: sceneWidth, height: sceneHeight)
         if let name = bgName, name.hasPrefix("usermade:") {
+            let _ = backgroundRevision
             guard let backgrounds else {
                 fatalError("SkeletonCanvas missing BackgroundAssets for '\(name)'")
             }

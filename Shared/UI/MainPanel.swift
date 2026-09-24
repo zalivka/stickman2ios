@@ -141,6 +141,7 @@ struct MainPanel: View {
                     action: onReset
                 )
             }
+            Spacer(minLength: 0)
             if onEditFrame == nil, let onUndo {
                 chromeButton(
                     icon: Self.undoIcon,
@@ -152,7 +153,6 @@ struct MainPanel: View {
                     action: { tapUndo(onUndo) }
                 )
             }
-            Spacer(minLength: 0)
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)

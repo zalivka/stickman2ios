@@ -14,6 +14,26 @@ public struct BonePaperExport {
     public let extraTop: CGFloat
 }
 
+/// A fixed-size page with a solid paper colour behind the strokes. It never grows; the eraser shows the paper.
+public struct BonePaperSheet: Identifiable {
+    public let id = UUID()
+    public let width: Int
+    public let height: Int
+    public let paper: UIColor
+
+    public init(width: Int, height: Int, paper: UIColor) {
+        if width < 1 || height < 1 {
+            fatalError("BonePaperSheet size \(width)x\(height)")
+        }
+        if width > BonePaperDocument.maxSide || height > BonePaperDocument.maxSide {
+            fatalError("BonePaperSheet size \(width)x\(height) exceeds \(BonePaperDocument.maxSide)")
+        }
+        self.width = width
+        self.height = height
+        self.paper = paper
+    }
+}
+
 final class BonePaperDocument: ObservableObject {
     static let sample: Int = 2
     static let undoCap = 5
@@ -40,6 +60,8 @@ final class BonePaperDocument: ObservableObject {
 
     var worldSize: Int { Self.maxSide }
 
+    /// Sheet documents keep their size; strokes past the edge are clipped instead of growing the bitmap.
+    let fixed: Bool
     private(set) var width: Int
     private(set) var height: Int
     private(set) var originX: Int
@@ -72,7 +94,29 @@ final class BonePaperDocument: ObservableObject {
         self.init(width: Self.defaultSide, height: Self.defaultSide, source: nil)
     }
 
-    init(width: Int, height: Int, source: CGImage?) {
+    convenience init(width: Int, height: Int, source: CGImage?) {
+        self.init(width: width, height: height, source: source, fixed: false)
+    }
+
+    convenience init(sheet: BonePaperSheet) {
+        self.init(width: sheet.width, height: sheet.height, source: nil, fixed: true)
+    }
+
+    /// Copies `buffer` into the paint buffer. It must already be `sheet` times `sample`; it is not scaled.
+    convenience init(sheet: BonePaperSheet, buffer: CGImage) {
+        self.init(sheet: sheet)
+        if buffer.width != pixelWidth || buffer.height != pixelHeight {
+            fatalError("BonePaperDocument buffer \(buffer.width)x\(buffer.height) != \(pixelWidth)x\(pixelHeight)")
+        }
+        context.draw(buffer, in: pixelRect)
+        guard let image = context.makeImage() else {
+            fatalError("BonePaperDocument buffer preview failed")
+        }
+        preview = image
+    }
+
+    private init(width: Int, height: Int, source: CGImage?, fixed: Bool) {
+        self.fixed = fixed
         if width < 1 || height < 1 {
             fatalError("BonePaperDocument size \(width)x\(height)")
         }
@@ -303,6 +347,27 @@ final class BonePaperDocument: ObservableObject {
         )
     }
 
+    /// The paint buffer at `pixelWidth` × `pixelHeight` (`sample` times the document). No downscale.
+    func exportBuffer() -> BonePaperExport {
+        if filling {
+            fatalError("BonePaperDocument export during fill")
+        }
+        if strokeLive {
+            endStroke()
+        }
+        guard let image = context.makeImage() else {
+            fatalError("BonePaperDocument export buffer snapshot failed")
+        }
+        if image.width != pixelWidth || image.height != pixelHeight {
+            fatalError("BonePaperDocument export buffer \(image.width)x\(image.height) != \(pixelWidth)x\(pixelHeight)")
+        }
+        return BonePaperExport(
+            image: image,
+            extraLeft: CGFloat(extraLeft),
+            extraTop: CGFloat(extraTop)
+        )
+    }
+
     func bitmapFromWorld(_ world: CGPoint) -> CGPoint {
         CGPoint(
             x: world.x - CGFloat(originX),
@@ -313,6 +378,9 @@ final class BonePaperDocument: ObservableObject {
     private func ensureFits(points: [CGPoint], radius: CGFloat) -> CGVector {
         if radius < 0 {
             fatalError("BonePaperDocument ensureFits radius is \(radius)")
+        }
+        if fixed {
+            return .zero
         }
         var minX = CGFloat(0)
         var minY = CGFloat(0)

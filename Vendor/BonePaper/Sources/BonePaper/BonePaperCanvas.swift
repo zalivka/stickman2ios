@@ -44,6 +44,7 @@ struct BonePaperCanvas: UIViewRepresentable {
     var boneStart: CGPoint?
     var boneTip: CGPoint?
     var onion: CGImage?
+    var paper: UIColor?
     var placement: BonePaperPlacement?
     var stage: BonePaperStage
     var zoom: Binding<CGFloat>
@@ -69,6 +70,7 @@ struct BonePaperCanvas: UIViewRepresentable {
         view.paper.boneStart = boneStart
         view.paper.boneTip = boneTip
         view.paper.onion = onion
+        view.paper.paperColor = paper
         view.onZoom = { zoom.wrappedValue = $0 }
         view.setPanMode(tool == .pan)
         view.fitInsets = fitInsets
@@ -401,8 +403,11 @@ final class BonePaperDrawView: UIView {
     var boneStart: CGPoint?
     var boneTip: CGPoint?
     var onion: CGImage?
+    /// Sheet colour drawn under the bitmap rect in place of the checker.
+    var paperColor: UIColor?
 
     private let checker = UIView()
+    private let paperView = UIView()
     private let onionView = UIImageView()
     private let bitmap = UIImageView()
     private let frameLayer = CAShapeLayer()
@@ -421,6 +426,8 @@ final class BonePaperDrawView: UIView {
         backgroundColor = .clear
         checker.isUserInteractionEnabled = false
         checker.backgroundColor = Self.checkerColor
+        paperView.isUserInteractionEnabled = false
+        paperView.isHidden = true
         onionView.isUserInteractionEnabled = false
         onionView.contentMode = .scaleToFill
         onionView.backgroundColor = .clear
@@ -434,6 +441,7 @@ final class BonePaperDrawView: UIView {
         boneLayer.strokeColor = UIColor(red: 0, green: 0.75, blue: 1, alpha: 1).cgColor
         boneLayer.lineWidth = 3
         addSubview(checker)
+        addSubview(paperView)
         addSubview(onionView)
         addSubview(bitmap)
         layer.addSublayer(frameLayer)
@@ -489,6 +497,9 @@ final class BonePaperDrawView: UIView {
         let rect = bitmapRect(document)
         bitmap.frame = rect
         bitmap.image = UIImage(cgImage: document.preview)
+        paperView.frame = rect
+        paperView.backgroundColor = paperColor
+        paperView.isHidden = paperColor == nil
         layoutMarks(document)
     }
 

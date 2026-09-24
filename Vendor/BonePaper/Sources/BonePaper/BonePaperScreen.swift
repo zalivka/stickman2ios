@@ -19,6 +19,7 @@ public struct BonePaperScreen: View {
     private let boneStart: CGPoint?
     private let boneTip: CGPoint?
     private let onion: CGImage?
+    private let paper: UIColor?
     private let placement: BonePaperPlacement?
     private let onApply: ((BonePaperExport) -> Void)?
     private let onClose: (() -> Void)?
@@ -57,9 +58,36 @@ public struct BonePaperScreen: View {
         self.boneStart = boneStart
         self.boneTip = boneTip
         self.onion = onion
+        self.paper = nil
         self.placement = placement
         self.onApply = onApply
         self.onClose = onClose
+    }
+
+    /// Blank fixed page over `sheet.paper`. The export is transparent where nothing was drawn.
+    public init(sheet: BonePaperSheet, onApply: @escaping (BonePaperExport) -> Void) {
+        _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet))
+        _chromeOpacity = State(initialValue: 1)
+        boneStart = nil
+        boneTip = nil
+        onion = nil
+        paper = sheet.paper
+        placement = nil
+        self.onApply = onApply
+        onClose = nil
+    }
+
+    /// Same sheet as a blank page, with `buffer` already in the paint buffer.
+    public init(sheet: BonePaperSheet, buffer: CGImage, onApply: @escaping (BonePaperExport) -> Void) {
+        _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet, buffer: buffer))
+        _chromeOpacity = State(initialValue: 1)
+        boneStart = nil
+        boneTip = nil
+        onion = nil
+        paper = sheet.paper
+        placement = nil
+        self.onApply = onApply
+        onClose = nil
     }
 
     public var body: some View {
@@ -82,6 +110,7 @@ public struct BonePaperScreen: View {
                         boneStart: boneStart,
                         boneTip: boneTip,
                         onion: onion,
+                        paper: paper,
                         placement: placement,
                         stage: stage,
                         zoom: $zoom,
@@ -172,7 +201,7 @@ public struct BonePaperScreen: View {
     }
 
     private func apply() {
-        onApply?(document.export())
+        onApply?(paper == nil ? document.export() : document.exportBuffer())
         leave()
     }
 

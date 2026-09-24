@@ -25,6 +25,8 @@ enum BackgroundResolver {
             return BackgroundStore.usermadePrefix + cacheName
         case .embedded:
             throw BackgroundStore.Failure.unsupported(entry.id)
+        case .user(let ownName):
+            return BackgroundStore.usermadePrefix + ownName
         }
     }
 
