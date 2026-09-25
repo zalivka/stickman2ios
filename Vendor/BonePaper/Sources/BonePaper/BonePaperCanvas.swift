@@ -479,6 +479,7 @@ final class BonePaperDrawView: UIView {
 
     func setZoom(_ zoom: CGFloat) {
         zoomScale = zoom
+        document?.recorder.zoom = zoom
         frameLayer.lineWidth = 1 / max(zoom, 0.01)
         if let document {
             layoutMarks(document)
@@ -529,6 +530,7 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let touch = touches.first else { return }
+        document?.recorder.touchDown(samples(touch, event), input: touch.type)
         lastWorld = worldPoint(touch)
         if tool == .fill {
             return
@@ -543,6 +545,7 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let touch = touches.first, let document else { return }
+        document.recorder.touchMoved(samples(touch, event))
         let point = worldPoint(touch)
         if tool == .fill {
             lastWorld = point
@@ -569,7 +572,11 @@ final class BonePaperDrawView: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first {
+            document?.recorder.touchMoved(samples(touch, event))
+        }
         finishStroke()
+        document?.recorder.touchUp()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -581,6 +588,7 @@ final class BonePaperDrawView: UIView {
         if stroking {
             document?.cancelStroke()
         }
+        document?.recorder.touchAbort()
         lastWorld = nil
         pendingView = nil
         stroking = false
@@ -603,6 +611,12 @@ final class BonePaperDrawView: UIView {
         lastWorld = nil
         pendingView = nil
         stroking = false
+    }
+
+    /// Every coalesced sample of `touch` in this event (up to 240 Hz), in world coordinates with touch timestamps.
+    private func samples(_ touch: UITouch, _ event: UIEvent?) -> [(CGPoint, TimeInterval)] {
+        let all = event?.coalescedTouches(for: touch) ?? [touch]
+        return all.map { (worldPoint($0), $0.timestamp) }
     }
 
     private func worldPoint(_ touch: UITouch) -> CGPoint {

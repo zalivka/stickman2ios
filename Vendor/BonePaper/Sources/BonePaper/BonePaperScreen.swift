@@ -201,7 +201,17 @@ public struct BonePaperScreen: View {
     }
 
     private func apply() {
-        onApply?(paper == nil ? document.export() : document.exportBuffer())
+        let export = paper == nil ? document.export() : document.exportBuffer()
+        #if DEBUG
+        document.saveRecording(
+            result: export.image,
+            onion: onion,
+            paper: paper,
+            boneStart: boneStart,
+            boneTip: boneTip
+        )
+        #endif
+        onApply?(export)
         leave()
     }
 

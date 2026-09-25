@@ -86,6 +86,7 @@ final class BonePaperDocument: ObservableObject {
     private var fillStreak = 0
     /// Serial so a fill never overlaps another write to `context`.
     private let fillQueue = DispatchQueue(label: "bonepaper.fill", qos: .userInitiated)
+    let recorder: BonePaperRecorder
 
     var pixelWidth: Int { width * Self.sample }
     var pixelHeight: Int { height * Self.sample }
@@ -113,6 +114,7 @@ final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument buffer preview failed")
         }
         preview = image
+        recorder.base = buffer
     }
 
     private init(width: Int, height: Int, source: CGImage?, fixed: Bool) {
@@ -130,6 +132,14 @@ final class BonePaperDocument: ObservableObject {
         self.height = height
         originX = (Self.maxSide - width) / 2
         originY = (Self.maxSide - height) / 2
+        recorder = BonePaperRecorder(
+            width: width,
+            height: height,
+            originX: originX,
+            originY: originY,
+            fixed: fixed,
+            base: source
+        )
         context = Self.makeBuffer(width: width * Self.sample, height: height * Self.sample)
         stroke = Self.makeBuffer(width: width * Self.sample, height: height * Self.sample)
         composite = Self.makeBuffer(width: width * Self.sample, height: height * Self.sample)
@@ -150,6 +160,7 @@ final class BonePaperDocument: ObservableObject {
 
     func beginStroke(erase: Bool, opacity: CGFloat) {
         if filling { return }
+        recorder.begin(erase: erase, opacity: opacity)
         lastFillPaint = nil
         pushUndo()
         redoStack.removeAll()
@@ -168,6 +179,7 @@ final class BonePaperDocument: ObservableObject {
 
     func endStroke() {
         if filling { return }
+        recorder.end()
         if strokeLive {
             guard let layer = stroke.makeImage() else {
                 fatalError("BonePaperDocument stroke snapshot failed")
@@ -189,6 +201,7 @@ final class BonePaperDocument: ObservableObject {
         guard let snapshot = undoStack.popLast() else {
             fatalError("BonePaperDocument cancel with empty undo")
         }
+        recorder.cancel()
         strokeLive = false
         stroke.clear(pixelRect)
         restore(snapshot)
@@ -197,6 +210,7 @@ final class BonePaperDocument: ObservableObject {
 
     func stampWorld(from start: CGPoint, to end: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
         if filling { return }
+        recorder.line(from: start, to: end, color: color, size: size, erase: erase)
         var a = bitmapFromWorld(start)
         var b = bitmapFromWorld(end)
         if !erase {
@@ -228,6 +242,7 @@ final class BonePaperDocument: ObservableObject {
         if px < 0 || py < 0 || px >= pixelWidth || py >= pixelHeight {
             return
         }
+        recorder.fill(at: world, color: color, opacity: opacity)
         guard let data = context.data else {
             fatalError("BonePaperDocument fill has no pixel data")
         }
@@ -274,6 +289,7 @@ final class BonePaperDocument: ObservableObject {
 
     func stampDotWorld(at point: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
         if filling { return }
+        recorder.dot(at: point, color: color, size: size, erase: erase)
         var p = bitmapFromWorld(point)
         if !erase {
             let shift = ensureFits(points: [p], radius: size / 2)
@@ -301,6 +317,7 @@ final class BonePaperDocument: ObservableObject {
             endStroke()
         }
         guard let previous = undoStack.popLast() else { return }
+        recorder.undo()
         lastFillPaint = nil
         redoStack.append(capture())
         restore(previous)
@@ -313,6 +330,7 @@ final class BonePaperDocument: ObservableObject {
             endStroke()
         }
         guard let next = redoStack.popLast() else { return }
+        recorder.redo()
         lastFillPaint = nil
         undoStack.append(capture())
         restore(next)
@@ -365,6 +383,20 @@ final class BonePaperDocument: ObservableObject {
             image: image,
             extraLeft: CGFloat(extraLeft),
             extraTop: CGFloat(extraTop)
+        )
+    }
+
+    func saveRecording(result: CGImage, onion: CGImage?, paper: UIColor?, boneStart: CGPoint?, boneTip: CGPoint?) {
+        recorder.save(
+            result: result,
+            onion: onion,
+            paper: paper,
+            boneStart: boneStart,
+            boneTip: boneTip,
+            width: width,
+            height: height,
+            extraLeft: extraLeft,
+            extraTop: extraTop
         )
     }
 
