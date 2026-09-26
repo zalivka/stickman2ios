@@ -125,7 +125,9 @@ class Scene:
             if color_distance(layer.color, seed) < NEIGHBOUR:
                 visible.append(part)
         region = self._component(unary_union(visible), at)
-        self.layers.append(Layer("fill", region, op["color"], op["opacity"]))
+        # Grown under the bounding lines: two antialiased edges on the same boundary leave a seam.
+        geom = region.buffer(FILL_RING, quad_segs=4).intersection(self.page)
+        self.layers.append(Layer("fill", geom, op["color"], op["opacity"]))
 
     def _top_color(self, at):
         for layer in reversed(self.layers):

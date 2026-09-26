@@ -295,9 +295,18 @@ What `stroke()` does, in order:
 
 1. **Loop run-on** (`closed=True`): the path continues past its start by 4–14% of its length, so a later fill holds.
 2. **Wobble:** three sine waves of sideways offset along the path, wavelength 60–240 px, amplitude `0.3–0.7 × jitter × min(4, 1.2 + extent/90)`.
-3. **Timing:** mean speed is drawn uniformly from 500–900 px/s per stroke. Each piece lasts `max(length/speed, 0.08 s)`. The profile is `EASE = 0.4` minimum-jerk blended with 60% constant speed. Samples are taken at 60 Hz with Gaussian tremor σ = 0.25 px.
+3. **Timing:**
+   - Base speed is drawn uniformly from 500–900 px/s per stroke. It is then scaled by `(total length / 250)^0.2`, clamped to 0.75–1.1, so short strokes are slower.
+   - Along the path, local speed follows the turn radius R measured over ±5 samples (about 10 px): factor `(R / 120)^(1/3)`, clamped to 0.55–1.15. Tight curves slow the finger; straights run slightly faster.
+   - Each piece lasts `max(time-weighted length / speed, 0.08 s)`. The profile is `EASE = 0.4` minimum-jerk blended with 60% constant speed.
+   - Samples are taken at 60 Hz with Gaussian tremor σ = 0.25 px.
 4. **Start threshold:** `points` = the first sample plus every sample from the first one ≥ 12 px away; `raw` = all samples. A stroke that never gets 12 px from its start raises `SystemExit`.
-5. **Think-time:** 0.35–1.8 s after a stroke, 0.4–1.2 s after a fill. `zoom` is logged as 0.715 and `input` as `finger`.
+5. **Pause before each touch-down (`_pause`):**
+   - A fill in the same colour right after a stroke: 0.3–0.7 s.
+   - Starting within 60 px of the previous op's end (continuing the same object): 0.15–0.4 s.
+   - Starting farther away (a new object): 0.8–2.5 s.
+   - Changing colour adds 1.0–2.0 s (the trip to the palette).
+   - A fill tap lasts 0.07 s. `zoom` is logged as 0.715 and `input` as `finger`.
 
 It's deterministic: the same scene and seed give the same log.
 
@@ -337,6 +346,8 @@ Then write `session.json` and render with `replay.render(session)`. The scene fi
 8. **Dots:** a real "dot" is a short stroke of at least 12 px. Use a dash of 14–18 px, or two crossing strokes for a star.
 9. **Lines ending on the page edge:** run them 10–12 px past the edge so an edge-bounded fill (ground, floor) doesn't leak around the end.
 10. **Size and length:** real scenes so far have been 35–40 strokes and 14–31 fills, about 60–80 s of drawing time. Keep brush 14 and opacity 1 unless there's a reason to change them.
+11. **Outline and fill colours must differ clearly (well over 0.06 OKLab).** A recolour tap treats a similar-coloured outline as part of the region and runs through it. The village mountains turned white when the ridge line grey (`#8A9BB0`) was close to the rock grey; a dark outline (`#4E5D73`) fixed it.
+12. **Small rings** (bubbles) need a radius of at least about 8 px, or the loop never gets 12 px from its start.
 
 ### Checking a generated scene
 
@@ -427,6 +438,79 @@ The importer is `SVGHelper.readCommandsFromString` in `stickman2/fingerpaint/app
   - Use `--flat` when round stroke ends must survive import. Fingerpaint's own drawing paints use round caps, but it's unconfirmed which paint imported curves are drawn with.
 - **Shipping as a Stickman background:** use `stickman/app/src/main/assets/bgs/<pack>/<name>/bg.svg` plus a 100×100 `thumb.png` (cover scale, centre crop). A new pack also needs registering in `BgPresenter.FOLDER_SCENES`. Keep the central bottom of the frame quiet, because characters stand there.
 
+## Playback on the device: `BonePaperPlayer.swift`
+
+`BonePaperPlayerScreen(session: Data)` plays a sheet-mode `session.json` through a real `BonePaperDocument`. It makes the same calls the canvas makes, so the result is pixel-identical to the editor, with no antialiasing, just like the editor.
+
+- **Opening it:** in debug builds, the landing screen has two buttons. "DEBUG: desert road" loads `at_elements/testdata/desert_road.json` (about 20 s of playback). "DEBUG: snowy village" loads `at_elements/testdata/snowy_village.json` (68.8 s recorded, about 29 s of playback). Both are `cartoons2.py` at seed 1.
+- **Supported sessions:** sheet mode only, without `base.png`. Anything else fails loudly. `noop` ops are skipped; an unknown op is fatal.
+- **Timing:**
+  - Stroke-internal time plays at `strokeSpeed = 1.2`; keep it at 1.5 or below.
+  - Idle gaps become `min(gap, 0.25 + 0.4·gap, 0.9)`.
+  - The first touch comes after a 0.8 s lead-in.
+  - While a fill computes (off the main thread), the clock stops, so later ops keep their spacing.
+  - The desert session (41.6 s recorded) plays in about 20 s.
+- **Fingertip dot:**
+  - While touching: a 20 pt grey dot that follows the interpolated stroke point.
+  - Between ops: lifted (24 pt, fainter), travelling in an eased, upward-bowed arc (bow at most 60 page px). It lands 0.12 s before the next touch-down.
+  - Fills: the dot is pressed for 0.07 s, and a white ring expands for 0.45 s.
+  - Undo and redo leave the dot where it is.
+  - At the end it fades out over 0.6 s.
+- **Camera:** no zoom or pan; the page is fitted to the screen.
+- **Recorder:** the document's recorder logs the playback in memory but never saves it, because only the editor's Apply button saves.
+
+## Line boil: findings, decisions, tools
+
+Line boil is the hand-drawn look of cycling 3 re-traced copies of the same picture at 8–12 fps. The lines breathe; the picture stays put. Faster looks nervous, slower looks like stutter. 3 copies is the classic count; a random order that never shows the same copy twice in a row reads better than a strict 1-2-3 loop.
+
+### Findings
+
+- **Redrawing beats warping.** A noise warp of the finished bitmap (SwiftUI `distortionEffect`, or Core Image displacement) moves lines, fills and empty paper together, so straight edges ripple like heat haze. Re-tracing the strokes and recomputing the fills keeps each line independent and the fills tucked under them. That is what `boil.py` does for a `session.json`.
+- **A Metal shader was tried and removed.** The warp comparison was a stitchable shader, `BoilShader.metal`. Xcode 26 does not ship the Metal compiler; the first build that contains a `.metal` file asks to download the Metal Toolchain. The redrawn PNGs need no shader, so the file was deleted. Do not add a `.metal` file for this.
+- **Most items have no stroke log and no vectors.** Of 515 items in `at_elements/packs`, 38 ship SVG (`svg/v_<id>_state_<n>.svg` next to `bm_<id>_state_<n>.png`). The rest, including `testdata/aaa_sword.ati`, are one flat PNG per bone. The sword is 312×77, four colours: blade `#76C2FF` / navy `#003F68`, hilt `#D87DEC` / purple `#540052`, with almost no antialiasing.
+- **For a flat PNG, the workable boil is ink versus paint, not a warp.** Split dark pixels (OKLab lightness under about 0.45) from the fills, grow the paint about 1.5 px under the ink, and displace only the ink. The fills stay still and no gap opens. This was not built; the demo uses SVG items instead.
+- **Pack SVGs are filled shapes, not centre-line strokes.** Kurwa export: absolute `M`/`C`/`z`, `fill` and `stroke` usually the same colour, `stroke-width` about half the bitmap padding. The dog (`template.basic.atp`, `dog.ati`) is the clean case: one filled shape per part, one shared dark outline (`stroke:#111111; stroke-width:4.6`). The shark is not: many paths per part, fills and strokes at opacity 0, `command_scale="auto"`. It was rejected for the demo.
+- **SVG coordinates are already in the bone frame.** The start point is the origin and +x runs along the bone. `x_offset`/`y_offset` is the path's bounding box grown by about half the stroke. Dog part 68: path minimum (−26.1, −62.4), offset (−29.4, −65.7), PNG 219×168. Assembling with `SkeletonCanvas.drawBitmaps` (translate to the start point, rotate by the bone angle, `weight` order) reproduces `poster.png`.
+- **Pushing outline points along their normals spikes.** The export retraces the closing point with zero-length segments, and a sharp corner has a normal that jumps. Both throw single points sideways (a knob on the tail tip). A smooth 2D field — a few plane waves, so neighbours move together — keeps corners as corners.
+- **Restyling into the background's hand-drawn lines works, with a scale rule.** `item_restyle.py` runs the hand model once per part. The brush stays 14 page px, so the item must be drawn at the width it will be shown (the dog was 269 page px; the T-Rex in the demo is 300).
+  - A part at least 3 brushes wide (42 px) can be outlined and filled. The body and head qualify.
+  - Thinner parts cannot hold an outline plus a fill. The tail (13 px) and legs (19 px, 27 px) are one stroke down the long axis of the part's minimum rotated rectangle, 6–48 px wide. The purple leg is wider because the original leg is a trapezoid and the stroke follows its bounding rectangle.
+  - Outlining in the part's own fill colour matches the huts and pines. A dark outline (`#2B2B2B`) reads more "cartoon" but at 14 px it eats the small head, so it was not used.
+- **Boil amplitude that holds fills:** sideways drift 1.2–2.0 px (backgrounds) or 1.4–2.2 item units (the dog), plus a nudge of about ±1. Each fill's area must stay within 5% plus a 3 px band, or the copy is re-rolled. The village's three copies all passed on the first seed.
+
+### Decisions
+
+- **Demo only.** Boil is a debug screen opened from the landing page ("DEBUG: boil demo"), not a per-item switch and not applied to every item. The copies are PNGs in `testdata/boil/`. The `.ati` format, `assets.xml` and `SkeletonCanvas` are unchanged, so Android is unaffected.
+- **Two independent boils.** The village and the T-Rex each have their own random order. One shared order looks mechanical.
+- **No zoom, no Metal, no live distortion.** See above. The Boil switch shows the still pictures; the slider is 4–16 fps, default 10.
+- **The demo character is the restyled T-Rex, walking.** `trex_walk.py` redraws each of the 13 bones (8 SVGs, some shared) at 300 page px, same rules as `item_restyle.py`: body and tail are outline-and-fill, the other parts are single strokes. It writes `testdata/boil/trex/w<weight>_{still,0,1,2}.png` plus `walk.json`.
+  - The walk is the `demo_trex` foot-lock gait (same bone names, thigh angles, bob, tail and arm sway), scaled from that demo's 0.7 scene scale into page px. One cycle to the right, then the same cycle mirrored around the middle of the path and played forward, so it faces left, travels back, and the feet step in the direction of travel. Mirroring each frame around its own pelvis and playing them in reverse made the return moonwalk. Feet stay on y = 0.9 × 480. 16 poses per direction, played at 12 per second, looping.
+  - Boil is a separate clock: the slider picks which of the three copies every bone uses. Boil off shows the still copies. The dog (`dog 269`) was the first restyle and is no longer in the demo.
+- **Not turned into an item.** Writing each part back as a PNG with new `x_offset`/`y_offset` would make a real `.ati`. That needs the Android `assets.xml` reader checked first, and it was not done.
+
+### Tools
+
+- **`boil.py <session.json> <out_dir> <name> [count]`:**
+  - Re-traces every stroke: two sine waves of sideways drift (amplitude 1.2–2.0 px, wavelength 70–200 px) plus a whole-stroke nudge of up to ±1 px.
+  - Re-runs `svg_export`, so the fills follow the new lines, and rasterises to 1280×960.
+  - **Leak check:** each fill must keep its area within 5% plus a 3 px band along its boundary. A failing seed is re-rolled; three failures in a row stop the script.
+  - The village variants live in `at_elements/testdata/boil/village_{0,1,2}.png`.
+- **`item_boil.py <pack.atp> <item.ati> <out_dir> <name> [count]`** boils an item that ships SVG sources, assembled in its rest pose:
+  - Each `edgeAsset`'s `svg/v_<id>_state_0.svg` path coordinates are already in the bone frame: start point at the origin, +x along the bone. The PNG is just the path bounds plus half the stroke; for example dog part 68 has path minimum (−26.1, −62.4) and offset (−29.4, −65.7).
+  - Placement matches `SkeletonCanvas.drawBitmaps`: translate to the start point from `model.xml`, rotate by the bone angle, and draw in `weight` order. The unwobbled assembly matches the pack's `poster.png`.
+  - The paths are absolute `M`/`C`/`z` (Kurwa export). They are flattened to about 2-unit steps.
+  - Each part gets its own smooth 2D displacement: three plane waves per axis, amplitude 1.4–2.2 units, wavelength 120–260, plus a nudge of up to ±1 unit. An earlier version pushed points along their normals, which spiked at sharp corners and at the export's retraced zero-length segments.
+  - The dog copies it made were only a check against `poster.png`. They are not in the demo.
+- **`item_restyle.py <pack.atp> <item.ati> <out_dir> <name> <display_width> [outline_hex]`** redraws an SVG item in the BonePaper hand style:
+  - One hand-model session per part, in that part's bone frame, scaled so the item is `display_width` page px across. That keeps the brush at 14 page px, the same as the backgrounds.
+  - A part at least 3 brushes wide (42 px) is outlined with `hand.poly` and filled with one tap.
+  - A thinner part becomes one stroke along the long axis of its minimum rotated rectangle, as wide as the part (6–48 px).
+  - Boil copies come from `boil.variant` per part, with the same leak check.
+  - Output frames carry a transparent `MARGIN + STROKE_MAX` = 78 page px border around the item's bounds.
+  - It needs one path per part, and it drops curves (outlines are simplified to corners).
+  - The demo T-Rex is `trex 300` with same-coloured lines. On the dog, `#2B2B2B` dark outlines were tried and looked heavy on the small head.
+- **Demo:** the "DEBUG: boil demo" button on the landing screen opens `BoilDemoScreen`. The village boils on its own. The T-Rex walks right, turns, and walks back, looping, while its lines boil. The slider (4–16 fps) sets only the boil rate.
+
 ## Pitfalls for agents
 
 - **The user's rules:**
@@ -448,7 +532,6 @@ The importer is `SVGHelper.readCommandsFromString` in `stickman2/fingerpaint/app
 
 ## Open items
 
-- An exact replay through `BonePaperDocument`: either a package test target that loads `session.json` and saves a PNG, or a debug screen.
-- A debug screen that loads a generated `session.json` on the device, for side-by-side and blind tests.
+- Choosing a session in the player (recordings in `Documents/BonePaperRecordings`, other generated scenes) instead of the fixed desert file.
 - 10–20 more real drawings of varied subjects (people, animals, houses) from the target users, to tune the hand model. A 120 Hz device would give real `raw` detail.
 - `undo`/`redo` in `replay.py`.

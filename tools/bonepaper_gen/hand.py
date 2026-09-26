@@ -10,6 +10,13 @@ HZ = 60
 SLOP = 12.0
 # Share of minimum-jerk in the speed profile; the rest is constant speed. Real strokes peak ~1.4x their mean.
 EASE = 0.4
+# Speed ~ (turn radius / PACE_R)^(1/3), clamped: tight curves slow the finger, straights speed it up a little.
+PACE_R = 120.0
+PACE_MIN = 0.55
+PACE_MAX = 1.15
+# A touch starting farther than this from the last one begins a new object (a longer think).
+NEAR = 60.0
+TAP = 0.07
 
 
 class Hand:
@@ -18,6 +25,8 @@ class Hand:
         self.origin = origin
         self.t = 0.5
         self.ops = []
+        # (end point, colour, kind) of the previous op; None before the first.
+        self.last = None
         self.size = 14
         self.opacity = 1.0
 
@@ -94,23 +103,42 @@ class Hand:
     def _length(pts):
         return sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
 
+    @staticmethod
+    def _pace(piece):
+        """Per-point speed factor from the turn radius over ~10 px either side."""
+        k = 5
+        out = []
+        for i in range(len(piece)):
+            a, b, c = piece[max(i - k, 0)], piece[i], piece[min(i + k, len(piece) - 1)]
+            area2 = abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+            if area2 < 1e-6:
+                out.append(PACE_MAX)
+                continue
+            radius = math.dist(a, b) * math.dist(b, c) * math.dist(c, a) / (2 * area2)
+            out.append(min(PACE_MAX, max(PACE_MIN, (radius / PACE_R) ** (1 / 3))))
+        return out
+
     def _sample(self, pieces):
-        """Minimum-jerk speed per piece, sampled at 60 Hz. Returns [(x, y, t)]."""
-        speed = self.rng.uniform(500, 900)
+        """Minimum-jerk speed per piece, slowed in turns, sampled at 60 Hz. Returns [(x, y, t)]."""
+        total = sum(self._length(piece) for piece in pieces)
+        speed = self.rng.uniform(500, 900) * min(1.1, max(0.75, (total / 250) ** 0.2))
         samples = []
         t = self.t
         for piece in pieces:
             length = self._length(piece)
             if length < 0.5:
                 continue
-            dur = max(length / speed, 0.08)
+            pace = self._pace(piece)
+            # Cumulative time-weighted length: a unit of path in a tight turn costs more.
             cum = [0.0]
-            for a, b in zip(piece, piece[1:]):
-                cum.append(cum[-1] + math.dist(a, b))
+            for i, (a, b) in enumerate(zip(piece, piece[1:])):
+                cum.append(cum[-1] + math.dist(a, b) * 2 / (pace[i] + pace[i + 1]))
+            span = cum[-1]
+            dur = max(span / speed, 0.08)
             frames = max(1, round(dur * HZ))
             for f in range(1 if samples else 0, frames + 1):
                 tau = f / frames
-                target = length * ((1 - EASE) * tau + EASE * (10 * tau ** 3 - 15 * tau ** 4 + 6 * tau ** 5))
+                target = span * ((1 - EASE) * tau + EASE * (10 * tau ** 3 - 15 * tau ** 4 + 6 * tau ** 5))
                 j = next((k for k in range(1, len(cum)) if cum[k] >= target), len(cum) - 1)
                 a, b = piece[j - 1], piece[j]
                 seg = cum[j] - cum[j - 1] or 1.0
@@ -126,6 +154,21 @@ class Hand:
     def _world(self, x, y):
         return [round(x + self.origin[0], 2), round(y + self.origin[1], 2)]
 
+    def _pause(self, start, color, kind):
+        """Idle time before the next touch-down."""
+        if self.last is None:
+            return 0.0
+        end, last_color, last_kind = self.last
+        if kind == "fill" and last_kind == "stroke" and color == last_color:
+            return self.rng.uniform(0.3, 0.7)
+        if math.dist(end, start) > NEAR:
+            gap = self.rng.uniform(0.8, 2.5)
+        else:
+            gap = self.rng.uniform(0.15, 0.4)
+        if color != last_color:
+            gap += self.rng.uniform(1.0, 2.0)
+        return gap
+
     def stroke(self, pieces, color, closed=False, jitter=1.0, size=None):
         size = size or self.size
         flat = [p for piece in pieces for p in piece]
@@ -133,6 +176,7 @@ class Hand:
         extent = max(max(xs) - min(xs), max(ys) - min(ys), 1)
         pieces = self._close(pieces, closed)
         pieces = self._wobble(pieces, jitter * min(4.0, 1.2 + extent / 90))
+        self.t += self._pause(pieces[0][0], color, "stroke")
         samples = self._sample(pieces)
         start = samples[0]
         taken = next((i for i, p in enumerate(samples) if math.dist(p[:2], start[:2]) >= SLOP), None)
@@ -146,14 +190,17 @@ class Hand:
             "points": [self._world(x, y) + [round(t, 4)] for x, y, t in points],
             "raw": [self._world(x, y) + [round(t, 4)] for x, y, t in samples],
         })
-        self.t = samples[-1][2] + self.rng.uniform(0.35, 1.8)
+        self.t = samples[-1][2]
+        self.last = (samples[-1][:2], color, "stroke")
 
     def fill(self, at, color):
         x = at[0] + self.rng.uniform(-3, 3)
         y = at[1] + self.rng.uniform(-3, 3)
+        self.t += self._pause((x, y), color, "fill")
         self.ops.append({
             "op": "fill", "input": "finger", "color": color, "opacity": self.opacity, "zoom": 0.715,
             "at": self._world(x, y), "t": round(self.t, 4),
-            "raw": [self._world(x, y) + [round(self.t, 4)], self._world(x, y) + [round(self.t + 0.07, 4)]],
+            "raw": [self._world(x, y) + [round(self.t, 4)], self._world(x, y) + [round(self.t + TAP, 4)]],
         })
-        self.t += self.rng.uniform(0.4, 1.2)
+        self.t += TAP
+        self.last = ((x, y), color, "fill")

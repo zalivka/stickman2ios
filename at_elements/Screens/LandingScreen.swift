@@ -1,3 +1,6 @@
+#if DEBUG
+import BonePaper
+#endif
 import SwiftUI
 
 /// Android `LandingActivity` + `MakeFragment` — MAKE/LOAD shell, no WATCH/settings/autosave.
@@ -64,6 +67,11 @@ private struct MakePane: View {
     @State private var itemsSize: CGSize = .zero
     @State private var openCartoon = false
     @State private var openItems = false
+    #if DEBUG
+    @State private var openDesert = false
+    @State private var openVillage = false
+    @State private var openBoil = false
+    #endif
 
     var body: some View {
         GeometryReader { proxy in
@@ -72,6 +80,18 @@ private struct MakePane: View {
                 versionLabel
                     .padding(.leading, 8)
                     .padding(.top, 8)
+
+                #if DEBUG
+                VStack(alignment: .leading, spacing: 6) {
+                    Button("DEBUG: desert road") { openDesert = true }
+                    Button("DEBUG: snowy village") { openVillage = true }
+                    Button("DEBUG: boil demo") { openBoil = true }
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.orange)
+                .padding(.leading, 8)
+                .padding(.top, 32)
+                #endif
 
                 Rectangle()
                     .fill(Color(red: 0xee / 255, green: 0xee / 255, blue: 0xee / 255))
@@ -138,8 +158,32 @@ private struct MakePane: View {
             .navigationDestination(isPresented: $openItems) {
                 CustomItemsListScreen()
             }
+            #if DEBUG
+            .navigationDestination(isPresented: $openDesert) {
+                BonePaperPlayerScreen(session: Self.testSession("desert_road"))
+            }
+            .navigationDestination(isPresented: $openVillage) {
+                BonePaperPlayerScreen(session: Self.testSession("snowy_village"))
+            }
+            .navigationDestination(isPresented: $openBoil) {
+                BoilDemoScreen()
+            }
+            #endif
         }
     }
+
+    #if DEBUG
+    private static func testSession(_ name: String) -> Data {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "testdata") else {
+            fatalError("LandingScreen missing testdata/\(name).json")
+        }
+        do {
+            return try Data(contentsOf: url)
+        } catch {
+            fatalError("LandingScreen could not read \(url.path): \(error)")
+        }
+    }
+    #endif
 
     private var versionLabel: some View {
         Text("Drawing Cartoons 2 (\(Self.versionName))")
