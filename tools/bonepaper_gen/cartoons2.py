@@ -165,9 +165,11 @@ def village(seed):
         hand.stroke(hand.poly([(lx, y), (rx, y + 1)]), SNOWLINE)
         hand.fill(peak, SNOW)
     for x in (470, 540):
-        tree = [(x - 36, 340), (x, 232), (x + 36, 340)]
+        # The horizon is already white below and grey above, so the outline covers two colours.
+        tree = [(x - 48, 346), (x, 200), (x + 48, 346)]
         hand.stroke(hand.poly(tree, closed=True), PINE, closed=True, jitter=0.5)
-        hand.fill((x, 310), PINE)
+        hand.fill((x, 276), PINE)
+        hand.fill((x, 322), PINE)
     _snowman(hand, 610, 350, 22)
     hand.stroke(hand.curve([(150, 180), (140, 160), (156, 140), (144, 118), (158, 96)]), SMOKE, size=10)
     hand.fill((320, 30), WINTER)

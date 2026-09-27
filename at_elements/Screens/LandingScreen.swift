@@ -70,8 +70,10 @@ private struct MakePane: View {
     #if DEBUG
     @State private var openDesert = false
     @State private var openVillage = false
+    @State private var openVillagePines = false
     @State private var openBoil = false
     @State private var openRoad = false
+    @State private var openDraw = false
     #endif
 
     var body: some View {
@@ -86,8 +88,10 @@ private struct MakePane: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Button("DEBUG: desert road") { openDesert = true }
                     Button("DEBUG: snowy village") { openVillage = true }
+                    Button("DEBUG: village pines") { openVillagePines = true }
                     Button("DEBUG: boil demo") { openBoil = true }
                     Button("DEBUG: road loop") { openRoad = true }
+                    Button("DEBUG: JUST DRAW") { openDraw = true }
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.orange)
@@ -167,11 +171,19 @@ private struct MakePane: View {
             .navigationDestination(isPresented: $openVillage) {
                 BonePaperPlayerScreen(session: Self.testSession("snowy_village"))
             }
+            .navigationDestination(isPresented: $openVillagePines) {
+                BonePaperPlayerScreen(session: Self.testSession("snowy_village_pines"))
+            }
             .navigationDestination(isPresented: $openBoil) {
                 BoilDemoScreen()
             }
             .navigationDestination(isPresented: $openRoad) {
                 RoadLoopScreen()
+            }
+            .navigationDestination(isPresented: $openDraw) {
+                BonePaperScreen(
+                    sheet: BonePaperSheet(width: 640, height: 480, paper: .white)
+                )
             }
             #endif
         }

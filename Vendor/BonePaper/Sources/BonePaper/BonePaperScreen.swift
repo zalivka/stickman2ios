@@ -77,6 +77,19 @@ public struct BonePaperScreen: View {
         onClose = nil
     }
 
+    /// Blank page for drawing only. Apply stays visible and does nothing.
+    public init(sheet: BonePaperSheet) {
+        _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet))
+        _chromeOpacity = State(initialValue: 1)
+        boneStart = nil
+        boneTip = nil
+        onion = nil
+        paper = sheet.paper
+        placement = nil
+        onApply = nil
+        onClose = nil
+    }
+
     /// Same sheet as a blank page, with `buffer` already in the paint buffer.
     public init(sheet: BonePaperSheet, buffer: CGImage, onApply: @escaping (BonePaperExport) -> Void) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet, buffer: buffer))
@@ -201,6 +214,9 @@ public struct BonePaperScreen: View {
     }
 
     private func apply() {
+        guard let onApply else {
+            return
+        }
         let export = paper == nil ? document.export() : document.exportBuffer()
         #if DEBUG
         document.saveRecording(
@@ -211,7 +227,7 @@ public struct BonePaperScreen: View {
             boneTip: boneTip
         )
         #endif
-        onApply?(export)
+        onApply(export)
         leave()
     }
 

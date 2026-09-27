@@ -608,6 +608,7 @@ struct BonePaperStrokePreview: View {
 
 enum BonePaperColorStore {
     static let key = "bonepaper.custom_colors"
+    static let didChange = Notification.Name("bonepaper.custom_colors")
 
     static let presets: [String] = [
         "#E63836",
@@ -631,6 +632,17 @@ enum BonePaperColorStore {
 
     static func save(_ hexes: [String]) {
         UserDefaults.standard.set(hexes, forKey: key)
+    }
+
+    /// Inserts `hex` at the front of the custom list. Presets and colours already stored are left as they are.
+    static func remember(_ hex: String) {
+        var extras = load()
+        if extras.contains(hex) || presets.contains(hex) {
+            return
+        }
+        extras.insert(hex, at: 0)
+        save(extras)
+        NotificationCenter.default.post(name: didChange, object: nil)
     }
 
     static func hex(from color: UIColor) -> String {
@@ -668,6 +680,40 @@ enum BonePaperColorStore {
         let g = Double((value >> 8) & 0xFF) / 255
         let b = Double(value & 0xFF) / 255
         return Color(red: r, green: g, blue: b)
+    }
+}
+
+enum BonePaperHexToast {
+    private static var label: UILabel?
+    private static var hide: DispatchWorkItem?
+
+    static func show(_ hex: String) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) else {
+            fatalError("BonePaperHexToast with no window")
+        }
+        let label = self.label ?? UILabel()
+        label.text = hex
+        label.font = .monospacedSystemFont(ofSize: 15, weight: .semibold)
+        label.textColor = .white
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.82)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 16
+        label.clipsToBounds = true
+        let textWidth = (hex as NSString).size(withAttributes: [.font: label.font as Any]).width
+        label.bounds = CGRect(x: 0, y: 0, width: textWidth + 28, height: 32)
+        label.center = CGPoint(x: window.bounds.midX, y: window.safeAreaInsets.top + 88)
+        label.alpha = 1
+        if label.superview !== window {
+            window.addSubview(label)
+        }
+        self.label = label
+        hide?.cancel()
+        let work = DispatchWorkItem { [weak label] in
+            UIView.animate(withDuration: 0.2) { label?.alpha = 0 }
+        }
+        hide = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
     }
 }
 
@@ -726,6 +772,9 @@ struct BonePaperColorStrip: View {
         .frame(width: BonePaperChrome.rightRail)
         .frame(maxHeight: .infinity)
         .accessibilityIdentifier("bone paper colors")
+        .onReceive(NotificationCenter.default.publisher(for: BonePaperColorStore.didChange)) { _ in
+            extras = BonePaperColorStore.load()
+        }
         .sheet(isPresented: $showingPicker) {
             BonePaperFlexColorPickerSheet(initial: UIColor(BonePaperColorStore.color(from: topHex))) { picked in
                 let hex = BonePaperColorStore.hex(from: picked)
@@ -766,16 +815,16 @@ struct BonePaperColorStrip: View {
                 color = swatch
                 onPick()
             }
+            .onLongPressGesture(minimumDuration: 0.45) {
+                BonePaperHexToast.show(hex)
+            }
             .accessibilityLabel(hex)
             .accessibilityAddTraits(.isButton)
     }
 
     private func remember(_ hex: String) {
-        if swatches.contains(hex) {
-            return
-        }
-        extras.insert(hex, at: 0)
-        BonePaperColorStore.save(extras)
+        BonePaperColorStore.remember(hex)
+        extras = BonePaperColorStore.load()
     }
 }
 
@@ -824,6 +873,9 @@ public struct BonePaperColorRow: View {
             }
         }
         .frame(height: 36)
+        .onReceive(NotificationCenter.default.publisher(for: BonePaperColorStore.didChange)) { _ in
+            extras = BonePaperColorStore.load()
+        }
         .sheet(isPresented: $showingPicker) {
             BonePaperFlexColorPickerSheet(initial: UIColor(color)) { picked in
                 let hex = BonePaperColorStore.hex(from: picked)
@@ -852,16 +904,16 @@ public struct BonePaperColorRow: View {
             .onTapGesture {
                 color = swatch
             }
+            .onLongPressGesture(minimumDuration: 0.45) {
+                BonePaperHexToast.show(hex)
+            }
             .accessibilityLabel(hex)
             .accessibilityAddTraits(.isButton)
     }
 
     private func remember(_ hex: String) {
-        if swatches.contains(hex) {
-            return
-        }
-        extras.insert(hex, at: 0)
-        BonePaperColorStore.save(extras)
+        BonePaperColorStore.remember(hex)
+        extras = BonePaperColorStore.load()
     }
 }
 
