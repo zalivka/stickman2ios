@@ -647,9 +647,11 @@ final class BonePaperDocument: ObservableObject {
     }
 
     /// 4-connected stack flood fill. A neighbour joins when:
-    /// 1. not transparent (recolour) / not ink (empty fill, unless the tap was on ink);
-    /// 2. OKLab distance to the previous pixel < neighbour limit (region growing);
-    /// 3. OKLab distance to the tap < skip/seed limit (global cap).
+    /// 1. its premultiplied bytes match the previous pixel (same colour, so the limits already passed still hold), or
+    /// 2. not transparent (recolour) / not ink (empty fill, unless the tap was on ink), and
+    /// 3. OKLab distance to the previous pixel < neighbour limit (region growing), and
+    /// 4. OKLab distance to the tap < skip/seed limit (global cap).
+    /// OKLab runs only for a pixel whose bytes differ. A flat sky never converts the interior.
     private static func fillRegion(
         pixels: UnsafeMutablePointer<UInt8>,
         width: Int,
@@ -660,33 +662,50 @@ final class BonePaperDocument: ObservableObject {
         recolor: Bool,
         limits: FillLimits
     ) -> [UInt8] {
-        let seed = lab(pixels, seedY * stride + seedX * 4)
+        if stride % 4 != 0 {
+            fatalError("BonePaperDocument fill stride \(stride) is not a multiple of 4")
+        }
+        func rgba(_ offset: Int) -> UInt32 {
+            UnsafeRawPointer(pixels).load(fromByteOffset: offset, as: UInt32.self)
+        }
+        let seedOffset = seedY * stride + seedX * 4
+        let seed = lab(pixels, seedOffset)
         // Tapping a dark line turns walls off so the contour itself can be recoloured.
         let walls = seed.ink <= limits.ink
         let distance: (FillLab, FillLab) -> Float = recolor ? FillLab.colorDistance : FillLab.coverDistance
         var mask = [UInt8](repeating: 0, count: width * height)
         mask[seedY * width + seedX] = 1
         var stack = [Int32(seedY * width + seedX)]
-        func visit(_ x: Int, _ y: Int, from current: FillLab) {
-            let m = y * width + x
-            if mask[m] != 0 { return }
-            let next = lab(pixels, y * stride + x * 4)
-            if recolor, next.alpha == 0 { return }
-            if walls, next.ink > limits.ink { return }
-            if distance(next, current) >= limits.neighbour { return }
-            if distance(next, seed) >= limits.seed { return }
-            mask[m] = 1
-            stack.append(Int32(m))
-        }
         while let top = stack.popLast() {
             let m = Int(top)
             let x = m % width
             let y = m / width
-            let current = lab(pixels, y * stride + x * 4)
-            if x > 0 { visit(x - 1, y, from: current) }
-            if x + 1 < width { visit(x + 1, y, from: current) }
-            if y > 0 { visit(x, y - 1, from: current) }
-            if y + 1 < height { visit(x, y + 1, from: current) }
+            let currentOffset = y * stride + x * 4
+            let currentBytes = rgba(currentOffset)
+            var currentLab: FillLab?
+            func visit(_ nx: Int, _ ny: Int) {
+                let n = ny * width + nx
+                if mask[n] != 0 { return }
+                let nextOffset = ny * stride + nx * 4
+                if rgba(nextOffset) == currentBytes {
+                    mask[n] = 1
+                    stack.append(Int32(n))
+                    return
+                }
+                let next = lab(pixels, nextOffset)
+                if recolor, next.alpha == 0 { return }
+                if walls, next.ink > limits.ink { return }
+                let current = currentLab ?? lab(pixels, currentOffset)
+                currentLab = current
+                if distance(next, current) >= limits.neighbour { return }
+                if distance(next, seed) >= limits.seed { return }
+                mask[n] = 1
+                stack.append(Int32(n))
+            }
+            if x > 0 { visit(x - 1, y) }
+            if x + 1 < width { visit(x + 1, y) }
+            if y > 0 { visit(x, y - 1) }
+            if y + 1 < height { visit(x, y + 1) }
         }
         return mask
     }
