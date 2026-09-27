@@ -41,6 +41,10 @@ HUT = "#A0673F"
 PINE = "#1F6B3A"
 SMOKE = "#A8ADB3"
 SNOWLINE = "#4E5D73"
+# Near ridge only. Lighter than the roof line, still well clear of the rock fill.
+SNOW_NEAR = "#6A7C94"
+SNOW_FAR = "#D4E4F4"
+SNOW_FAR_LINE = "#8AADC6"
 CARROT = "#F28C28"
 DEEP = "#1B4F80"
 WATER = "#2F7FB8"
@@ -152,8 +156,12 @@ def _snowman(hand, cx, cy, r):
 def village(seed):
     hand = Hand(seed, ORIGIN)
     band(hand, 300, SNOW, (320, 420))
+    # Far range first, so the near mountains cover its foot.
+    far = [(-16, 150), (70, 40), (180, 95), (280, 18), (400, 80), (510, 30), (656, 140)]
+    hand.stroke(hand.poly(far), SNOW_FAR_LINE, jitter=0.4)
+    hand.fill((300, 40), SNOW_FAR)
     ridge = [(-16, 230), (90, 90), (190, 200), (300, 60), (420, 210), (520, 100), (660, 230)]
-    hand.stroke(hand.poly(ridge), SNOWLINE, jitter=0.5)
+    hand.stroke(hand.poly(ridge), SNOW_NEAR, jitter=0.5)
     for x0, top, x1, peak in ((60, 234, 170, 180), (204, 250, 290, 208)):
         box(hand, x0, top, x1, 300, HUT, jitter=0.4)
         roof = [(x0 - 12, top + 6), ((x0 + x1) / 2, peak), (x1 + 12, top + 6)]
@@ -172,8 +180,101 @@ def village(seed):
         hand.fill((x, 322), PINE)
     _snowman(hand, 610, 350, 22)
     hand.stroke(hand.curve([(150, 180), (140, 160), (156, 140), (144, 118), (158, 96)]), SMOKE, size=10)
-    hand.fill((320, 30), WINTER)
+    hand.fill((240, 10), WINTER)
     return session(hand, WINTER)
+
+
+SUMMER = "#7EC8F0"
+GRASS = "#8ED45A"
+HILL = "#8FB8A4"
+# Lighter than the old near-black, still darker than the hill fill so the crest reads.
+NEAR_LINE = "#5E8E8A"
+FAR = "#A9D4EE"
+FAR_LINE = "#7EB4D4"
+HILL_LINE = "#243828"
+ROOF = "#E07040"
+
+
+def summer_village(seed):
+    """Same village as `village`, in summer: grass, green hills, red roofs. No snowman.
+    A smaller, paler blue ridge sits behind the near one."""
+    hand = Hand(seed, ORIGIN)
+    band(hand, 300, GRASS, (320, 420))
+    # Far range first, so the near mountains cover its foot.
+    far = [(-16, 150), (70, 40), (180, 95), (280, 18), (400, 80), (510, 30), (656, 140)]
+    hand.stroke(hand.poly(far), FAR_LINE, jitter=0.4)
+    hand.fill((300, 40), FAR)
+    ridge = [(-16, 230), (90, 90), (190, 200), (300, 60), (420, 210), (520, 100), (660, 230)]
+    hand.stroke(hand.poly(ridge), NEAR_LINE, jitter=0.5)
+    for x0, top, x1, peak in ((60, 234, 170, 180), (204, 250, 290, 208)):
+        box(hand, x0, top, x1, 300, HUT, jitter=0.4)
+        roof = [(x0 - 12, top + 6), ((x0 + x1) / 2, peak), (x1 + 12, top + 6)]
+        hand.stroke(hand.poly(roof, closed=True), HILL_LINE, closed=True, jitter=0.4)
+        hand.fill(((x0 + x1) / 2, (peak + top) / 2 + 6), ROOF)
+        hand.stroke(hand.poly([(x0 + 22, top + 30), (x0 + 36, top + 31)]), SUN, size=10)
+    hand.fill((300, 200), HILL)
+    for x in (470, 540):
+        # The horizon is grass below and hill above, so the outline covers two colours.
+        tree = [(x - 48, 346), (x, 200), (x + 48, 346)]
+        hand.stroke(hand.poly(tree, closed=True), PINE, closed=True, jitter=0.5)
+        hand.fill((x, 276), PINE)
+        hand.fill((x, 322), PINE)
+    hand.stroke(hand.curve([(150, 180), (140, 160), (156, 140), (144, 118), (158, 96)]), SMOKE, size=10)
+    hand.fill((240, 10), SUMMER)
+    return session(hand, SUMMER)
+
+
+AUTUMN = "#D8DCE0"
+LEAF = "#C2A36E"
+MIST = "#B7BBBF"
+MIST_LINE = "#8E969C"
+RUST = "#8A3E22"
+OCHRE = "#A86830"
+ROOF_A = "#A84832"
+ROOF_LINE = "#3A2C28"
+PUDDLE = "#7E909C"
+PUDDLE_LINE = "#4E5E6A"
+
+
+def _puddle(hand, cx, cy, w, h):
+    shape = [
+        (cx - w, cy + h * 0.15),
+        (cx - w * 0.35, cy - h),
+        (cx + w * 0.25, cy - h * 0.55),
+        (cx + w, cy + h * 0.05),
+        (cx + w * 0.15, cy + h),
+        (cx - w * 0.45, cy + h * 0.65),
+    ]
+    hand.stroke(hand.poly(shape, closed=True), PUDDLE_LINE, closed=True, jitter=0.25, size=8)
+    hand.fill((cx, cy), PUDDLE)
+
+
+def autumn_village(seed):
+    """Same houses as the summer village. No far ridge. The near ridge is pale grey, close to the sky.
+    Puddles sit on the leaf-covered ground, just below the houses."""
+    hand = Hand(seed, ORIGIN)
+    band(hand, 300, LEAF, (320, 420))
+    ridge = [(-16, 230), (90, 90), (190, 200), (300, 60), (420, 210), (520, 100), (660, 230)]
+    hand.stroke(hand.poly(ridge), MIST_LINE, jitter=0.5)
+    for x0, top, x1, peak in ((60, 234, 170, 180), (204, 250, 290, 208)):
+        box(hand, x0, top, x1, 300, HUT, jitter=0.4)
+        roof = [(x0 - 12, top + 6), ((x0 + x1) / 2, peak), (x1 + 12, top + 6)]
+        hand.stroke(hand.poly(roof, closed=True), ROOF_LINE, closed=True, jitter=0.4)
+        hand.fill(((x0 + x1) / 2, (peak + top) / 2 + 6), ROOF_A)
+        hand.stroke(hand.poly([(x0 + 22, top + 30), (x0 + 36, top + 31)]), SUN, size=10)
+    hand.fill((300, 200), MIST)
+    for x, colour in ((470, RUST), (588, OCHRE)):
+        # The horizon is leaves below and mist above, so the outline covers two colours.
+        tree = [(x - 48, 346), (x, 200), (x + 48, 346)]
+        hand.stroke(hand.poly(tree, closed=True), colour, closed=True, jitter=0.5)
+        hand.fill((x, 276), colour)
+        hand.fill((x, 322), colour)
+    _puddle(hand, 88, 328, 34, 12)
+    _puddle(hand, 236, 338, 28, 11)
+    _puddle(hand, 390, 322, 32, 12)
+    hand.stroke(hand.curve([(150, 180), (140, 160), (156, 140), (144, 118), (158, 96)]), SMOKE, size=10)
+    hand.fill((320, 20), AUTUMN)
+    return session(hand, AUTUMN)
 
 
 def seabed(seed):
@@ -209,6 +310,8 @@ SCENES = [
     ("desert", desert),
     ("supermarket", supermarket),
     ("village", village),
+    ("summer_village", summer_village),
+    ("autumn_village", autumn_village),
     ("seabed", seabed),
 ]
 

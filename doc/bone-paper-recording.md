@@ -442,7 +442,7 @@ The importer is `SVGHelper.readCommandsFromString` in `stickman2/fingerpaint/app
 
 `BonePaperPlayerScreen(session: Data)` plays a sheet-mode `session.json` through a real `BonePaperDocument`. It makes the same calls the canvas makes, so the result is pixel-identical to the editor, with no antialiasing, just like the editor.
 
-- **Opening it:** in debug builds, the landing screen has two buttons. "DEBUG: desert road" loads `at_elements/testdata/desert_road.json` (about 20 s of playback). "DEBUG: snowy village" loads `at_elements/testdata/snowy_village.json` (68.8 s recorded, about 29 s of playback). Both are `cartoons2.py` at seed 1. "DEBUG: evening lake" loads `at_elements/testdata/evening_lake.json`, drawn by `evening_lake.py` in the same flat-band style: dusk, sunset, hills, water, a small sail, and two pines.
+- **Opening it:** in debug builds, the landing screen has two buttons. "DEBUG: desert road" loads `at_elements/testdata/desert_road.json` (about 20 s of playback). "DEBUG: snowy village" loads `at_elements/testdata/snowy_village.json` (68.8 s recorded, about 29 s of playback). Both are `cartoons2.py` at seed 1. "DEBUG: summer village" loads `at_elements/testdata/summer_village.json`, the same houses and pines with grass, green hills and red roofs. Both villages have a smaller, paler ridge behind the near mountains. "DEBUG: autumn village" loads `at_elements/testdata/autumn_village.json`: the same houses, no far ridge, a mist-grey near ridge, russet trees, and three puddles on the leaf-covered ground. "DEBUG: evening lake" loads `at_elements/testdata/evening_lake.json`, drawn by `evening_lake.py` in the same flat-band style: dusk, sunset, hills, water, a small sail, and two pines.
 - **Supported sessions:** sheet mode only, without `base.png`. Anything else fails loudly. `noop` ops are skipped; an unknown op is fatal.
 - **Timing:**
   - Stroke-internal time plays at `strokeSpeed = 1.2`; keep it at 1.5 or below.
@@ -515,7 +515,11 @@ Line boil is the hand-drawn look of cycling 3 re-traced copies of the same pictu
 
 The desert road plays as ten stills, "DEBUG: road loop" on the landing screen (`RoadLoopScreen`, 8 fps). `road_loop.py` draws the sky, sand, grey road, sun and both mesas once. The mesas stand on the horizon and do not move. The right one is the original flat-topped shape, raised so it covers the sun, with a darker right face. The left one is a different two-peak shape, with a darker right slope. Both are painted after the sun.
 
-The four yellow dashes move one gap along the road over the ten frames, growing as they come toward the camera, and the front dash wraps to a short one at the horizon. A stone on the left shoulder of the road and the cactus are each drawn twice and scaled out from the vanishing point `(320, 224)`. One copy leaves the edge while the twin grows from the horizon into the place the first one started, so frame 10 matches frame 0. Sliding the finished PNG would drag the sun. The frames are `at_elements/testdata/road/frame_0.png` … `frame_9.png` (1280×960).
+The four yellow dashes move one gap along the road over the ten frames, growing as they come toward the camera, and the front dash wraps to a short one at the horizon. A stone on the left shoulder of the road and the cactus are each drawn twice and scaled out from the vanishing point `(320, 224)`. One copy leaves the edge while the twin grows from the horizon into the place the first one started, so frame 10 matches frame 0. Sliding the finished PNG would drag the sun. Each frame is re-traced three times with `boil.variant` (the same drift and leak check as the village). The road phase does not change between copies, so the dashes, stone and cactus stay where that frame put them while the lines breathe. `RoadLoopScreen` advances the road at 8 fps and picks a boil copy at 10 fps, never the same copy twice in a row. The frames are `at_elements/testdata/road/frame_<i>_<copy>.png` (1280×960), `i` 0…9 and `copy` 0…2.
+
+### Ship
+
+`cartoons.py` `ship` is one still: sea, deck, mast, sail and flag. `boil.py` writes three copies to `at_elements/testdata/ship/ship_0.png` … `ship_2.png`. "DEBUG: ship" opens `ShipBoilScreen`, which cycles them at 10 fps.
 
 ### Bread trolleybus
 

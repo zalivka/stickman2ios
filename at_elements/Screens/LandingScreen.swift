@@ -71,9 +71,12 @@ private struct MakePane: View {
     @State private var openDesert = false
     @State private var openVillage = false
     @State private var openVillagePines = false
+    @State private var openSummer = false
+    @State private var openAutumn = false
     @State private var openLake = false
     @State private var openBoil = false
     @State private var openRoad = false
+    @State private var openShip = false
     @State private var openDraw = false
     #endif
 
@@ -90,9 +93,12 @@ private struct MakePane: View {
                     Button("DEBUG: desert road") { openDesert = true }
                     Button("DEBUG: snowy village") { openVillage = true }
                     Button("DEBUG: village pines") { openVillagePines = true }
+                    Button("DEBUG: summer village") { openSummer = true }
+                    Button("DEBUG: autumn village") { openAutumn = true }
                     Button("DEBUG: evening lake") { openLake = true }
                     Button("DEBUG: boil demo") { openBoil = true }
                     Button("DEBUG: road loop") { openRoad = true }
+                    Button("DEBUG: ship") { openShip = true }
                     Button("DEBUG: JUST DRAW") { openDraw = true }
                 }
                 .font(.system(size: 13, weight: .semibold))
@@ -176,6 +182,12 @@ private struct MakePane: View {
             .navigationDestination(isPresented: $openVillagePines) {
                 BonePaperPlayerScreen(session: Self.testSession("snowy_village_pines"))
             }
+            .navigationDestination(isPresented: $openSummer) {
+                BonePaperPlayerScreen(session: Self.testSession("summer_village"))
+            }
+            .navigationDestination(isPresented: $openAutumn) {
+                BonePaperPlayerScreen(session: Self.testSession("autumn_village"))
+            }
             .navigationDestination(isPresented: $openLake) {
                 BonePaperPlayerScreen(session: Self.testSession("evening_lake"))
             }
@@ -184,6 +196,9 @@ private struct MakePane: View {
             }
             .navigationDestination(isPresented: $openRoad) {
                 RoadLoopScreen()
+            }
+            .navigationDestination(isPresented: $openShip) {
+                ShipBoilScreen()
             }
             .navigationDestination(isPresented: $openDraw) {
                 BonePaperScreen(
