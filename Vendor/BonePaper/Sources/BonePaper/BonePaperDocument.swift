@@ -274,7 +274,15 @@ final class BonePaperDocument: ObservableObject {
                 limits: limits
             )
             if recolor {
-                Self.recolor(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
+                BonePaperRecolor.apply(
+                    pixels: pixels,
+                    mask: mask,
+                    width: width,
+                    height: height,
+                    stride: stride,
+                    seed: py * width + px,
+                    paint: paint
+                )
             } else {
                 Self.growRing(pixels: pixels, mask: &mask, width: width, height: height, stride: stride)
                 Self.paintBehind(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
@@ -494,6 +502,7 @@ final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument pen stamp with no live stroke")
         }
         target.saveGState()
+        target.setShouldAntialias(BonePaperFlags.antialiasing)
         target.setBlendMode(erase ? .clear : .normal)
         draw(target, sampled)
         target.restoreGState()
@@ -682,7 +691,9 @@ final class BonePaperDocument: ObservableObject {
         return mask
     }
 
-    /// Dilate the empty-space mask into AA fringes (mask 2). Opaque ink is claimed but not crossed.
+    /// Dilate the empty-space mask into AA fringes (mask 2).
+    /// Eight neighbours, so a curved edge that only touches the fill at a corner is still claimed.
+    /// Opaque ink is claimed but not crossed. Transparent pixels are not entered, so this does not jump a gap.
     private static func growRing(
         pixels: UnsafeMutablePointer<UInt8>,
         mask: inout [UInt8],
@@ -709,10 +720,16 @@ final class BonePaperDocument: ObservableObject {
                 let m = Int(top)
                 let x = m % width
                 let y = m / width
-                if x > 0 { claim(m - 1, into: &next) }
-                if x + 1 < width { claim(m + 1, into: &next) }
-                if y > 0 { claim(m - width, into: &next) }
-                if y + 1 < height { claim(m + width, into: &next) }
+                let x0 = max(0, x - 1)
+                let x1 = min(width - 1, x + 1)
+                let y0 = max(0, y - 1)
+                let y1 = min(height - 1, y + 1)
+                for ny in y0...y1 {
+                    for nx in x0...x1 {
+                        if nx == x, ny == y { continue }
+                        claim(ny * width + nx, into: &next)
+                    }
+                }
             }
             frontier = next
         }
@@ -740,28 +757,6 @@ final class BonePaperDocument: ObservableObject {
         }
     }
 
-    /// Island recolour: write paint RGB at the pixel's own alpha so the silhouette stays.
-    private static func recolor(
-        pixels: UnsafeMutablePointer<UInt8>,
-        mask: [UInt8],
-        width: Int,
-        stride: Int,
-        paint: FillPaint
-    ) {
-        let o = paint.a
-        func mix(_ dst: UInt8, _ channel: Int, _ alpha: Int) -> UInt8 {
-            let src = (channel * alpha + 127) / 255
-            return UInt8(clamping: (Int(dst) * (255 - o) + src * o + 127) / 255)
-        }
-        for m in mask.indices where mask[m] == 1 {
-            let i = (m / width) * stride + (m % width) * 4
-            let alpha = Int(pixels[i + 3])
-            pixels[i] = mix(pixels[i], paint.r, alpha)
-            pixels[i + 1] = mix(pixels[i + 1], paint.g, alpha)
-            pixels[i + 2] = mix(pixels[i + 2], paint.b, alpha)
-        }
-    }
-
     /// Streak 0 is the first tap. Each later same-colour tap widens neighbour ×(1 + step) and skip/ink additively.
     private struct FillLimits {
         var neighbour: Float
@@ -777,7 +772,7 @@ final class BonePaperDocument: ObservableObject {
     }
 
     /// Straight (not premultiplied) 0...255; `a` includes tool opacity.
-    private struct FillPaint: Equatable {
+    struct FillPaint: Equatable {
         var r: Int
         var g: Int
         var b: Int
