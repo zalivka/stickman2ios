@@ -71,6 +71,7 @@ private struct MakePane: View {
     @State private var openDesert = false
     @State private var openVillage = false
     @State private var openBoil = false
+    @State private var openRoad = false
     #endif
 
     var body: some View {
@@ -86,6 +87,7 @@ private struct MakePane: View {
                     Button("DEBUG: desert road") { openDesert = true }
                     Button("DEBUG: snowy village") { openVillage = true }
                     Button("DEBUG: boil demo") { openBoil = true }
+                    Button("DEBUG: road loop") { openRoad = true }
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.orange)
@@ -167,6 +169,9 @@ private struct MakePane: View {
             }
             .navigationDestination(isPresented: $openBoil) {
                 BoilDemoScreen()
+            }
+            .navigationDestination(isPresented: $openRoad) {
+                RoadLoopScreen()
             }
             #endif
         }

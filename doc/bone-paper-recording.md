@@ -511,6 +511,16 @@ Line boil is the hand-drawn look of cycling 3 re-traced copies of the same pictu
   - The demo T-Rex is `trex 300` with same-coloured lines. On the dog, `#2B2B2B` dark outlines were tried and looked heavy on the small head.
 - **Demo:** the "DEBUG: boil demo" button on the landing screen opens `BoilDemoScreen`. The village boils on its own. The T-Rex walks right, turns, and walks back, looping, while its lines boil. The slider (4–16 fps) sets only the boil rate.
 
+### Road loop
+
+The desert road plays as ten stills, "DEBUG: road loop" on the landing screen (`RoadLoopScreen`, 8 fps). `road_loop.py` draws the sky, sand, grey road, sun and both mesas once. The mesas stand on the horizon and do not move. The right one is the original flat-topped shape, raised so it covers the sun, with a darker right face. The left one is a different two-peak shape, with a darker right slope. Both are painted after the sun.
+
+The four yellow dashes move one gap along the road over the ten frames, growing as they come toward the camera, and the front dash wraps to a short one at the horizon. A stone on the left shoulder of the road and the cactus are each drawn twice and scaled out from the vanishing point `(320, 224)`. One copy leaves the edge while the twin grows from the horizon into the place the first one started, so frame 10 matches frame 0. Sliding the finished PNG would drag the sun. The frames are `at_elements/testdata/road/frame_0.png` … `frame_9.png` (1280×960).
+
+### Bread trolleybus
+
+`bread_bus.py` draws one still: a trolleybus whose body is a loaf, crumb on the cut end, crust scores, two windows, a door, a headlight, wheels, and two poles to the wires. The session is `at_elements/testdata/bread_bus.json`. It is not wired to a landing button.
+
 ## Pitfalls for agents
 
 - **The user's rules:**
