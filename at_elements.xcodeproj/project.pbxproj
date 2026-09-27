@@ -22,7 +22,7 @@
 		74FF002574FF0001000CC4A9 /* libavformat.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000574FF0001000CC4A9 /* libavformat.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002674FF0001000CC4A9 /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000674FF0001000CC4A9 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002774FF0001000CC4A9 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000774FF0001000CC4A9 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000874FF0001000CC4A9 /* libswscale.xcframework */; };
+		74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000874FF0001000CC4A9 /* libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
 		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
 		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
