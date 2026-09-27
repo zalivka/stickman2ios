@@ -442,7 +442,7 @@ The importer is `SVGHelper.readCommandsFromString` in `stickman2/fingerpaint/app
 
 `BonePaperPlayerScreen(session: Data)` plays a sheet-mode `session.json` through a real `BonePaperDocument`. It makes the same calls the canvas makes, so the result is pixel-identical to the editor, with no antialiasing, just like the editor.
 
-- **Opening it:** in debug builds, the landing screen has two buttons. "DEBUG: desert road" loads `at_elements/testdata/desert_road.json` (about 20 s of playback). "DEBUG: snowy village" loads `at_elements/testdata/snowy_village.json` (68.8 s recorded, about 29 s of playback). Both are `cartoons2.py` at seed 1.
+- **Opening it:** in debug builds, the landing screen has two buttons. "DEBUG: desert road" loads `at_elements/testdata/desert_road.json` (about 20 s of playback). "DEBUG: snowy village" loads `at_elements/testdata/snowy_village.json` (68.8 s recorded, about 29 s of playback). Both are `cartoons2.py` at seed 1. "DEBUG: evening lake" loads `at_elements/testdata/evening_lake.json`, drawn by `evening_lake.py` in the same flat-band style: dusk, sunset, hills, water, a small sail, and two pines.
 - **Supported sessions:** sheet mode only, without `base.png`. Anything else fails loudly. `noop` ops are skipped; an unknown op is fatal.
 - **Timing:**
   - Stroke-internal time plays at `strokeSpeed = 1.2`; keep it at 1.5 or below.

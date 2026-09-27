@@ -71,6 +71,7 @@ private struct MakePane: View {
     @State private var openDesert = false
     @State private var openVillage = false
     @State private var openVillagePines = false
+    @State private var openLake = false
     @State private var openBoil = false
     @State private var openRoad = false
     @State private var openDraw = false
@@ -89,6 +90,7 @@ private struct MakePane: View {
                     Button("DEBUG: desert road") { openDesert = true }
                     Button("DEBUG: snowy village") { openVillage = true }
                     Button("DEBUG: village pines") { openVillagePines = true }
+                    Button("DEBUG: evening lake") { openLake = true }
                     Button("DEBUG: boil demo") { openBoil = true }
                     Button("DEBUG: road loop") { openRoad = true }
                     Button("DEBUG: JUST DRAW") { openDraw = true }
@@ -173,6 +175,9 @@ private struct MakePane: View {
             }
             .navigationDestination(isPresented: $openVillagePines) {
                 BonePaperPlayerScreen(session: Self.testSession("snowy_village_pines"))
+            }
+            .navigationDestination(isPresented: $openLake) {
+                BonePaperPlayerScreen(session: Self.testSession("evening_lake"))
             }
             .navigationDestination(isPresented: $openBoil) {
                 BoilDemoScreen()
