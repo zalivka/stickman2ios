@@ -35,6 +35,9 @@ struct DualNavigationChrome: View {
                     range: $range,
                     onDoubleTap: enterFrames
                 )
+                .padding(.top, 24)
+                .padding(.bottom, 24)
+                .padding(.trailing, 16)
                 .frame(maxHeight: .infinity)
             }
         }

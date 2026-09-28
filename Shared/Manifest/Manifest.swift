@@ -281,14 +281,42 @@ nonisolated final class Manifest: @unchecked Sendable {
         }
     }
 
+    /// Android `PacksAdapterPresenter` weights, highest first. Unlisted packs follow, by name.
+    /// `christmas`, `irr.intro`, `stickman`, and `common` are hidden there and stay out of this list.
+    private static let chooserRank = [
+        "jungle",
+        "zalivka.farm",
+        "newstickman",
+        "template.basic",
+        "community.pack",
+        "vk.gr1",
+        "vk.gr2",
+        "ayxan.alim",
+        "farid.things",
+        "puppet",
+        "zalivka.vio",
+        "zalivka.space1",
+    ]
+    private static let chooserHidden: Set<String> = ["irr.intro", "stickman", "christmas", "common"]
+
     private func packsMatching(_ query: Query) -> [Pack] {
         if query.isEmpty {
-            let all = packs()
-            let custom = all.filter { $0.name == Pack.customName }
-            let rest = all.filter { $0.name != Pack.customName }
-            return custom + rest
+            return packs()
+                .filter { $0.name == Pack.customName || !Self.chooserHidden.contains($0.name) }
+                .sorted { chooserOrder($0.name) < chooserOrder($1.name) }
         }
         return query.requestedPacks.compactMap { pack(named: $0) }.sorted { $0.name < $1.name }
+    }
+
+    /// Custom items stand in for Android's `~custom_agg`, which is pinned to the top.
+    private func chooserOrder(_ name: String) -> (Int, String) {
+        if name == Pack.customName {
+            return (0, name)
+        }
+        if let index = Self.chooserRank.firstIndex(of: name) {
+            return (index + 1, name)
+        }
+        return (Self.chooserRank.count + 1, name)
     }
 
     private func searchItems(_ string: String) -> [Item] {
