@@ -10,6 +10,9 @@ enum BonePaperTool {
 
 public struct BonePaperExport {
     public let image: CGImage
+    /// Full-resolution (`sample` times document) paint buffer for lossless reopen, when the session started from one.
+    /// Nil for sheet exports, where `image` already is the buffer.
+    public let buffer: CGImage?
     public let extraLeft: CGFloat
     public let extraTop: CGFloat
 }
@@ -34,8 +37,9 @@ public struct BonePaperSheet: Identifiable {
     }
 }
 
-final class BonePaperDocument: ObservableObject {
-    static let sample: Int = 2
+public final class BonePaperDocument: ObservableObject {
+    /// Paint buffer pixels per document pixel. Part of the `.ati` sidecar contract (see `UnitAssets`).
+    public static let sample: Int = 2
     static let undoCap = 5
     static let defaultSide: Int = 512
     public static let maxSide: Int = 2048
@@ -109,6 +113,25 @@ final class BonePaperDocument: ObservableObject {
         if buffer.width != pixelWidth || buffer.height != pixelHeight {
             fatalError("BonePaperDocument buffer \(buffer.width)x\(buffer.height) != \(pixelWidth)x\(pixelHeight)")
         }
+        copyBuffer(buffer)
+    }
+
+    /// Reopens a bone drawing from its saved picture plus the full-resolution paint buffer.
+    /// `buffer` must already be `source` times `sample`; it is copied in without scaling, so no
+    /// upscale blur. The source is not drawn (the buffer holds the same pixels at full resolution).
+    convenience init(width: Int, height: Int, source: CGImage, buffer: CGImage) {
+        if source.width != width || source.height != height {
+            fatalError("BonePaperDocument source \(source.width)x\(source.height) != \(width)x\(height)")
+        }
+        if buffer.width != width * Self.sample || buffer.height != height * Self.sample {
+            fatalError("BonePaperDocument buffer \(buffer.width)x\(buffer.height) != \(width * Self.sample)x\(height * Self.sample)")
+        }
+        self.init(width: width, height: height, source: nil, fixed: false)
+        copyBuffer(buffer)
+    }
+
+    /// Copies `buffer` into the paint buffer unscaled and refreshes the preview. Size must be checked first.
+    private func copyBuffer(_ buffer: CGImage) {
         context.draw(buffer, in: pixelRect)
         guard let image = context.makeImage() else {
             fatalError("BonePaperDocument buffer preview failed")
@@ -368,6 +391,7 @@ final class BonePaperDocument: ObservableObject {
         }
         return BonePaperExport(
             image: exported,
+            buffer: committed,
             extraLeft: CGFloat(extraLeft),
             extraTop: CGFloat(extraTop)
         )
@@ -389,6 +413,7 @@ final class BonePaperDocument: ObservableObject {
         }
         return BonePaperExport(
             image: image,
+            buffer: nil,
             extraLeft: CGFloat(extraLeft),
             extraTop: CGFloat(extraTop)
         )

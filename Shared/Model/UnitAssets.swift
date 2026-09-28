@@ -1,4 +1,6 @@
+import BonePaper
 import CoreGraphics
+import CryptoKit
 import Foundation
 import UIKit
 
@@ -43,6 +45,10 @@ final class UnitAssets {
         var nativeFlipped: Bool
         var bmName: String
         var bitmap: CGImage
+        /// Compressed PNG of the full-resolution (`BonePaperDocument.sample` times `bitmap`) paint buffer,
+        /// for lossless reopen in the Paper Drawer. Nil when the picture was never drawn or edited outside it.
+        /// Touch only through `paintBuffer(bmName:)`, `replaceBitmap`, and `evictPaintBuffers`.
+        var paintBuffer: Data?
         var svgName: String?
         var commandScale: String?
     }
@@ -413,12 +419,62 @@ final class UnitAssets {
         )
         let xOffset = -scaled.jointX
         let yOffset = -scaled.jointY
+        // Keep the paint buffer in step with the bitmap, so a later Paper Drawer session reopens
+        // the transformed drawing instead of the upscaled 1x picture.
+        //
+        // Only scale/rotate reach this path: pure drags change `xOffset`/`yOffset` alone (see the
+        // `applyShift(dx:dy:)` overload) and leave every pixel — bitmap and buffer — untouched.
+        // A transform resamples instead, which softens edges by nature of interpolation. That
+        // softening is inherent to the op and identical with or without this feature; the buffer
+        // just preserves the transformed pixels exactly instead of adding another upscale on top.
+        // Note the buffer is resampled at 2x while the bitmap is resampled at 1x, so reopening
+        // from the buffer stays strictly sharper than reopening from the transformed bitmap.
+        //
+        // The buffer runs through the same `BonePictureScale.transform` with the joint doubled
+        // (`joint * sample`), because buffer pixels are `sample` times bitmap pixels and the joint
+        // must stay on the same drawing point. The op is affine, so the buffer span is exactly
+        // twice the bitmap span — but each side rounds its canvas up independently
+        // (`pixelW = ceil(span)`), and doubling does not commute with rounding up. Example:
+        // a bitmap span of 10.3 rounds to 11 px, while the buffer span of 20.6 rounds to 21 px
+        // instead of the required 11 * 2 = 22. Roughly half of all rotate/scale ops land this way.
+        //
+        // The reopen contract demands an exact double size (see `validatedBuffer` in
+        // `SkeletonScreen` and `BonePaperScreen.init`), so a buffer that lands a pixel off is
+        // dropped with a log rather than padded or force-fit: padding would shift pixel alignment
+        // and silently move the drawing half a pixel, while relaxing the contract would reintroduce
+        // the very scaling this feature removes. A dropped buffer only means that one bone reopens
+        // from the 1x path — today's behavior, never a regression. A stored buffer is therefore
+        // always either exact current state or absent; there is no stale low-quality copy.
+        var scaledBuffer: Data?
+        if let data = source.paintBuffer {
+            let bufferImage = PNG.image(from: data, name: bmName)
+            if bufferImage.width == source.bitmap.width * BonePaperDocument.sample,
+               bufferImage.height == source.bitmap.height * BonePaperDocument.sample {
+                let sample = CGFloat(BonePaperDocument.sample)
+                let scaledBuf = BonePictureScale.transform(
+                    bufferImage,
+                    aroundX: jointX * sample,
+                    y: jointY * sample,
+                    factor: factor,
+                    radians: radians
+                )
+                if scaledBuf.image.width == scaled.image.width * BonePaperDocument.sample,
+                   scaledBuf.image.height == scaled.image.height * BonePaperDocument.sample {
+                    scaledBuffer = PNG.data(from: scaledBuf.image, name: bmName)
+                } else {
+                    print("UnitAssets '\(bmName)' dropped paint buffer after transform: \(scaledBuf.image.width)x\(scaledBuf.image.height) != \(scaled.image.width * BonePaperDocument.sample)x\(scaled.image.height * BonePaperDocument.sample)")
+                }
+            } else {
+                print("UnitAssets '\(bmName)' dropped stale paint buffer: \(bufferImage.width)x\(bufferImage.height)")
+            }
+        }
         for (key, states) in edgeAssets {
             var next = states
             var changed = false
             for (state, asset) in states where asset.bmName == bmName {
                 var updated = asset
                 updated.bitmap = scaled.image
+                updated.paintBuffer = scaledBuffer
                 updated.xOffset = xOffset
                 updated.yOffset = yOffset
                 next[state] = updated
@@ -430,6 +486,7 @@ final class UnitAssets {
         }
         if var loose = looseBones[bmName] {
             loose.bitmap = scaled.image
+            loose.paintBuffer = scaledBuffer
             loose.xOffset = xOffset
             loose.yOffset = yOffset
             looseBones[bmName] = loose
@@ -449,12 +506,55 @@ final class UnitAssets {
         return found
     }
 
-    func replaceBitmap(bmName: String, image: CGImage, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) {
+    /// Compressed PNG paint buffer for `bmName`, for lossless reopen in the Paper Drawer. Nil when absent.
+    func paintBuffer(bmName: String) -> Data? {
+        assets(bmName: bmName).first?.paintBuffer
+    }
+
+    /// PNG bytes for a paint buffer, for the screen layer (the `PNG` helper is file-private).
+    static func pngData(from image: CGImage, name: String) -> Data {
+        PNG.data(from: image, name: name)
+    }
+
+    /// Decoded buffer image, nil for bad bytes. Loud variant is `PNG.image`, kept for pack art.
+    static func pngImage(from data: Data) -> CGImage? {
+        PNG.decodedImage(from: data)
+    }
+
+    /// Drops every paint buffer. Bitmaps are untouched; pictures reopen from the upscaled 1x path.
+    func evictPaintBuffers() {
+        for (key, states) in edgeAssets {
+            var next = states
+            var changed = false
+            for (state, asset) in states where asset.paintBuffer != nil {
+                var updated = asset
+                updated.paintBuffer = nil
+                next[state] = updated
+                changed = true
+            }
+            if changed {
+                edgeAssets[key] = next
+            }
+        }
+        for (name, var loose) in looseBones where loose.paintBuffer != nil {
+            loose.paintBuffer = nil
+            looseBones[name] = loose
+        }
+    }
+
+    func replaceBitmap(bmName: String, image: CGImage, buffer: Data? = nil, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) {
         if bmName.isEmpty {
             fatalError("UnitAssets replaceBitmap empty bmName")
         }
         if image.width < 1 || image.height < 1 {
             fatalError("UnitAssets replaceBitmap '\(bmName)' size \(image.width)x\(image.height)")
+        }
+        if let buffer {
+            let decoded = PNG.image(from: buffer, name: bmName)
+            if decoded.width != image.width * BonePaperDocument.sample
+                || decoded.height != image.height * BonePaperDocument.sample {
+                fatalError("UnitAssets replaceBitmap '\(bmName)' buffer \(decoded.width)x\(decoded.height) != \(image.width * BonePaperDocument.sample)x\(image.height * BonePaperDocument.sample)")
+            }
         }
         var found = false
         for (key, states) in edgeAssets {
@@ -463,6 +563,7 @@ final class UnitAssets {
             for (state, asset) in states where asset.bmName == bmName {
                 var updated = asset
                 updated.bitmap = image
+                updated.paintBuffer = buffer
                 updated.xOffset -= extraLeft
                 updated.yOffset -= extraTop
                 next[state] = updated
@@ -475,6 +576,7 @@ final class UnitAssets {
         }
         if var loose = looseBones[bmName] {
             loose.bitmap = image
+            loose.paintBuffer = buffer
             loose.xOffset -= extraLeft
             loose.yOffset -= extraTop
             looseBones[bmName] = loose
@@ -521,6 +623,7 @@ final class UnitAssets {
             nativeFlipped: false,
             bmName: bmName,
             bitmap: bitmap,
+            paintBuffer: nil,
             svgName: nil,
             commandScale: nil
         )
@@ -735,6 +838,7 @@ final class UnitAssets {
                     nativeFlipped: row.nativeFlipped,
                     bmName: row.bmName,
                     bitmap: bitmap(named: row.bmName),
+                    paintBuffer: nil,
                     svgName: row.svgName,
                     commandScale: row.commandScale
                 )
@@ -764,6 +868,117 @@ final class UnitAssets {
             states[asset.state] = asset
             edgeAssets[key] = states
         }
+        attachSidecars(zip: zip)
+    }
+
+    /// Manifest entry name for paint-buffer sidecars.
+    static let sidecarManifest = "bonepaper.json"
+
+    /// Sidecar entry for `bmName` (which already ends in `.png`): `bone_1_2.png` keeps `bone_1_2.png.x2.png`.
+    static func sidecarEntry(for bmName: String) -> String {
+        bmName + ".x2.png"
+    }
+
+    /// Sidecar entries for save: one `<bm>.x2.png` per buffered picture plus the manifest.
+    /// `pngs` must be the exact 1x bytes being saved (from `pngFiles`), keyed by bmName; the manifest
+    /// hashes those so load detects a picture replaced without its buffer. Empty when no buffers.
+    func sidecarFiles(unitName: String, pngs: [String: Data]) -> [(name: String, data: Data)] {
+        let name = Self.removeNumber(unitName)
+        var seen = Set<String>()
+        var files: [(name: String, data: Data)] = []
+        var manifest = BonePaperManifest(version: 1, buffers: [:])
+        for (key, states) in edgeAssets where key.unitName == name {
+            for asset in states.values {
+                if seen.contains(asset.bmName) { continue }
+                seen.insert(asset.bmName)
+                guard let buffer = asset.paintBuffer else { continue }
+                guard let png = pngs[asset.bmName] else {
+                    fatalError("UnitAssets sidecar '\(asset.bmName)' has no live PNG")
+                }
+                let entry = Self.sidecarEntry(for: asset.bmName)
+                files.append((name: entry, data: buffer))
+                manifest.buffers[asset.bmName] = BonePaperManifest.Entry(entry: entry, sha256: Self.sha256Hex(png))
+            }
+        }
+        guard !files.isEmpty else { return [] }
+        files.append((name: Self.sidecarManifest, data: manifest.encode()))
+        return files.sorted { $0.name < $1.name }
+    }
+
+    /// Attach validated sidecar buffers to the just-installed edge assets. Anything unexpected —
+    /// missing manifest, malformed JSON, replaced picture, bad size — drops the buffer with a log,
+    /// never a crash. The picture itself always loads.
+    private func attachSidecars(zip: Data) {
+        let names = Set(ZipStore.names(in: zip))
+        guard names.contains(Self.sidecarManifest) else { return }
+        let manifest: BonePaperManifest
+        do {
+            manifest = try JSONDecoder().decode(
+                BonePaperManifest.self,
+                from: ZipStore.data(named: Self.sidecarManifest, in: zip)
+            )
+        } catch {
+            print("UnitAssets \(Self.sidecarManifest) ignored: \(error)")
+            return
+        }
+        for (key, states) in edgeAssets {
+            var next = states
+            var changed = false
+            for (state, asset) in states {
+                guard let record = manifest.buffers[asset.bmName] else { continue }
+                guard let buffer = Self.validatedSidecar(
+                    record: record,
+                    asset: asset,
+                    zip: zip,
+                    names: names
+                ) else { continue }
+                var updated = asset
+                updated.paintBuffer = buffer
+                next[state] = updated
+                changed = true
+            }
+            if changed {
+                edgeAssets[key] = next
+            }
+        }
+    }
+
+    /// Raw sidecar bytes when they still describe `asset.bitmap`, nil with a log otherwise.
+    private static func validatedSidecar(
+        record: BonePaperManifest.Entry,
+        asset: EdgeAsset,
+        zip: Data,
+        names: Set<String>
+    ) -> Data? {
+        guard names.contains(record.entry) else {
+            print("UnitAssets '\(asset.bmName)' sidecar missing '\(record.entry)'")
+            return nil
+        }
+        guard names.contains(asset.bmName) else {
+            print("UnitAssets '\(asset.bmName)' picture missing beside its sidecar")
+            return nil
+        }
+        let png = ZipStore.data(named: asset.bmName, in: zip)
+        if sha256Hex(png) != record.sha256 {
+            print("UnitAssets '\(asset.bmName)' sidecar stale, picture changed")
+            return nil
+        }
+        let data = ZipStore.data(named: record.entry, in: zip)
+        guard let image = PNG.decodedImage(from: data) else {
+            print("UnitAssets '\(asset.bmName)' sidecar is not a PNG")
+            return nil
+        }
+        let sample = BonePaperDocument.sample
+        guard image.width == asset.bitmap.width * sample,
+              image.height == asset.bitmap.height * sample else {
+            print("UnitAssets '\(asset.bmName)' sidecar size \(image.width)x\(image.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
+            return nil
+        }
+        return data
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func captureRest(from model: StickmanUnit) {
@@ -804,7 +1019,37 @@ struct EdgeAssetRow {
     var commandScale: String?
 }
 
+/// Which `.x2.png` buffer belongs to which picture, plus the SHA-256 of the 1x bytes it was saved with.
+struct BonePaperManifest: Codable {
+    struct Entry: Codable {
+        var entry: String
+        var sha256: String
+    }
+
+    var version: Int
+    var buffers: [String: Entry]
+
+    func encode() -> Data {
+        do {
+            return try JSONEncoder().encode(self)
+        } catch {
+            fatalError("UnitAssets bonepaper.json encode: \(error)")
+        }
+    }
+}
+
 private enum PNG {
+    /// Nil instead of a crash for untrusted bytes (sidecars); `image(from:name:)` stays loud for pack art.
+    static func decodedImage(from data: Data) -> CGImage? {
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
+        return CGImage(
+            pngDataProviderSource: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        )
+    }
+
     static func image(from data: Data, name: String) -> CGImage {
         guard let provider = CGDataProvider(data: data as CFData) else {
             fatalError("UnitAssets '\(name)' has no data provider")

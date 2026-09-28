@@ -44,6 +44,12 @@ enum ItemSaver {
             }
             files.append((name: "assets.xml", data: AssetsXML.serialize(rows: rows, fullName: fullName)))
             files.append(contentsOf: livePngs)
+            files.append(
+                contentsOf: assets.sidecarFiles(
+                    unitName: unit.name,
+                    pngs: Dictionary(uniqueKeysWithValues: livePngs.map { ($0.name, $0.data) })
+                )
+            )
         } else if let source, ZipStore.contains("assets.xml", in: source) {
             fatalError("ItemSaver '\(fullName)' live assets empty but source has assets.xml")
         }
@@ -51,6 +57,10 @@ enum ItemSaver {
         if let source {
             for entry in ZipStore.names(in: source) where !regenerated.contains(entry) {
                 if liveNames.contains(entry) {
+                    continue
+                }
+                // Sidecars are written from live buffers above; stale ones never carry forward.
+                if entry.hasSuffix(".x2.png") || entry == UnitAssets.sidecarManifest {
                     continue
                 }
                 if entry.hasSuffix(".name") || entry.hasSuffix("/") {

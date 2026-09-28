@@ -210,6 +210,7 @@ struct SkeletonScreen: View {
                 boneTip: session.boneTip,
                 onion: session.onion,
                 placement: session.placement,
+                buffer: session.buffer,
                 onApply: { export in
                     applyBonePaper(bmName: session.bmName, export: export)
                 },
@@ -258,6 +259,8 @@ struct SkeletonScreen: View {
     private struct BonePaperEdit: Identifiable {
         let id = UUID()
         let source: CGImage
+        /// Decoded paint buffer for `source`, validated at open. Nil opens from the upscaled 1x path.
+        let buffer: CGImage?
         let boneStart: CGPoint
         let boneTip: CGPoint
         let onion: CGImage?
@@ -396,6 +399,7 @@ struct SkeletonScreen: View {
         let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
         let edit = BonePaperEdit(
             source: asset.bitmap,
+            buffer: validatedBuffer(asset: asset),
             boneStart: start,
             boneTip: tip,
             onion: onion,
@@ -409,6 +413,23 @@ struct SkeletonScreen: View {
         }
     }
 
+    /// Decoded paint buffer for `asset`, or nil with a log when it is missing or stale.
+    /// Nil reopens from the upscaled 1x path, same as before this feature.
+    private func validatedBuffer(asset: UnitAssets.EdgeAsset) -> CGImage? {
+        guard let data = asset.paintBuffer, !data.isEmpty else { return nil }
+        guard let image = UnitAssets.pngImage(from: data) else {
+            print("SkeletonScreen '\(title)' dropped unreadable paint buffer for '\(asset.bmName)'")
+            return nil
+        }
+        let sample = BonePaperDocument.sample
+        guard image.width == asset.bitmap.width * sample,
+              image.height == asset.bitmap.height * sample else {
+            print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
+            return nil
+        }
+        return image
+    }
+
     private func applyBonePaper(bmName: String, export: BonePaperExport) {
         guard let assets else {
             fatalError("SkeletonScreen '\(title)' apply with no assets")
@@ -417,6 +438,7 @@ struct SkeletonScreen: View {
         assets.replaceBitmap(
             bmName: bmName,
             image: export.image,
+            buffer: export.buffer.map { UnitAssets.pngData(from: $0, name: bmName) },
             extraLeft: export.extraLeft,
             extraTop: export.extraTop
         )

@@ -37,6 +37,9 @@ public struct BonePaperScreen: View {
         boneTip: CGPoint?,
         onion: CGImage? = nil,
         placement: BonePaperPlacement? = nil,
+        /// Full-resolution paint buffer for `source`, `sample` times its size. Copied in without
+        /// scaling so reopening loses no quality. A size mismatch falls back to the upscaled source.
+        buffer: CGImage? = nil,
         onApply: ((BonePaperExport) -> Void)?,
         onClose: (() -> Void)? = nil
     ) {
@@ -51,9 +54,17 @@ public struct BonePaperScreen: View {
         }
         let width = source?.width ?? BonePaperDocument.defaultSide
         let height = source?.height ?? BonePaperDocument.defaultSide
-        _document = StateObject(
-            wrappedValue: BonePaperDocument(width: width, height: height, source: source)
-        )
+        if let source, let buffer,
+           buffer.width == source.width * BonePaperDocument.sample,
+           buffer.height == source.height * BonePaperDocument.sample {
+            _document = StateObject(
+                wrappedValue: BonePaperDocument(width: width, height: height, source: source, buffer: buffer)
+            )
+        } else {
+            _document = StateObject(
+                wrappedValue: BonePaperDocument(width: width, height: height, source: source)
+            )
+        }
         _chromeOpacity = State(initialValue: placement == nil ? 1 : 0)
         self.boneStart = boneStart
         self.boneTip = boneTip
