@@ -1,6 +1,6 @@
 import Foundation
 
-enum BootLog {
+nonisolated enum BootLog {
     private static let t0 = ProcessInfo.processInfo.systemUptime
 
     static func elapsedSeconds() -> String {

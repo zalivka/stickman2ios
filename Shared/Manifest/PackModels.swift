@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-struct PackMeta: Decodable {
+nonisolated struct PackMeta: Decodable {
     var mSysName: String
     var mHumanName: String
     var version: Int
@@ -38,7 +38,7 @@ struct PackMeta: Decodable {
     }
 }
 
-struct Query {
+nonisolated struct Query {
     private var requested: Set<String> = []
 
     static func empty() -> Query {
@@ -58,7 +58,7 @@ struct Query {
     var requestedPacks: Set<String> { requested }
 }
 
-struct Item {
+nonisolated struct Item {
     var systemName: String
     var humanName: String
     var packName: String
@@ -75,7 +75,7 @@ struct Item {
     }
 }
 
-struct Pack {
+nonisolated struct Pack {
     static let customName = "@"
     static let customTitle = "Custom items"
 

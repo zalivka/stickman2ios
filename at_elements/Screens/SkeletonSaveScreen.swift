@@ -251,7 +251,7 @@ private struct SaveItemThumb: View {
         }
     }
 
-    private static func load(_ url: URL) -> UIImage? {
+    nonisolated private static func load(_ url: URL) -> UIImage? {
         let zip: Data
         do {
             zip = try Data(contentsOf: url)

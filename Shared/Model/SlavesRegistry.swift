@@ -1,4 +1,4 @@
-nonisolated struct SlavesRegistry {
+struct SlavesRegistry {
     private var children: [String: [String]] = [:]
 
     static func attachment(of unit: StickmanUnit) -> SlaveAttachment? {

@@ -1,6 +1,6 @@
 import Foundation
 
-enum PackTranslator {
+nonisolated enum PackTranslator {
     static func load(from zip: Data, packName: String) -> [String: String] {
         let lang = Locale.current.language.languageCode?.identifier ?? "en"
         let preferred = "translate_\(lang).xml"

@@ -5,7 +5,7 @@ import Foundation
 import UIKit
 
 final class UnitAssets {
-    static let stateDefault = 0
+    nonisolated static let stateDefault = 0
     /// Android `Constants.DEFAULT_LENGTH` — gallery new-bone hint and attach length.
     static let defaultBoneLength: CGFloat = 200
 
@@ -784,7 +784,7 @@ final class UnitAssets {
         Set(edgeAssets.compactMap { $0.value.count > 1 ? $0.key.unitName : nil })
     }
 
-    static func removeNumber(_ name: String) -> String {
+    nonisolated static func removeNumber(_ name: String) -> String {
         guard let hash = name.firstIndex(of: "#") else { return name }
         return String(name[..<hash])
     }
@@ -1005,7 +1005,7 @@ final class UnitAssets {
     }
 }
 
-struct EdgeAssetRow {
+nonisolated struct EdgeAssetRow {
     var unitName: String
     var start: Int
     var end: Int
@@ -1155,7 +1155,7 @@ enum AssetsXML {
         return sink.assets
     }
 
-    private final class Sink: NSObject, XMLParserDelegate {
+    nonisolated private final class Sink: NSObject, XMLParserDelegate {
         var unitName: String?
         var assets: [EdgeAssetRow] = []
 

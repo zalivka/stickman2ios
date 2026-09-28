@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-enum ManifestXML {
+nonisolated enum ManifestXML {
     static func parse(_ data: Data, packName: String, translations: [String: String], archive: Data) -> (
         defScale: CGFloat,
         editableItems: Bool,

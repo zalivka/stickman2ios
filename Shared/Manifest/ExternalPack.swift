@@ -1,6 +1,6 @@
 import Foundation
 
-enum ExternalPack {
+nonisolated enum ExternalPack {
     static func bundleArchives() -> [URL] {
         guard let root = Bundle.main.resourceURL else {
             fatalError("Manifest missing resourceURL")

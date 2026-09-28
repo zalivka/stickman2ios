@@ -1,6 +1,6 @@
 import Foundation
 
-enum PackAlias {
+nonisolated enum PackAlias {
     private static let packs = [
         "newstickman": "zalivka.newstickman",
         "jungle": "zalivka.jungle",

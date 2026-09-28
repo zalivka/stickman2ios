@@ -1,6 +1,6 @@
 import Foundation
 
-enum CustomItems {
+nonisolated enum CustomItems {
     static let ext = "ati"
 
     struct Item: Identifiable {

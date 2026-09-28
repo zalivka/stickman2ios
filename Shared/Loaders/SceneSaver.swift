@@ -3,7 +3,7 @@ import Foundation
 enum SceneSaver {
     static let ext = "ats"
 
-    private static let illegal = ["/", "\n", "\r", "\t", "\0", "\u{000C}", "`", "?", "*", "\\", "<", ">", "|", "\"", ":", "#"]
+    nonisolated private static let illegal = ["/", "\n", "\r", "\t", "\0", "\u{000C}", "`", "?", "*", "\\", "<", ">", "|", "\"", ":", "#"]
 
     static func savedDirectory() -> URL {
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
@@ -19,7 +19,7 @@ enum SceneSaver {
         return String(format: "Cartoon_%d", millis % 1000)
     }
 
-    static func isGoodFileName(_ name: String) -> Bool {
+    nonisolated static func isGoodFileName(_ name: String) -> Bool {
         if name.isEmpty {
             return false
         }

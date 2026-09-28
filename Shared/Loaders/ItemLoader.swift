@@ -94,7 +94,7 @@ enum ItemMeta {
     }
 }
 
-enum ZipStore {
+nonisolated enum ZipStore {
     static let store: UInt16 = 0
     static let deflate: UInt16 = 8
 
@@ -261,7 +261,7 @@ enum ZipStore {
         }
     }
 
-    private struct Entry {
+    nonisolated private struct Entry {
         var name: String
         var method: UInt16
         var compressed: Int
@@ -374,7 +374,7 @@ enum ZipStore {
     }
 }
 
-private enum CRC32 {
+nonisolated private enum CRC32 {
     static let table: [UInt32] = {
         (0..<256).map { i -> UInt32 in
             var c = UInt32(i)
@@ -567,7 +567,7 @@ enum ModelXML {
     }
 }
 
-private extension Data {
+nonisolated private extension Data {
     func u16(_ offset: Int) -> UInt16 {
         require(offset, 2)
         return UInt16(self[offset]) | UInt16(self[offset + 1]) << 8
