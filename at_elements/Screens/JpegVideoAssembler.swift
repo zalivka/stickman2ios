@@ -9,7 +9,7 @@ enum JpegVideoAssembler {
         FileManager.default.temporaryDirectory.appendingPathComponent("export.mp4", isDirectory: false)
     }
 
-    static func cancel() {
+    nonisolated static func cancel() {
         FFmpegKit.cancel()
     }
 

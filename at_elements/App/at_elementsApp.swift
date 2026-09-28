@@ -6,10 +6,12 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct at_elementsApp: App {
     init() {
+        UNUserNotificationCenter.current().delegate = ExportNotificationCenter.shared
         BootLog.say("App.init")
         Manifest.shared.startBootReload()
         StickmanFonts.boot()

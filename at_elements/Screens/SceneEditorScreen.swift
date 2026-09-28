@@ -27,7 +27,6 @@ struct SceneEditorScreen: View {
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
-    @State private var showingJpegs = false
     @State private var showingCamera = false
     @State private var showingBackground = false
     @State private var showingSpeedEffects = false
@@ -48,6 +47,7 @@ struct SceneEditorScreen: View {
     @State private var saveError = ""
     @State private var lastSavedName: String?
     @State private var saveToast = ""
+    @State private var exportToast: ExportToast?
     @State private var showingFBF = false
     @State private var showingAdvanced = false
     @State private var showingSetText = false
@@ -57,6 +57,7 @@ struct SceneEditorScreen: View {
     @State private var showingLeaveAlert = false
     @State private var dismissAfterSave = false
     @State private var savedDocument: Data
+    @StateObject private var videoExport = VideoExport()
     @StateObject private var clipboard = CopyPasteBuffer()
     @StateObject private var undo = SceneUndo()
     @State private var frameInsertFlash = 0
@@ -218,7 +219,7 @@ struct SceneEditorScreen: View {
                     .ignoresSafeArea()
                     .padding(.leading, MainPanel.width)
                     .onTapGesture { showingMenu = false }
-                SideMenu(onPick: pickMenu)
+                SideMenu(onPick: pickMenu, exportDisabled: videoExport.phase == .saving)
                     .padding(.leading, MainPanel.width)
                     .transition(.move(edge: .leading))
             }
@@ -319,9 +320,6 @@ struct SceneEditorScreen: View {
         .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
-        }
-        .fullScreenCover(isPresented: $showingJpegs) {
-            JpegsScreen(source: scene, assets: assets, backgrounds: backgrounds)
         }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
@@ -428,7 +426,18 @@ struct SceneEditorScreen: View {
             )
         }
         .overlay {
-            if !saveToast.isEmpty {
+            if let exportToast {
+                Text(exportToast.text)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(exportToast.foreground)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(exportToast.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.bottom, 20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+            } else if !saveToast.isEmpty {
                 Text(saveToast)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
@@ -439,6 +448,22 @@ struct SceneEditorScreen: View {
                     .padding(.bottom, 48)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .allowsHitTesting(false)
+            }
+        }
+        .onChange(of: videoExport.phase) { _, phase in
+            switch phase {
+            case .saving:
+                showExportToast(ExportToast(text: "Saving video — will be saved to Photos", background: .yellow, foreground: .black))
+            case .saved:
+                showExportToast(ExportToast(
+                    text: "Video is ready — saved to Photos",
+                    background: Color(red: 0.18, green: 0.65, blue: 0.30),
+                    foreground: .white
+                ))
+            case .failed:
+                showExportToast(ExportToast(text: "Export failed", background: .red, foreground: .white))
+            case .idle:
+                break
             }
         }
     }
@@ -1006,7 +1031,7 @@ struct SceneEditorScreen: View {
             showingSave = true
         }
         if action == .export {
-            showingJpegs = true
+            startVideoExport()
         }
         if action == .editScene {
             scenePropsSheet = .edit
@@ -1120,6 +1145,32 @@ struct SceneEditorScreen: View {
             dismissAfterSave = false
             showToast("error")
         }
+    }
+
+    private struct ExportToast: Equatable {
+        let id = UUID()
+        let text: String
+        let background: Color
+        let foreground: Color
+    }
+
+    private func showExportToast(_ toast: ExportToast) {
+        exportToast = toast
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if exportToast?.id == toast.id {
+                exportToast = nil
+            }
+        }
+    }
+
+    private func startVideoExport() {
+        if scene.frames.count < 2 {
+            showToast("Add more frames first")
+            return
+        }
+        let snapshot = scene
+        videoExport.start(scene: snapshot, assets: assets, backgrounds: backgrounds)
     }
 
     private func showToast(_ text: String, seconds: Double = 2) {

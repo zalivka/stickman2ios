@@ -19,12 +19,15 @@ struct SideMenu: View {
     static let width: CGFloat = 200
 
     var onPick: (SideMenuAction) -> Void
+    var exportDisabled = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 row(.save, "Save project", "square.and.arrow.down")
                 row(.export, "Export", "square.and.arrow.up")
+                    .disabled(exportDisabled)
+                    .opacity(exportDisabled ? 0.4 : 1)
                 divider
                 row(.createItems, "Create items", "plus.square")
                 row(.editScene, "Edit scene", "slider.horizontal.3")

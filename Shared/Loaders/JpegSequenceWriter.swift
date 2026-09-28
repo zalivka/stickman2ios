@@ -1,6 +1,27 @@
 import Foundation
 import UIKit
 
+final class JpegWriteStop: @unchecked Sendable {
+    private nonisolated(unsafe) let lock = NSLock()
+    private nonisolated(unsafe) var cancelled = false
+
+    nonisolated func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    nonisolated var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+}
+
+enum JpegWriteError: Error {
+    case cancelled
+}
+
 enum JpegSequenceWriter {
     static let directoryName = "export_jpegs"
     private static let queue = DispatchQueue(label: "jpeg.sequence")
@@ -24,8 +45,9 @@ enum JpegSequenceWriter {
         scene: StickmanScene,
         assets: UnitAssets,
         backgrounds: BackgroundAssets,
+        stop: JpegWriteStop,
         progress: @escaping (Int) -> Void,
-        completion: @escaping (Int) -> Void
+        completion: @escaping (Result<Int, Error>) -> Void
     ) {
         if scene.frames.count < 2 {
             fatalError("JpegSequenceWriter needs at least 2 keyframes, got \(scene.frames.count)")
@@ -38,9 +60,25 @@ enum JpegSequenceWriter {
             },
             completion: { movie in
                 queue.async {
-                    let count = writeJpegs(movie: movie, assets: assets, backgrounds: backgrounds, progress: progress)
+                    if stop.isCancelled {
+                        DispatchQueue.main.async {
+                            completion(.failure(JpegWriteError.cancelled))
+                        }
+                        return
+                    }
+                    let count = writeJpegs(
+                        movie: movie,
+                        assets: assets,
+                        backgrounds: backgrounds,
+                        stop: stop,
+                        progress: progress
+                    )
                     DispatchQueue.main.async {
-                        completion(count)
+                        if let count {
+                            completion(.success(count))
+                        } else {
+                            completion(.failure(JpegWriteError.cancelled))
+                        }
                     }
                 }
             }
@@ -51,8 +89,9 @@ enum JpegSequenceWriter {
         movie: StickmanScene,
         assets: UnitAssets,
         backgrounds: BackgroundAssets,
+        stop: JpegWriteStop,
         progress: @escaping (Int) -> Void
-    ) -> Int {
+    ) -> Int? {
         if movie.frames.isEmpty {
             fatalError("JpegSequenceWriter movie has no frames")
         }
@@ -72,6 +111,9 @@ enum JpegSequenceWriter {
         }
         let total = movie.frames.count
         for index in movie.frames.indices {
+            if stop.isCancelled {
+                return nil
+            }
             autoreleasepool {
                 let cgImage = FrameRasterizer.render(
                     frame: movie.frames[index],
@@ -93,6 +135,9 @@ enum JpegSequenceWriter {
                 if !fm.fileExists(atPath: url.path) {
                     fatalError("JpegSequenceWriter missing \(url.lastPathComponent) after write")
                 }
+            }
+            if stop.isCancelled {
+                return nil
             }
             let raster = 40 + ((index + 1) * 60 / total)
             DispatchQueue.main.async {
