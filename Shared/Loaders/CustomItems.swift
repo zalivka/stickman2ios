@@ -93,6 +93,10 @@ nonisolated enum CustomItems {
         } catch {
             fatalError("CustomItems delete \(item.url.lastPathComponent): \(error)")
         }
+        // Manifest caches the customs list. Every mutation must announce itself
+        // so the cached `@` pack is reloaded; otherwise itemZip keeps serving
+        // the deleted file and dies reading it.
+        NotificationCenter.default.post(name: .customItemsDidChange, object: nil)
     }
 
     static func copy(_ item: Item, as rawName: String) throws {
@@ -110,6 +114,8 @@ nonisolated enum CustomItems {
         } catch {
             fatalError("CustomItems copy \(item.url.lastPathComponent): \(error)")
         }
+        // See delete: the cached `@` pack must be reloaded after every change.
+        NotificationCenter.default.post(name: .customItemsDidChange, object: nil)
     }
 
     enum CopyError: Error {

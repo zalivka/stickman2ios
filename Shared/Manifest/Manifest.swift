@@ -9,8 +9,23 @@ nonisolated final class Manifest: @unchecked Sendable {
     private var bootReloadStarted = false
     private var packsByName: [String: Pack] = [:]
     private var itemsByFullName: [String: Item] = [:]
+    private var customsObserver: NSObjectProtocol?
 
-    private init() {}
+    private init() {
+        // Reload the cached `@` pack on every customs change, no matter which
+        // screen made it. Otherwise a deleted file stays indexed until some
+        // visible panel happens to reload, and itemZip dies reading it.
+        customsObserver = NotificationCenter.default.addObserver(
+            forName: .customItemsDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.queue.async {
+                _ = self.reloadCustomPack()
+            }
+        }
+    }
 
     func startBootReload() {
         bootLock.lock()
@@ -160,7 +175,17 @@ nonisolated final class Manifest: @unchecked Sendable {
             fatalError("Manifest missing item '\(fullname)'")
         }
         if item.packName == Pack.customName {
-            return CustomItems.zipData(systemName: item.systemName)
+            if FileManager.default.fileExists(atPath: CustomItems.file(systemName: item.systemName).path) {
+                return CustomItems.zipData(systemName: item.systemName)
+            }
+            // The customs directory changed under the cached pack (e.g. an item
+            // was deleted before the async reload ran). Reload now and retry once;
+            // stay loud only if the file is still missing afterwards.
+            _ = reloadCustomPack()
+            guard let fresh = findItem(fullname: fullname), fresh.packName == Pack.customName else {
+                fatalError("Manifest custom item '\(fullname)' is gone after reload (file deleted?)")
+            }
+            return CustomItems.zipData(systemName: fresh.systemName)
         }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
         return ZipStore.data(atiNamed: "\(item.systemName).ati", in: zip)
@@ -212,20 +237,25 @@ nonisolated final class Manifest: @unchecked Sendable {
     /// Android `ReloadCustomPackTask` — `@` pack is the customs directory, not an `.atp`.
     private func obtainCustomPack() -> Pack {
         let files = CustomItems.collect()
-        let items = files.map { file -> Item in
-            let zip = CustomItems.zipData(systemName: file.systemName)
+        var items: [Item] = []
+        for file in files {
+            // The file can vanish between collect() and this read (delete racing
+            // a reload). Skip it; the next collect will not list it at all.
+            guard let zip = try? Data(contentsOf: file.url) else { continue }
             let fullName = Pack.customName + ":" + file.systemName
-            return Item(
-                systemName: file.systemName,
-                humanName: file.name,
-                packName: Pack.customName,
-                fullName: fullName,
-                setName: "",
-                scale: customScale(zip: zip),
-                faceable: false,
-                multiframed: false,
-                hidden: false,
-                readOnly: false
+            items.append(
+                Item(
+                    systemName: file.systemName,
+                    humanName: file.name,
+                    packName: Pack.customName,
+                    fullName: fullName,
+                    setName: "",
+                    scale: customScale(zip: zip),
+                    faceable: false,
+                    multiframed: false,
+                    hidden: false,
+                    readOnly: false
+                )
             )
         }
         return Pack(
