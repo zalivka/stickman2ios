@@ -5,14 +5,11 @@ enum SideMenuAction: String {
     case export
     case createItems
     case editScene
-    case audio
     case background
     case camera
     case speedEffects
     case debug
-    case buy
     case settings
-    case tutorials
 }
 
 struct SideMenu: View {
@@ -31,15 +28,12 @@ struct SideMenu: View {
                 divider
                 row(.createItems, "Create items", "plus.square")
                 row(.editScene, "Edit scene", "slider.horizontal.3")
-                row(.audio, "Add audio", "speaker.wave.2")
                 row(.background, "Background", "photo")
                 row(.camera, "Camera view", "camera")
                 row(.speedEffects, "Speed effects", "speedometer")
                 row(.debug, "Debug", "ladybug")
                 divider
-                row(.buy, "Unlock PRO *", "star")
                 row(.settings, "App settings", "gearshape")
-                row(.tutorials, "Tutorials", "questionmark.circle")
             }
             .padding(.bottom, 8)
         }

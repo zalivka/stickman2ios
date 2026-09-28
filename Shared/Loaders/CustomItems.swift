@@ -47,12 +47,18 @@ enum CustomItems {
             if fileName.hasPrefix("~") {
                 return nil
             }
+            guard let zip = try? Data(contentsOf: url),
+                  ZipStore.contains("model.xml", in: zip),
+                  ZipStore.contains("thumb.png", in: zip)
+            else {
+                return nil
+            }
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate?
                 .timeIntervalSince1970 ?? 0
             return Item(
                 systemName: fileName,
-                name: displayName(url: url, fileName: fileName),
+                name: displayName(zip: zip, fileName: fileName),
                 url: url,
                 mtime: mtime
             )
@@ -111,21 +117,16 @@ enum CustomItems {
         case exists
     }
 
-    private static func displayName(url: URL, fileName: String) -> String {
-        let zip: Data
-        do {
-            zip = try Data(contentsOf: url)
-        } catch {
-            fatalError("CustomItems could not read \(url.path): \(error)")
+    private static func displayName(zip: Data, fileName: String) -> String {
+        guard ZipStore.contains("meta.txt", in: zip) else {
+            return fileName
         }
-        if ZipStore.contains("meta.txt", in: zip) {
-            let data = ZipStore.data(named: "meta.txt", in: zip)
-            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let name = object["name"] as? String,
-               !name.isEmpty
-            {
-                return name
-            }
+        let data = ZipStore.data(named: "meta.txt", in: zip)
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let name = object["name"] as? String,
+           !name.isEmpty
+        {
+            return name
         }
         return fileName
     }

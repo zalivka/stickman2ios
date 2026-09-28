@@ -39,6 +39,7 @@ struct SceneEditorScreen: View {
     @State private var editUnitBackTick = 0
     @State private var showingEditFrame = false
     @State private var showingMenu = false
+    @State private var showingCreateItems = false
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
     @State private var capturedUnitName: String?
@@ -330,6 +331,9 @@ struct SceneEditorScreen: View {
         .fullScreenCover(isPresented: $showingSpeedEffects) {
             SpeedEffectsScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
         }
+        .navigationDestination(isPresented: $showingCreateItems) {
+            CustomItemsListScreen()
+        }
         .sheet(item: $scenePropsSheet) { sheet in
             switch sheet {
             case .edit:
@@ -473,6 +477,10 @@ struct SceneEditorScreen: View {
     }
 
     private func play() {
+        if scene.frames.count < 2 {
+            showToast("Add more frames")
+            return
+        }
         if tutorialStep == .play {
             tutorialStep = nil
             UserDefaults.standard.set(true, forKey: Self.tutorialDoneKey)
@@ -1032,6 +1040,9 @@ struct SceneEditorScreen: View {
         }
         if action == .export {
             startVideoExport()
+        }
+        if action == .createItems {
+            showingCreateItems = true
         }
         if action == .editScene {
             scenePropsSheet = .edit
