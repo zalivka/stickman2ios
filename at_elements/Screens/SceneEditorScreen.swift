@@ -871,13 +871,7 @@ struct SceneEditorScreen: View {
             cameraTweens: cameraTweens
         )
         collapseRangeToCurrent()
-        let names = Set(scene.currentFrame.units.map(\.name))
-        if let selectedUnitName, !names.contains(selectedUnitName) {
-            self.selectedUnitName = nil
-        }
-        if let capturedUnitName, !names.contains(capturedUnitName) {
-            self.capturedUnitName = nil
-        }
+        dropSelectionMissingFromCurrentFrame()
     }
 
     private func copySelectedFrames() {
@@ -1008,6 +1002,19 @@ struct SceneEditorScreen: View {
         }
         undo.restore(into: &scene)
         clampRange()
+        dropSelectionMissingFromCurrentFrame()
+    }
+
+    /// Insert undo restores a frame without the unit just added. The name would stay selected
+    /// and the rotate/move/scale handles would stay on screen with no unit behind them.
+    private func dropSelectionMissingFromCurrentFrame() {
+        let names = Set(scene.currentFrame.units.map(\.name))
+        if let selectedUnitName, !names.contains(selectedUnitName) {
+            self.selectedUnitName = nil
+        }
+        if let capturedUnitName, !names.contains(capturedUnitName) {
+            self.capturedUnitName = nil
+        }
     }
 
     private func collapseRangeToCurrent() {

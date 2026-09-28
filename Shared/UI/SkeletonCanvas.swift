@@ -930,9 +930,22 @@ struct SkeletonCanvas: View {
         )
     }
 
+    /// The selected scene unit, when it is still on this frame. A name left over from undo is not a unit.
+    private func selectedFrameUnit() -> StickmanUnit? {
+        guard let name = selectedUnitName.wrappedValue else { return nil }
+        return frameUnits.first { $0.name == name }
+    }
+
+    /// Scene editor: handles follow the selected frame unit.
+    /// Item preview binds one unit and passes no frame list, so the handles stay on that unit.
+    private var editorHandlersOn: Bool {
+        if selectedFrameUnit() != nil { return true }
+        return frameUnits.isEmpty && unit != nil
+    }
+
     private func drawHandlers(context: inout GraphicsContext, layout: SkeletonLayout) {
         guard showsHandlers else { return }
-        guard mode != .editor || selectedUnitName.wrappedValue != nil else { return }
+        guard mode != .editor || editorHandlersOn else { return }
         if dragRef.handler != nil || dragRef.nodeId != nil { return }
         let side = CGFloat(HandlerArtwork.move.width) / UIScreen.main.scale
         context.withCGContext { cg in
@@ -978,7 +991,7 @@ struct SkeletonCanvas: View {
             return
         }
         if began {
-            if mode == .editor, showsHandlers, selectedUnitName.wrappedValue != nil,
+            if mode == .editor, showsHandlers, editorHandlersOn,
                let handle = hitHandler(at: location, layout: current) {
                 if !poseEditable(for: selectedUnitName.wrappedValue ?? liveUnit.name) {
                     onLockedEdit?()
