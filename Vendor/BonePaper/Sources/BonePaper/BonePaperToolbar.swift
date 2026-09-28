@@ -776,7 +776,7 @@ struct BonePaperColorStrip: View {
             extras = BonePaperColorStore.load()
         }
         .sheet(isPresented: $showingPicker) {
-            BonePaperFlexColorPickerSheet(initial: UIColor(BonePaperColorStore.color(from: topHex))) { picked in
+            BonePaperFlexColorPickerSheet(initial: UIColor(color)) { picked in
                 let hex = BonePaperColorStore.hex(from: picked)
                 color = BonePaperColorStore.color(from: hex)
                 remember(hex)
@@ -784,10 +784,6 @@ struct BonePaperColorStrip: View {
                 showingPicker = false
             }
         }
-    }
-
-    private var topHex: String {
-        extras.first ?? BonePaperColorStore.presets[0]
     }
 
     private var swatches: [String] {

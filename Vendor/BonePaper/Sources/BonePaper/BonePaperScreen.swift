@@ -163,7 +163,6 @@ public struct BonePaperScreen: View {
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.trailing, safe.trailing + BonePaperChrome.pad)
                     .padding(.top, safe.top + BonePaperChrome.pad)
-                    .padding(.bottom, safe.bottom + BonePaperChrome.pad)
                     .opacity(chromeOpacity)
                 }
                 .overlay(alignment: .bottomLeading) {

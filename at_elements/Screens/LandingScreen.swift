@@ -78,6 +78,7 @@ private struct MakePane: View {
     @State private var openRoad = false
     @State private var openShip = false
     @State private var openDraw = false
+    @State private var openTutorial = false
     #endif
 
     var body: some View {
@@ -100,6 +101,7 @@ private struct MakePane: View {
                     Button("DEBUG: road loop") { openRoad = true }
                     Button("DEBUG: ship") { openShip = true }
                     Button("DEBUG: JUST DRAW") { openDraw = true }
+                    Button("DEBUG: tutorial") { openTutorial = true }
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.orange)
@@ -204,6 +206,9 @@ private struct MakePane: View {
                 BonePaperScreen(
                     sheet: BonePaperSheet(width: 640, height: 480, paper: .white)
                 )
+            }
+            .navigationDestination(isPresented: $openTutorial) {
+                DemoSceneScreen(resource: "intro", subdirectory: "tutorial", tutorial: true)
             }
             #endif
         }

@@ -284,17 +284,19 @@ struct SkeletonCanvas: View {
                         onChanged: { handleDrag(at: $0, size: proxy.size, began: false) },
                         onEnded: { _ in endTouch() },
                         onDoubleTap: { handleEmptyDoubleTap(at: $0, size: proxy.size) },
-                        swallowPinch: { FeatureFlags.shiftPinchScale && shiftHoldFlag },
+                        swallowPinch: { shiftHoldFlag },
                         onPinchBegan: { endTouch() },
                         onPinch: { focus, factor in
-                            if FeatureFlags.shiftPinchScale, shiftHoldFlag {
-                                boneShift.pinch(factor)
-                            } else {
-                                handlePinch(focus: focus, factor: factor)
+                            if shiftHoldFlag {
+                                if FeatureFlags.shiftPinchScale {
+                                    boneShift.pinch(factor)
+                                }
+                                return
                             }
+                            handlePinch(focus: focus, factor: factor)
                         },
                         onPinchPan: { dx, dy in
-                            if FeatureFlags.shiftPinchScale, shiftHoldFlag {
+                            if shiftHoldFlag {
                                 return
                             }
                             handlePinchPan(dx: dx, dy: dy)
