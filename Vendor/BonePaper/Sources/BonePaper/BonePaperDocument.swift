@@ -42,7 +42,7 @@ public final class BonePaperDocument: ObservableObject {
     public static let sample: Int = 2
     static let undoCap = 5
     static let defaultSide: Int = 512
-    public static let maxSide: Int = 2048
+    public static let maxSide: Int = 1024
     static let growChunk: Int = 64
     // Dual-threshold region-growing flood fill (contiguous paint bucket).
     // Colour metric is OKLab Euclidean distance; white↔black is 1.0.
