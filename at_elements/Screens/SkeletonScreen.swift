@@ -23,6 +23,7 @@ struct SkeletonScreen: View {
     @State private var layerEpoch = 0
     @State private var exposeVacantPoints = false
     @State private var showingPreview = false
+    @State private var showingSettings = false
     @State private var showingSave = false
     @State private var bonePaperEdit: BonePaperEdit?
     @State private var editSession = SkeletonEditSession()
@@ -134,9 +135,9 @@ struct SkeletonScreen: View {
                     .ignoresSafeArea()
                     .onTapGesture { showingMenu = false }
                 SkeletonSideMenu(
-                    onPick: { showingMenu = false },
                     onSaveAs: saveAs,
-                    onPreview: openPreview
+                    onPreview: openPreview,
+                    onSettings: openSettings
                 )
                 .transition(.move(edge: .leading))
             }
@@ -185,6 +186,9 @@ struct SkeletonScreen: View {
         .onAppear(perform: loadIfNeeded)
         .fullScreenCover(isPresented: $showingPreview) {
             previewScreen
+        }
+        .sheet(isPresented: $showingSettings) {
+            AppSettingsSheet()
         }
         .sheet(isPresented: $showingSave) {
             SkeletonSaveScreen(
@@ -681,10 +685,23 @@ struct SkeletonScreen: View {
 
     private func openPreview() {
         showingMenu = false
-        guard scene != nil, assets != nil else {
+        guard let scene, assets != nil else {
             fatalError("SkeletonScreen '\(title)' preview before load")
         }
+        if scene.currentFrame.units.isEmpty {
+            fatalError("SkeletonScreen '\(title)' preview with no unit")
+        }
+        // Android SkeletonActivity.readyToSave: a base point alone is not a bone.
+        if scene.currentFrame.units[0].points.count < 2 {
+            showToast("Add more points")
+            return
+        }
         showingPreview = true
+    }
+
+    private func openSettings() {
+        showingMenu = false
+        showingSettings = true
     }
 
     private var previewScreen: SkeletonPreviewScreen {

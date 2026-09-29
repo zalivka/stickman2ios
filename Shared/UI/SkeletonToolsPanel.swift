@@ -470,15 +470,15 @@ struct SkeletonDrawTools: View {
 }
 
 struct SkeletonSideMenu: View {
-    var onPick: () -> Void
     var onSaveAs: () -> Void
     var onPreview: () -> Void
+    var onSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             row("Save as", icon: "square.and.arrow.down", action: onSaveAs)
             row("Preview", icon: "eye", action: onPreview)
-            row("Settings", icon: "gearshape", action: onPick)
+            row("Settings", icon: "gearshape", action: onSettings)
             Spacer(minLength: 0)
         }
         .frame(width: SideMenu.width)
