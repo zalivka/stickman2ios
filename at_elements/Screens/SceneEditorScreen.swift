@@ -39,6 +39,7 @@ struct SceneEditorScreen: View {
     @State private var editUnitBackTick = 0
     @State private var showingEditFrame = false
     @State private var showingMenu = false
+    @State private var showingSettings = false
     @State private var showingCreateItems = false
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
@@ -347,6 +348,9 @@ struct SceneEditorScreen: View {
                     applySceneSize(size)
                 }
             }
+        }
+        .sheet(isPresented: $showingSettings) {
+            AppSettingsSheet()
         }
         .sheet(isPresented: $showingSave) {
             SaveProjectSheet(
@@ -1066,6 +1070,9 @@ struct SceneEditorScreen: View {
                 return
             }
             showingSpeedEffects = true
+        }
+        if action == .settings {
+            showingSettings = true
         }
     }
 

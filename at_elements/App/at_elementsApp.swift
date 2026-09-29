@@ -12,6 +12,7 @@ import UserNotifications
 struct at_elementsApp: App {
     init() {
         UNUserNotificationCenter.current().delegate = ExportNotificationCenter.shared
+        AppSettings.boot()
         BootLog.say("App.init")
         Manifest.shared.startBootReload()
         StickmanFonts.boot()
