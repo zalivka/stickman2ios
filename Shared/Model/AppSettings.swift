@@ -5,9 +5,14 @@ import Foundation
 enum AppSettings {
     private static let paperDrawAntialiasingKey = "paperDrawAntialiasing"
 
-    /// Paper Draw brush and eraser antialiasing. Missing key is off, matching BonePaper's own default.
+    /// Paper Draw brush and eraser antialiasing. A missing key stays on, matching BonePaper's own default.
     static var paperDrawAntialiasing: Bool {
-        get { UserDefaults.standard.bool(forKey: paperDrawAntialiasingKey) }
+        get {
+            guard UserDefaults.standard.object(forKey: paperDrawAntialiasingKey) != nil else {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: paperDrawAntialiasingKey)
+        }
         set {
             UserDefaults.standard.set(newValue, forKey: paperDrawAntialiasingKey)
             BonePaperFlags.antialiasing = newValue

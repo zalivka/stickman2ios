@@ -313,7 +313,9 @@ public final class BonePaperDocument: ObservableObject {
                     paint: paint
                 )
             } else {
-                Self.growRing(pixels: pixels, mask: &mask, width: width, height: height, stride: stride)
+                if BonePaperFlags.antialiasing {
+                    Self.growRing(pixels: pixels, mask: &mask, width: width, height: height, stride: stride)
+                }
                 Self.paintBehind(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
             }
             DispatchQueue.main.async {
@@ -677,7 +679,9 @@ public final class BonePaperDocument: ObservableObject {
         )
     }
 
-    /// 4-connected stack flood fill. A neighbour joins when:
+    /// 4-connected stack flood fill.
+    /// Antialiasing off: a neighbour joins only when its premultiplied bytes equal the tap. A hard stroke has no blend band.
+    /// Antialiasing on, a neighbour joins when:
     /// 1. its premultiplied bytes match the previous pixel (same colour, so the limits already passed still hold), or
     /// 2. not transparent (recolour) / not ink (empty fill, unless the tap was on ink), and
     /// 3. OKLab distance to the previous pixel < neighbour limit (region growing), and
@@ -696,6 +700,9 @@ public final class BonePaperDocument: ObservableObject {
     ) -> [UInt8] {
         if stride % 4 != 0 {
             fatalError("BonePaperDocument fill stride \(stride) is not a multiple of 4")
+        }
+        if !BonePaperFlags.antialiasing {
+            return fillExact(pixels: pixels, width: width, height: height, stride: stride, seedX: seedX, seedY: seedY)
         }
         func rgba(_ offset: Int) -> UInt32 {
             UnsafeRawPointer(pixels).load(fromByteOffset: offset, as: UInt32.self)
@@ -740,6 +747,38 @@ public final class BonePaperDocument: ObservableObject {
             if x + 1 < width { visit(x + 1, y) }
             if y > 0 { visit(x, y - 1) }
             if y + 1 < height { visit(x, y + 1) }
+        }
+        return mask
+    }
+
+    /// 4-connected flood of pixels whose premultiplied bytes equal the tap. Used when antialiasing is off.
+    private static func fillExact(
+        pixels: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        stride: Int,
+        seedX: Int,
+        seedY: Int
+    ) -> [UInt8] {
+        func rgba(_ offset: Int) -> UInt32 {
+            UnsafeRawPointer(pixels).load(fromByteOffset: offset, as: UInt32.self)
+        }
+        let seedBytes = rgba(seedY * stride + seedX * 4)
+        var mask = [UInt8](repeating: 0, count: width * height)
+        mask[seedY * width + seedX] = 1
+        var stack = [Int32(seedY * width + seedX)]
+        while let top = stack.popLast() {
+            let m = Int(top)
+            let x = m % width
+            let y = m / width
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                if nx < 0 || ny < 0 || nx >= width || ny >= height { continue }
+                let n = ny * width + nx
+                if mask[n] != 0 { continue }
+                if rgba(ny * stride + nx * 4) != seedBytes { continue }
+                mask[n] = 1
+                stack.append(Int32(n))
+            }
         }
         return mask
     }
