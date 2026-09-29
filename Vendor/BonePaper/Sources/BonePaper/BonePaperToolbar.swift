@@ -10,7 +10,7 @@ enum BonePaperBrush {
 enum BonePaperChrome {
     static let pad: CGFloat = 16
     static let leftRail: CGFloat = 75
-    static let rightRail: CGFloat = 64
+    static let rightRail: CGFloat = 76
     static let tool: CGFloat = 44
     static let pane = Color(red: 0x24 / 255, green: 0x25 / 255, blue: 0x30 / 255)
     static let selected = Color(red: 0x45 / 255, green: 0x96 / 255, blue: 1)
@@ -717,11 +717,71 @@ enum BonePaperHexToast {
     }
 }
 
-struct BonePaperColorStrip: View {
+struct BonePaperPipettePreview: View {
+    var color: Color
+
+    var body: some View {
+        ZStack {
+            Color.white
+            Circle()
+                .fill(color)
+                .padding(12)
+        }
+        .frame(width: BonePaperChrome.rightRail, height: BonePaperChrome.rightRail)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct BonePaperPipetteButton: View {
+    var stage: BonePaperStage
     @Binding var color: Color
+    @Binding var hover: Color?
     var onPick: () -> Void
 
-    private static let swatch: CGFloat = 30
+    private static let side: CGFloat = 36
+
+    var body: some View {
+        Image(systemName: "eyedropper")
+            .font(.system(size: 19, weight: .semibold))
+            .foregroundStyle(Color(white: 0.15))
+            .frame(width: Self.side, height: Self.side)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(Color(white: 0.45), lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+            .gesture(sample)
+            .accessibilityLabel("Color pipette")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private var sample: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in
+                hover = stage.sampleColor(atWindow: value.location).map(Color.init)
+            }
+            .onEnded { value in
+                if let picked = stage.sampleColor(atWindow: value.location) {
+                    let hex = BonePaperColorStore.hex(from: picked)
+                    color = BonePaperColorStore.color(from: hex)
+                    BonePaperColorStore.remember(hex)
+                    onPick()
+                }
+                hover = nil
+            }
+    }
+}
+
+struct BonePaperColorStrip: View {
+    @Binding var color: Color
+    @Binding var hover: Color?
+    var stage: BonePaperStage
+    var onPick: () -> Void
+
+    private static let swatch: CGFloat = 36
     private static let gap: CGFloat = 4
 
     @State private var extras: [String] = BonePaperColorStore.load()
@@ -729,29 +789,10 @@ struct BonePaperColorStrip: View {
 
     var body: some View {
         VStack(spacing: Self.gap) {
-            Button {
-                showingPicker = true
-            } label: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(
-                            AngularGradient(
-                                colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
-                                center: .center
-                            )
-                        )
-                    Circle()
-                        .fill(Color(white: 0.78))
-                        .frame(width: 10, height: 10)
-                }
-                .frame(width: Self.swatch, height: Self.swatch)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(Color(white: 0.45), lineWidth: 1)
-                }
+            HStack(spacing: Self.gap) {
+                BonePaperPipetteButton(stage: stage, color: $color, hover: $hover, onPick: onPick)
+                colorPickerButton
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Color picker")
 
             BonePaperPlainScroll {
                 VStack(spacing: Self.gap) {
@@ -784,6 +825,32 @@ struct BonePaperColorStrip: View {
                 showingPicker = false
             }
         }
+    }
+
+    private var colorPickerButton: some View {
+        Button {
+            showingPicker = true
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(
+                        AngularGradient(
+                            colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
+                            center: .center
+                        )
+                    )
+                Circle()
+                    .fill(Color(white: 0.78))
+                    .frame(width: 12, height: 12)
+            }
+            .frame(width: Self.swatch, height: Self.swatch)
+            .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(Color(white: 0.45), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Color picker")
     }
 
     private var swatches: [String] {

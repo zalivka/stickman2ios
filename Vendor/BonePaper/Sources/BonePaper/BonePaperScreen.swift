@@ -13,6 +13,7 @@ public struct BonePaperScreen: View {
     @State private var zoom: CGFloat = 1
     @State private var showingStrokePreview = false
     @State private var stage = BonePaperStage()
+    @State private var hoverColor: Color?
     @State private var chromeOpacity: Double
     @State private var leaving = false
 
@@ -164,8 +165,13 @@ public struct BonePaperScreen: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     VStack(spacing: BonePaperChrome.pad) {
-                        BonePaperApply(onApply: apply)
-                        BonePaperColorStrip(color: $color) {
+                        ZStack {
+                            BonePaperApply(onApply: apply)
+                            if let hoverColor {
+                                BonePaperPipettePreview(color: hoverColor)
+                            }
+                        }
+                        BonePaperColorStrip(color: $color, hover: $hoverColor, stage: stage) {
                             if tool != .fill {
                                 tool = .pen
                             }

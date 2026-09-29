@@ -33,6 +33,14 @@ final class BonePaperStage {
         }
         view.zoomBack(duration: duration, completion: completion)
     }
+
+    /// Colour under a window point. Black when the point misses the picture. Nil on a clear pixel.
+    func sampleColor(atWindow point: CGPoint) -> UIColor? {
+        guard let view else {
+            return nil
+        }
+        return view.sampleColor(atWindow: point)
+    }
 }
 
 struct BonePaperCanvas: UIViewRepresentable {
@@ -218,6 +226,28 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         applyTransform()
         paper.setZoom(zoom)
         onZoom?(zoom)
+    }
+
+    /// Window point → paint-buffer pixel, through the same transform that draws the paper.
+    /// A point outside the picture is black. A clear pixel is nil.
+    func sampleColor(atWindow point: CGPoint) -> UIColor? {
+        guard let document = paper.document else {
+            return nil
+        }
+        let side = paper.bounds.width
+        if side <= 0 {
+            return nil
+        }
+        let local = paper.convert(convert(point, from: nil), from: self)
+        let world = CGFloat(document.worldSize)
+        let at = CGPoint(x: local.x / side * world, y: local.y / side * world)
+        let scale = CGFloat(BonePaperDocument.sample)
+        let px = Int(floor((at.x - CGFloat(document.originX)) * scale))
+        let py = Int(floor((at.y - CGFloat(document.originY)) * scale))
+        if px < 0 || py < 0 || px >= document.pixelWidth || py >= document.pixelHeight {
+            return .black
+        }
+        return document.color(atPixel: px, y: py)
     }
 
     func zoomBack(duration: TimeInterval, completion: @escaping () -> Void) {

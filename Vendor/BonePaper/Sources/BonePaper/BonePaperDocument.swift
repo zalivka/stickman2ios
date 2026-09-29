@@ -441,6 +441,41 @@ public final class BonePaperDocument: ObservableObject {
         )
     }
 
+    /// Colour under one paint-buffer pixel. `x` and `y` grow right and down from the top of the picture.
+    /// Nil when the pixel is outside the picture or fully transparent.
+    func color(atPixel x: Int, y: Int) -> UIColor? {
+        let image = preview
+        if x < 0 || y < 0 || x >= image.width || y >= image.height {
+            return nil
+        }
+        let alpha = image.alphaInfo
+        if alpha != .premultipliedLast && alpha != .last {
+            fatalError("BonePaperDocument preview alpha \(alpha.rawValue)")
+        }
+        if image.bitsPerPixel != 32 {
+            fatalError("BonePaperDocument preview bpp \(image.bitsPerPixel)")
+        }
+        guard let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else {
+            fatalError("BonePaperDocument preview has no pixels")
+        }
+        let row = image.bytesPerRow
+        let i = y * row + x * 4
+        if i < 0 || i + 4 > CFDataGetLength(data) {
+            fatalError("BonePaperDocument preview pixel \(x),\(y) outside \(CFDataGetLength(data)) bytes")
+        }
+        let a = bytes[i + 3]
+        if a == 0 {
+            return nil
+        }
+        let straight = alpha == .premultipliedLast ? 255 / CGFloat(a) : 1
+        return UIColor(
+            red: min(CGFloat(bytes[i]) / 255 * straight, 1),
+            green: min(CGFloat(bytes[i + 1]) / 255 * straight, 1),
+            blue: min(CGFloat(bytes[i + 2]) / 255 * straight, 1),
+            alpha: CGFloat(a) / 255
+        )
+    }
+
     func bitmapFromWorld(_ world: CGPoint) -> CGPoint {
         CGPoint(
             x: world.x - CGFloat(originX),
