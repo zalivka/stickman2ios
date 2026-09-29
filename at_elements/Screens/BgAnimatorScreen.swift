@@ -47,6 +47,8 @@ private struct DrawSession: Identifiable {
     let buffer: CGImage?
     /// When set, Apply overwrites this `usermade:` background instead of creating a new one.
     var replaceName: String? = nil
+    /// When set, Apply saves a new background and points every frame using this name at it.
+    var retargetName: String? = nil
 }
 
 struct BgAnimatorScreen: View {
@@ -203,7 +205,12 @@ struct BgAnimatorScreen: View {
             Group {
                 if let buffer = session.buffer {
                     BonePaperScreen(sheet: session.sheet, buffer: buffer) { export in
-                        applyDrawn(export, sheet: session.sheet, replaceName: session.replaceName)
+                        applyDrawn(
+                            export,
+                            sheet: session.sheet,
+                            replaceName: session.replaceName,
+                            retargetName: session.retargetName
+                        )
                     }
                 } else {
                     BonePaperScreen(sheet: session.sheet) { export in
@@ -214,18 +221,64 @@ struct BgAnimatorScreen: View {
         }
     }
 
-    /// Blank scene-sized page over the frame's solid color, white under a picture.
+    /// Solid color: blank scene-sized page over that color. Picture: the picture itself,
+    /// saved as a new background on Apply with every use of the old one retargeted.
     private func openDraw() {
-        let width = Int(scene.width.rounded())
-        let height = Int(scene.height.rounded())
-        let limit = BonePaperScreen.worldSide
-        if width > limit || height > limit {
-            showToast("This scene is too big to draw (\(width)×\(height)). Maximum side is \(limit).")
+        guard let bgName = scene.currentFrame.bgName, !bgName.hasPrefix("#") else {
+            let width = Int(scene.width.rounded())
+            let height = Int(scene.height.rounded())
+            let limit = BonePaperScreen.worldSide
+            if width > limit || height > limit {
+                showToast("This scene is too big to draw (\(width)×\(height)). Maximum side is \(limit).")
+                return
+            }
+            drawSession = DrawSession(
+                sheet: BonePaperSheet(width: width, height: height, paper: pickerInitialColor.withAlphaComponent(1)),
+                buffer: nil
+            )
             return
         }
-        drawSession = DrawSession(
-            sheet: BonePaperSheet(width: width, height: height, paper: pickerInitialColor.withAlphaComponent(1)),
-            buffer: nil
+        guard backgrounds.hasImage(for: bgName) else {
+            showToast("Cannot process the background \(bgName)")
+            return
+        }
+        guard let session = sessionForImage(backgrounds.image(for: bgName), label: bgName) else {
+            return
+        }
+        if Self.isUserArchive(bgName) {
+            drawSession = DrawSession(sheet: session.sheet, buffer: session.buffer, replaceName: bgName)
+            return
+        }
+        drawSession = DrawSession(sheet: session.sheet, buffer: session.buffer, retargetName: bgName)
+    }
+
+    /// True when `bgName` is a drawing in My Backgrounds (`bgs/`). A sized pack cache in
+    /// `bgs_ro/` must never be overwritten, so those go through the save-new-and-retarget path.
+    private static func isUserArchive(_ bgName: String) -> Bool {
+        guard let url = try? BackgroundStore.archiveURL(usermade: bgName) else {
+            return false
+        }
+        return url.deletingLastPathComponent().standardizedFileURL.path
+            == BackgroundStore.userDirectory().standardizedFileURL.path
+    }
+
+    /// The PNG is the paint buffer, copied in without scaling. Nil after toasting on a bad size.
+    private func sessionForImage(_ image: CGImage, label: String) -> DrawSession? {
+        let sample = BonePaperDocument.sample
+        if image.width % sample != 0 || image.height % sample != 0 {
+            showToast("Cannot process the background \(label)")
+            return nil
+        }
+        let width = image.width / sample
+        let height = image.height / sample
+        let limit = BonePaperScreen.worldSide
+        if width > limit || height > limit {
+            showToast("This picture is too big (\(image.width)×\(image.height)). Maximum side is \(limit).")
+            return nil
+        }
+        return DrawSession(
+            sheet: BonePaperSheet(width: width, height: height, paper: Self.topLeftColor(image)),
+            buffer: image
         )
     }
 
@@ -251,23 +304,10 @@ struct BgAnimatorScreen: View {
             showToast("Cannot process the background \(entry.id)")
             return false
         }
-        let sample = 2
-        if image.width % sample != 0 || image.height % sample != 0 {
-            showToast("Cannot process the background \(entry.id)")
+        guard let session = sessionForImage(image, label: entry.id) else {
             return false
         }
-        let width = image.width / sample
-        let height = image.height / sample
-        let limit = BonePaperScreen.worldSide
-        if width > limit || height > limit {
-            showToast("This picture is too big (\(image.width)×\(image.height)). Maximum side is \(limit).")
-            return false
-        }
-        drawSession = DrawSession(
-            sheet: BonePaperSheet(width: width, height: height, paper: Self.topLeftColor(image)),
-            buffer: image,
-            replaceName: bgName
-        )
+        drawSession = DrawSession(sheet: session.sheet, buffer: session.buffer, replaceName: bgName)
         return true
     }
 
@@ -323,7 +363,12 @@ struct BgAnimatorScreen: View {
         return UIColor(red: CGFloat(pixel[0]) / 255 / a, green: CGFloat(pixel[1]) / 255 / a, blue: CGFloat(pixel[2]) / 255 / a, alpha: 1)
     }
 
-    private func applyDrawn(_ export: BonePaperExport, sheet: BonePaperSheet, replaceName: String?) {
+    private func applyDrawn(
+        _ export: BonePaperExport,
+        sheet: BonePaperSheet,
+        replaceName: String? = nil,
+        retargetName: String? = nil
+    ) {
         let scale = 2
         if export.image.width != sheet.width * scale || export.image.height != sheet.height * scale {
             fatalError("BgAnimatorScreen drawn \(export.image.width)x\(export.image.height) != \(sheet.width * scale)x\(sheet.height * scale)")
@@ -339,6 +384,27 @@ struct BgAnimatorScreen: View {
                 return
             }
             backgrounds.install(name: replaceName, image: image, archive: archive)
+            backgroundRevision += 1
+            return
+        }
+        if let retargetName {
+            let saved: (bgName: String, archive: Data)
+            do {
+                saved = try BackgroundStore.saveDrawn(image)
+            } catch {
+                print("BgAnimatorScreen draw: \(error)")
+                showToast("\(error)")
+                return
+            }
+            backgrounds.install(name: saved.bgName, image: image, archive: saved.archive)
+            undo.commitTimeline(from: scene)
+            for index in scene.frames.indices where scene.frames[index].bgName == retargetName {
+                scene.frames[index].bgName = saved.bgName
+            }
+            tempBackgrounds.removeAll { $0 == retargetName }
+            if !tempBackgrounds.contains(saved.bgName) {
+                tempBackgrounds.append(saved.bgName)
+            }
             backgroundRevision += 1
             return
         }
