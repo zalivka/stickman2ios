@@ -175,17 +175,21 @@ nonisolated final class Manifest: @unchecked Sendable {
             fatalError("Manifest missing item '\(fullname)'")
         }
         if item.packName == Pack.customName {
-            if FileManager.default.fileExists(atPath: CustomItems.file(systemName: item.systemName).path) {
-                return CustomItems.zipData(systemName: item.systemName)
+            // Read directly: a fileExists check followed by a read is a TOCTOU
+            // pair (a delete landing between them still crashes). A nil read
+            // means the customs directory changed under the cached pack, so
+            // reload and retry once; stay loud only if it is still unreadable.
+            if let zip = try? Data(contentsOf: CustomItems.file(systemName: item.systemName)) {
+                return zip
             }
-            // The customs directory changed under the cached pack (e.g. an item
-            // was deleted before the async reload ran). Reload now and retry once;
-            // stay loud only if the file is still missing afterwards.
             _ = reloadCustomPack()
             guard let fresh = findItem(fullname: fullname), fresh.packName == Pack.customName else {
                 fatalError("Manifest custom item '\(fullname)' is gone after reload (file deleted?)")
             }
-            return CustomItems.zipData(systemName: fresh.systemName)
+            guard let zip = try? Data(contentsOf: CustomItems.file(systemName: fresh.systemName)) else {
+                fatalError("Manifest custom item '\(fullname)' unreadable after reload")
+            }
+            return zip
         }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
         return ZipStore.data(atiNamed: "\(item.systemName).ati", in: zip)
