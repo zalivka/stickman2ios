@@ -688,19 +688,23 @@ enum BonePaperHexToast {
     private static var hide: DispatchWorkItem?
 
     static func show(_ hex: String) {
+        showMessage(hex)
+    }
+
+    static func showMessage(_ text: String) {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) else {
             fatalError("BonePaperHexToast with no window")
         }
         let label = self.label ?? UILabel()
-        label.text = hex
+        label.text = text
         label.font = .monospacedSystemFont(ofSize: 15, weight: .semibold)
         label.textColor = .white
         label.backgroundColor = UIColor.black.withAlphaComponent(0.82)
         label.textAlignment = .center
         label.layer.cornerRadius = 16
         label.clipsToBounds = true
-        let textWidth = (hex as NSString).size(withAttributes: [.font: label.font as Any]).width
+        let textWidth = (text as NSString).size(withAttributes: [.font: label.font as Any]).width
         label.bounds = CGRect(x: 0, y: 0, width: textWidth + 28, height: 32)
         label.center = CGPoint(x: window.bounds.midX, y: window.safeAreaInsets.top + 88)
         label.alpha = 1

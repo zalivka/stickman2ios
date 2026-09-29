@@ -7,6 +7,7 @@ import UIKit
 public struct BonePaperPlayerScreen: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var player: BonePaperPlayer
+    @State private var migrationToastShown = false
 
     public init(session: Data) {
         _player = StateObject(wrappedValue: BonePaperPlayer(session: session))
@@ -42,7 +43,13 @@ public struct BonePaperPlayerScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .onAppear { player.attach() }
+        .onAppear {
+            player.attach()
+            if !migrationToastShown, let from = player.migratedFrom {
+                migrationToastShown = true
+                BonePaperHexToast.showMessage("Old recording from a \(from) world")
+            }
+        }
         .onDisappear { player.detach() }
     }
 }
@@ -177,6 +184,8 @@ final class BonePaperPlayer: ObservableObject {
     let originX: Int
     let originY: Int
     let paper: UIColor
+    /// Recorded world size when it differs from the editor's (migrated by scaling); nil otherwise.
+    let migratedFrom: Int?
 
     @Published private(set) var document: BonePaperDocument
     @Published private(set) var finger: Finger?
@@ -206,24 +215,46 @@ final class BonePaperPlayer: ObservableObject {
         if session.base != nil {
             fatalError("BonePaperPlayer does not load base.png")
         }
-        if session.worldSize != BonePaperDocument.maxSide || session.sample != BonePaperDocument.sample {
-            fatalError("BonePaperPlayer world \(session.worldSize) sample \(session.sample) differ from the editor")
+        if session.sample != BonePaperDocument.sample {
+            fatalError("BonePaperPlayer sample \(session.sample) differs from the editor \(BonePaperDocument.sample)")
         }
+        if session.worldSize < 1 {
+            fatalError("BonePaperPlayer world \(session.worldSize)")
+        }
+        // Recordings from before the 1024 cap replay rebased: points and sizes are canvas-relative
+        // document pixels, so only the canvas origin moved. Times, sizes and colours are untouched.
+        migratedFrom = session.worldSize == BonePaperDocument.maxSide ? nil : session.worldSize
         guard let paperHex = session.paper else {
             fatalError("BonePaperPlayer sheet session without paper")
         }
         paper = UIColor(BonePaperColorStore.color(from: paperHex))
         width = session.canvas.width
         height = session.canvas.height
-        originX = session.canvas.originX
-        originY = session.canvas.originY
         sheet = BonePaperSheet(width: width, height: height, paper: paper)
         let document = BonePaperDocument(sheet: sheet)
-        if document.originX != originX || document.originY != originY {
-            fatalError("BonePaperPlayer origin (\(originX),\(originY)) != document (\(document.originX),\(document.originY))")
+        let offset: CGPoint
+        if migratedFrom == nil {
+            if document.originX != session.canvas.originX || document.originY != session.canvas.originY {
+                fatalError(
+                    "BonePaperPlayer origin (\(session.canvas.originX),\(session.canvas.originY))"
+                        + " != document (\(document.originX),\(document.originY))"
+                )
+            }
+            originX = session.canvas.originX
+            originY = session.canvas.originY
+            offset = .zero
+        } else {
+            // The sheet is centred in the world, so it moved when the world shrank.
+            // Shift canvas-relative points onto the new origin.
+            originX = document.originX
+            originY = document.originY
+            offset = CGPoint(
+                x: CGFloat(document.originX - session.canvas.originX),
+                y: CGFloat(document.originY - session.canvas.originY)
+            )
         }
         self.document = document
-        steps = Self.timeline(session.ops)
+        steps = Self.timeline(session.ops, offset: offset)
     }
 
     func attach() {
@@ -384,7 +415,8 @@ final class BonePaperPlayer: ObservableObject {
     }
 
     /// Recorded ops to playback steps: stroke-internal time scaled by `strokeSpeed`, gaps squeezed.
-    private static func timeline(_ ops: [BonePaperSessionFile.Op]) -> [Step] {
+    /// `offset` shifts points and fill taps onto the new canvas origin, which moved when the world shrank.
+    private static func timeline(_ ops: [BonePaperSessionFile.Op], offset: CGPoint) -> [Step] {
         var steps: [Step] = []
         var recordedEnd: Double?
         var playedEnd = leadIn
@@ -429,7 +461,7 @@ final class BonePaperPlayer: ObservableObject {
                     color = UIColor(BonePaperColorStore.color(from: hex))
                 }
                 steps.append(.stroke(Stroke(
-                    points: points.map { CGPoint(x: $0[0], y: $0[1]) },
+                    points: points.map { CGPoint(x: $0[0] + offset.x, y: $0[1] + offset.y) },
                     times: points.map { played($0[2]) },
                     color: color,
                     size: CGFloat(size),
@@ -442,7 +474,7 @@ final class BonePaperPlayer: ObservableObject {
                     fatalError("BonePaperPlayer fill at \(op.t) without point, colour or opacity")
                 }
                 steps.append(.fill(
-                    at: CGPoint(x: at[0], y: at[1]),
+                    at: CGPoint(x: at[0] + offset.x, y: at[1] + offset.y),
                     time: playedStart,
                     color: UIColor(BonePaperColorStore.color(from: hex)),
                     opacity: CGFloat(opacity)
