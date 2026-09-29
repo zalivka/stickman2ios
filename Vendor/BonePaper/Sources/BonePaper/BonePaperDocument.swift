@@ -48,10 +48,16 @@ public final class BonePaperDocument: ObservableObject {
     // Colour metric is OKLab Euclidean distance; white↔black is 1.0.
     /// Local step: a pixel joins only if close to the neighbour it was reached from.
     static let fillNeighbourLimit: Float = 0.06
+    /// Recolour edge: a colour move this big within `fillRing` px is a wall (see `isEdgeRamp`).
+    /// Stops #4c6371 against #3b5a71 (0.038 apart), which the neighbour step lets through.
+    static let fillEdgeLimit: Float = 0.025
     /// Global skip: stay within this OKLab distance of the tap (first tap). Later same-colour taps add `fillSeedStep`.
     static let fillSeedLimit: Float = 0.2
     /// `alpha * (1 - L)` above this is contour ink the fill never enters (solid black ≈ 1.0).
     static let fillInkLimit: Float = 0.55
+    /// Extra ink a pixel may carry past the tap before it reads as a darker wall.
+    /// Blocks e.g. a #1e2a58 outline (ink 0.70) around a #2e4658 fill (ink 0.62).
+    static let fillInkRelativeMargin: Float = 0.05
     /// Tapped alpha (0...255) at or above this recolours an island instead of filling empty space.
     static let fillRecolorAlpha: UInt8 = 26
     /// Sampled px grown past an empty-space region and painted behind soft line edges.
@@ -675,7 +681,8 @@ public final class BonePaperDocument: ObservableObject {
     /// 1. its premultiplied bytes match the previous pixel (same colour, so the limits already passed still hold), or
     /// 2. not transparent (recolour) / not ink (empty fill, unless the tap was on ink), and
     /// 3. OKLab distance to the previous pixel < neighbour limit (region growing), and
-    /// 4. OKLab distance to the tap < skip/seed limit (global cap).
+    /// 4. OKLab distance to the tap < skip/seed limit (global cap), and
+    /// 5. recolour only: not on an anti-aliased edge (`isEdgeRamp`).
     /// OKLab runs only for a pixel whose bytes differ. A flat sky never converts the interior.
     private static func fillRegion(
         pixels: UnsafeMutablePointer<UInt8>,
@@ -695,8 +702,9 @@ public final class BonePaperDocument: ObservableObject {
         }
         let seedOffset = seedY * stride + seedX * 4
         let seed = lab(pixels, seedOffset)
-        // Tapping a dark line turns walls off so the contour itself can be recoloured.
-        let walls = seed.ink <= limits.ink
+        // Ink wall is relative when the tap itself is dark: tapping a dark line still
+        // recolours the line (same ink passes), but a darker outline around a dark fill blocks.
+        let inkLimit = max(limits.ink, seed.ink + Self.fillInkRelativeMargin)
         let distance: (FillLab, FillLab) -> Float = recolor ? FillLab.colorDistance : FillLab.coverDistance
         var mask = [UInt8](repeating: 0, count: width * height)
         mask[seedY * width + seedX] = 1
@@ -719,11 +727,12 @@ public final class BonePaperDocument: ObservableObject {
                 }
                 let next = lab(pixels, nextOffset)
                 if recolor, next.alpha == 0 { return }
-                if walls, next.ink > limits.ink { return }
+                if next.ink > inkLimit { return }
                 let current = currentLab ?? lab(pixels, currentOffset)
                 currentLab = current
                 if distance(next, current) >= limits.neighbour { return }
                 if distance(next, seed) >= limits.seed { return }
+                if recolor, isEdgeRamp(pixels: pixels, width: width, height: height, stride: stride, x: nx, y: ny, next: next, seed: seed, limit: Self.fillEdgeLimit) { return }
                 mask[n] = 1
                 stack.append(Int32(n))
             }
@@ -734,6 +743,41 @@ public final class BonePaperDocument: ObservableObject {
         }
         return mask
     }
+
+    /// Recolour wall at a colour edge, hard or anti-aliased. Anti-aliasing turns a jump into steps under the
+    /// neighbour limit, e.g. #2e4658 → (38, 56, 88) → #1e2a58 in 0.024 steps against a 0.06 limit.
+    /// A pixel is an edge when some pixel up to `fillRing` away on one of 8 rays is closer to the tap
+    /// yet at least `limit` from it, i.e. the colour moves `limit` within `fillRing` px.
+    /// Pixels within `limit / 2` of the tap can never pass that test, so flat interiors skip the rays.
+    private static func isEdgeRamp(
+        pixels: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        stride: Int,
+        x: Int,
+        y: Int,
+        next: FillLab,
+        seed: FillLab,
+        limit: Float
+    ) -> Bool {
+        let toSeed = FillLab.colorDistance(next, seed)
+        if toSeed < limit / 2 { return false }
+        for (dx, dy) in edgeRays {
+            for step in 1...fillRing {
+                let qx = x + dx * step
+                let qy = y + dy * step
+                if qx < 0 || qy < 0 || qx >= width || qy >= height { break }
+                let q = lab(pixels, qy * stride + qx * 4)
+                if q.alpha == 0 { continue }
+                if FillLab.colorDistance(q, next) >= limit, FillLab.colorDistance(q, seed) < toSeed {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static let edgeRays = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
 
     /// Dilate the empty-space mask into AA fringes (mask 2).
     /// Eight neighbours, so a curved edge that only touches the fill at a corner is still claimed.
@@ -808,7 +852,7 @@ public final class BonePaperDocument: ObservableObject {
         var ink: Float
 
         init(streak: Int) {
-            let step = Float(min(streak, fillStreakCap))
+            let step = BonePaperFlags.fillStreakLoosening ? Float(min(streak, fillStreakCap)) : 0
             neighbour = fillNeighbourLimit * (1 + step)
             seed = fillSeedLimit + fillSeedStep * step
             ink = min(fillInkLimit + fillInkStep * step, fillInkMax)
