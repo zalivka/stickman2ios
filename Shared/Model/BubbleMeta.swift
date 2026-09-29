@@ -25,30 +25,34 @@ struct BubbleMeta: Equatable {
         oneLiner: false
     )
 
-    static func parse(encoded: String, unitName: String) -> BubbleMeta {
+    static func parse(encoded: String, unitName: String) throws -> BubbleMeta {
         if encoded.isEmpty {
             return defaults
         }
         let plus = encoded.replacingOccurrences(of: "+", with: " ")
         guard let decoded = plus.removingPercentEncoding, !decoded.isEmpty else {
-            fatalError("SceneLoader unit '\(unitName)' bubble meta is not URL-encoded")
+            throw SceneLoadError(message: "SceneLoader unit '\(unitName)' bubble meta is not URL-encoded")
         }
         let payload: Payload
         do {
             payload = try JSONDecoder().decode(Payload.self, from: Data(decoded.utf8))
         } catch {
-            fatalError("SceneLoader unit '\(unitName)' bubble meta is not BubbleMeta JSON: \(error)")
+            throw SceneLoadError(message: "SceneLoader unit '\(unitName)' bubble meta is not BubbleMeta JSON: \(error)")
         }
         if payload.text.isEmpty {
-            fatalError("SceneLoader unit '\(unitName)' bubble text is empty")
+            throw SceneLoadError(message: "SceneLoader unit '\(unitName)' bubble text is empty")
         }
         if payload.font != "default", !StickmanFonts.contains(payload.font) {
-            fatalError("SceneLoader unit '\(unitName)' unknown bubble font '\(payload.font)'")
+            throw SceneLoadError(message: "SceneLoader unit '\(unitName)' unknown bubble font '\(payload.font)'")
         }
         if payload.scale <= 0 {
-            fatalError("SceneLoader unit '\(unitName)' bubble scale is \(payload.scale)")
+            throw SceneLoadError(message: "SceneLoader unit '\(unitName)' bubble scale is \(payload.scale)")
         }
-        _ = HexRGB.parse(payload.color)
+        do {
+            _ = try HexRGB.parseThrowing(payload.color)
+        } catch {
+            throw SceneLoadError(message: "SceneLoader unit '\(unitName)' bubble color: \(error)")
+        }
         return BubbleMeta(
             text: payload.text,
             color: payload.color,

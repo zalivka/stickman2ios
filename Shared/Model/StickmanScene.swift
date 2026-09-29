@@ -76,7 +76,11 @@ struct StickmanUnit {
         points.append(
             StickmanPoint(id: newId, x: destX, y: destY, isBase: false, parentId: parentId)
         )
-        link()
+        do {
+            try link()
+        } catch {
+            fatalError("\(error)")
+        }
         return newId
     }
 
@@ -115,7 +119,11 @@ struct StickmanUnit {
         }
         let remove = Set([id] + descendants(of: id))
         points.removeAll { remove.contains($0.id) }
-        link()
+        do {
+            try link()
+        } catch {
+            fatalError("\(error)")
+        }
     }
 
     /// Android `EditPointDialog` Apply: attachable + invisible (`fixed`). Slave is base-only.
@@ -147,46 +155,46 @@ struct StickmanUnit {
         edges.first { $0.to == id }
     }
 
-    mutating func link() {
+    mutating func link() throws {
         let bases = points.filter(\.isBase)
         if bases.count != 1 {
-            fatalError("StickmanUnit '\(name)' must have exactly one base, got \(bases.map(\.id))")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' must have exactly one base, got \(bases.map(\.id))")
         }
         if bases[0].parentId != nil {
-            fatalError("StickmanUnit '\(name)' base \(bases[0].id) has parentId")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' base \(bases[0].id) has parentId")
         }
         var byId: [Int: StickmanPoint] = [:]
         for point in points {
             if byId[point.id] != nil {
-                fatalError("StickmanUnit '\(name)' duplicate point \(point.id)")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' duplicate point \(point.id)")
             }
             byId[point.id] = point
         }
         for point in points {
             if point.isBase { continue }
             guard let parentId = point.parentId else {
-                fatalError("StickmanUnit '\(name)' point \(point.id) has no parent")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' point \(point.id) has no parent")
             }
             if byId[parentId] == nil {
-                fatalError("StickmanUnit '\(name)' point \(point.id) parent \(parentId) missing")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' point \(point.id) parent \(parentId) missing")
             }
         }
         var edges: [StickmanEdge] = []
         var seen: Set<Int> = []
-        func walk(_ id: Int) {
+        func walk(_ id: Int) throws {
             if seen.contains(id) {
-                fatalError("StickmanUnit '\(name)' cycle at \(id)")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' cycle at \(id)")
             }
             seen.insert(id)
             for child in points where child.parentId == id {
                 edges.append(StickmanEdge(from: id, to: child.id))
-                walk(child.id)
+                try walk(child.id)
             }
         }
-        walk(bases[0].id)
+        try walk(bases[0].id)
         if seen.count != points.count {
             let missing = points.map(\.id).filter { !seen.contains($0) }
-            fatalError("StickmanUnit '\(name)' disconnected points \(missing)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' disconnected points \(missing)")
         }
         self.edges = edges
     }
@@ -470,7 +478,11 @@ struct StickmanFrame {
     }
 
     mutating func refreshAttachments() {
-        slaves.populate(units: units)
+        do {
+            try slaves.populate(units: units)
+        } catch {
+            fatalError("\(error)")
+        }
     }
 
     /// Android `Unit.setAlpha(alpha, true)` — this unit and its slaves.

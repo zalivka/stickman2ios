@@ -217,12 +217,12 @@ struct CameraTweenStorage: Equatable {
         }
     }
 
-    mutating func importArchive(_ data: Data, scene: StickmanScene) {
+    mutating func importArchive(_ data: Data, scene: StickmanScene) throws {
         let archive: Archive
         do {
             archive = try JSONDecoder().decode(Archive.self, from: data)
         } catch {
-            fatalError("CameraTweenStorage camera_tweens_v1.txt JSON: \(error)")
+            throw SceneLoadError(message: "CameraTweenStorage camera_tweens_v1.txt JSON: \(error)")
         }
         clear()
         var idToIndex: [Int: Int] = [:]

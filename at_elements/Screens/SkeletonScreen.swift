@@ -775,10 +775,8 @@ struct SkeletonScreen: View {
             }
             return build(zip: zip, defaultScale: 1)
         case .template(let template):
-            return build(
-                zip: Manifest.shared.itemZip(fullname: template.makeFullName()),
-                defaultScale: template.scale
-            )
+            let zip = Manifest.shared.itemZipOrCrash(fullname: template.makeFullName())
+            return build(zip: zip, defaultScale: template.scale)
         case .unit(let unit):
             return Loaded(scene: ItemConstructor.scene(unit: unit), assets: UnitAssets(), zip: nil)
         }

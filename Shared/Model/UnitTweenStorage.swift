@@ -190,12 +190,12 @@ struct UnitTweenStorage: Equatable {
         }
     }
 
-    mutating func importArchive(_ data: Data, scene: StickmanScene) {
+    mutating func importArchive(_ data: Data, scene: StickmanScene) throws {
         let archive: Archive
         do {
             archive = try JSONDecoder().decode(Archive.self, from: data)
         } catch {
-            fatalError("UnitTweenStorage unit_tweens_v1.txt JSON: \(error)")
+            throw SceneLoadError(message: "UnitTweenStorage unit_tweens_v1.txt JSON: \(error)")
         }
         clear()
         var idToIndex: [Int: Int] = [:]
@@ -204,6 +204,10 @@ struct UnitTweenStorage: Equatable {
         }
         for persisted in archive.spans {
             if persisted.ownerType != Self.ownerType {
+                continue
+            }
+            let core = UnitAssets.removeNumber(persisted.unitName)
+            if let colon = core.firstIndex(of: ":"), core[core.index(after: colon)...].isEmpty {
                 continue
             }
             let unitName = PackAlias.resolveUnitName(persisted.unitName)

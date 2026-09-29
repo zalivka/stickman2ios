@@ -72,15 +72,15 @@ struct SpeedModifier: Equatable {
         SpeedModifier(points: points)
     }
 
-    static func decode(_ text: String) -> SpeedModifier {
+    static func decode(_ text: String) throws -> SpeedModifier {
         guard let data = text.data(using: .utf8) else {
-            fatalError("SpeedModifier pivot_points is not UTF-8")
+            throw SceneLoadError(message: "SpeedModifier pivot_points is not UTF-8")
         }
         do {
             let points = try JSONDecoder().decode([SpeedPoint].self, from: data)
             return SpeedModifier(points: points)
         } catch {
-            fatalError("SpeedModifier pivot_points JSON: \(error)")
+            throw SceneLoadError(message: "SpeedModifier pivot_points JSON: \(error)")
         }
     }
 

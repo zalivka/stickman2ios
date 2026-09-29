@@ -22,7 +22,11 @@ enum ItemLoader {
 
     static func unit(from zip: Data) -> StickmanUnit {
         var unit = ModelXML.parse(ZipStore.data(named: "model.xml", in: zip))
-        unit.link()
+        do {
+            try unit.link()
+        } catch {
+            fatalError("\(error)")
+        }
         return unit
     }
 
@@ -94,12 +98,21 @@ enum ItemMeta {
     }
 }
 
+struct ZipError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+
 nonisolated enum ZipStore {
     static let store: UInt16 = 0
     static let deflate: UInt16 = 8
 
     static func names(in zip: Data) -> [String] {
-        entries(in: zip).map(\.name)
+        do {
+            return try namesThrowing(in: zip)
+        } catch {
+            fatalError("\(error)")
+        }
     }
 
     static func contains(_ name: String, in zip: Data) -> Bool {
@@ -107,8 +120,28 @@ nonisolated enum ZipStore {
     }
 
     static func data(named name: String, in zip: Data) -> Data {
-        for entry in entries(in: zip) where entry.name == name {
-            return payload(
+        do {
+            return try dataThrowing(named: name, in: zip)
+        } catch {
+            fatalError("\(error)")
+        }
+    }
+
+    static func data(atiNamed file: String, in zip: Data) -> Data {
+        do {
+            return try dataAtiThrowing(file: file, in: zip)
+        } catch {
+            fatalError("\(error)")
+        }
+    }
+
+    static func namesThrowing(in zip: Data) throws -> [String] {
+        try entries(in: zip).map(\.name)
+    }
+
+    static func dataThrowing(named name: String, in zip: Data) throws -> Data {
+        for entry in try entries(in: zip) where entry.name == name {
+            return try payload(
                 zip: zip,
                 localOffset: entry.localOffset,
                 method: entry.method,
@@ -116,16 +149,16 @@ nonisolated enum ZipStore {
                 uncompressed: entry.uncompressed
             )
         }
-        fatalError("ItemLoader zip missing '\(name)'")
+        throw ZipError(message: "ItemLoader zip missing '\(name)'")
     }
 
-    static func data(atiNamed file: String, in zip: Data) -> Data {
-        let matches = entries(in: zip).filter { ($0.name as NSString).lastPathComponent == file }
+    private static func dataAtiThrowing(file: String, in zip: Data) throws -> Data {
+        let matches = try entries(in: zip).filter { ($0.name as NSString).lastPathComponent == file }
         if matches.isEmpty {
-            fatalError("ItemLoader zip missing '\(file)'")
+            throw ZipError(message: "ItemLoader zip missing '\(file)'")
         }
         let entry = matches.first(where: { $0.name == "items/\(file)" }) ?? matches[0]
-        return payload(
+        return try payload(
             zip: zip,
             localOffset: entry.localOffset,
             method: entry.method,
@@ -269,29 +302,29 @@ nonisolated enum ZipStore {
         var localOffset: Int
     }
 
-    private static func entries(in zip: Data) -> [Entry] {
-        guard let eocd = eocdOffset(in: zip) else {
-            fatalError("ItemLoader zip has no EOCD")
+    private static func entries(in zip: Data) throws -> [Entry] {
+        guard let eocd = try eocdOffset(in: zip) else {
+            throw ZipError(message: "ItemLoader zip has no EOCD")
         }
-        let cdOffset = Int(zip.u32(eocd + 16))
-        let cdEntries = Int(zip.u16(eocd + 10))
+        let cdOffset = Int(try zip.u32(eocd + 16))
+        let cdEntries = Int(try zip.u16(eocd + 10))
         if cdOffset < 0 || cdOffset >= zip.count || cdEntries <= 0 {
-            fatalError("ItemLoader zip central directory invalid")
+            throw ZipError(message: "ItemLoader zip central directory invalid")
         }
         var cursor = cdOffset
         var result: [Entry] = []
         for _ in 0..<cdEntries {
-            if zip.u32(cursor) != 0x02014b50 {
-                fatalError("ItemLoader zip central directory signature missing")
+            if try zip.u32(cursor) != 0x02014b50 {
+                throw ZipError(message: "ItemLoader zip central directory signature missing")
             }
-            let method = zip.u16(cursor + 10)
-            let compressed = Int(zip.u32(cursor + 20))
-            let uncompressed = Int(zip.u32(cursor + 24))
-            let nameLen = Int(zip.u16(cursor + 28))
-            let extraLen = Int(zip.u16(cursor + 30))
-            let commentLen = Int(zip.u16(cursor + 32))
-            let localOff = Int(zip.u32(cursor + 42))
-            let entryName = zip.string(cursor + 46, nameLen)
+            let method = try zip.u16(cursor + 10)
+            let compressed = Int(try zip.u32(cursor + 20))
+            let uncompressed = Int(try zip.u32(cursor + 24))
+            let nameLen = Int(try zip.u16(cursor + 28))
+            let extraLen = Int(try zip.u16(cursor + 30))
+            let commentLen = Int(try zip.u16(cursor + 32))
+            let localOff = Int(try zip.u32(cursor + 42))
+            let entryName = try zip.string(cursor + 46, nameLen)
             cursor += 46 + nameLen + extraLen + commentLen
             result.append(
                 Entry(
@@ -312,45 +345,45 @@ nonisolated enum ZipStore {
         method: UInt16,
         compressed: Int,
         uncompressed: Int
-    ) -> Data {
-        if zip.u32(localOffset) != 0x04034b50 {
-            fatalError("ItemLoader zip local header signature missing")
+    ) throws -> Data {
+        if try zip.u32(localOffset) != 0x04034b50 {
+            throw ZipError(message: "ItemLoader zip local header signature missing")
         }
-        let nameLen = Int(zip.u16(localOffset + 26))
-        let extraLen = Int(zip.u16(localOffset + 28))
+        let nameLen = Int(try zip.u16(localOffset + 26))
+        let extraLen = Int(try zip.u16(localOffset + 28))
         let dataStart = localOffset + 30 + nameLen + extraLen
         let dataEnd = dataStart + compressed
         if dataStart < 0 || dataEnd > zip.count {
-            fatalError("ItemLoader zip entry data out of range")
+            throw ZipError(message: "ItemLoader zip entry data out of range")
         }
         let packed = zip.subdata(in: dataStart..<dataEnd)
         switch method {
         case store:
             if packed.count != uncompressed {
-                fatalError("ItemLoader stored entry size \(packed.count) != \(uncompressed)")
+                throw ZipError(message: "ItemLoader stored entry size \(packed.count) != \(uncompressed)")
             }
             return packed
         case deflate:
-            return inflate(packed, uncompressedSize: uncompressed)
+            return try inflate(packed, uncompressedSize: uncompressed)
         default:
-            fatalError("ItemLoader zip method \(method) is not STORE or DEFLATE")
+            throw ZipError(message: "ItemLoader zip method \(method) is not STORE or DEFLATE")
         }
     }
 
-    private static func eocdOffset(in zip: Data) -> Int? {
+    private static func eocdOffset(in zip: Data) throws -> Int? {
         if zip.count < 22 { return nil }
         let minStart = max(0, zip.count - 22 - 0xFFFF)
         var i = zip.count - 22
         while i >= minStart {
-            if zip.u32(i) == 0x06054b50 { return i }
+            if try zip.u32(i) == 0x06054b50 { return i }
             i -= 1
         }
         return nil
     }
 
-    private static func inflate(_ packed: Data, uncompressedSize: Int) -> Data {
+    private static func inflate(_ packed: Data, uncompressedSize: Int) throws -> Data {
         if uncompressedSize <= 0 {
-            fatalError("ItemLoader deflate uncompressed size \(uncompressedSize)")
+            throw ZipError(message: "ItemLoader deflate uncompressed size \(uncompressedSize)")
         }
         var dest = [UInt8](repeating: 0, count: uncompressedSize)
         let written = packed.withUnsafeBytes { src -> Int in
@@ -368,7 +401,7 @@ nonisolated enum ZipStore {
             }
         }
         if written != uncompressedSize {
-            fatalError("ItemLoader deflate wrote \(written) expected \(uncompressedSize)")
+            throw ZipError(message: "ItemLoader deflate wrote \(written) expected \(uncompressedSize)")
         }
         return Data(dest)
     }
@@ -511,7 +544,11 @@ enum ModelXML {
                     }
                     unitType = .bubble
                     if let meta = attributes["meta"], !meta.isEmpty {
-                        bubble = BubbleMeta.parse(encoded: meta, unitName: resolved)
+                        do {
+                            bubble = try BubbleMeta.parse(encoded: meta, unitName: resolved)
+                        } catch {
+                            fatalError("\(error)")
+                        }
                     } else {
                         bubble = .defaults
                     }
@@ -568,30 +605,30 @@ enum ModelXML {
 }
 
 nonisolated private extension Data {
-    func u16(_ offset: Int) -> UInt16 {
-        require(offset, 2)
+    func u16(_ offset: Int) throws -> UInt16 {
+        try require(offset, 2)
         return UInt16(self[offset]) | UInt16(self[offset + 1]) << 8
     }
 
-    func u32(_ offset: Int) -> UInt32 {
-        require(offset, 4)
+    func u32(_ offset: Int) throws -> UInt32 {
+        try require(offset, 4)
         return UInt32(self[offset])
             | UInt32(self[offset + 1]) << 8
             | UInt32(self[offset + 2]) << 16
             | UInt32(self[offset + 3]) << 24
     }
 
-    func string(_ offset: Int, _ length: Int) -> String {
-        require(offset, length)
+    func string(_ offset: Int, _ length: Int) throws -> String {
+        try require(offset, length)
         guard let s = String(data: subdata(in: offset..<(offset + length)), encoding: .utf8) else {
-            fatalError("ItemLoader zip name is not UTF-8")
+            throw ZipError(message: "ItemLoader zip name is not UTF-8")
         }
         return s
     }
 
-    func require(_ offset: Int, _ length: Int) {
+    func require(_ offset: Int, _ length: Int) throws {
         if offset < 0 || length < 0 || offset + length > count {
-            fatalError("ItemLoader zip read \(offset)+\(length) out of \(count)")
+            throw ZipError(message: "ItemLoader zip read \(offset)+\(length) out of \(count)")
         }
     }
 

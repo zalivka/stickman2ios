@@ -58,6 +58,10 @@ struct SceneEditorScreen: View {
     @State private var setTextError = ""
     @State private var showingLeaveAlert = false
     @State private var dismissAfterSave = false
+    @State private var openedAt = Date.now
+
+    /// Backing out within this long after open never asks to save.
+    private static let leaveGraceSeconds = 10.0
     @State private var savedDocument: Data
     @StateObject private var videoExport = VideoExport()
     @StateObject private var clipboard = CopyPasteBuffer()
@@ -1113,6 +1117,10 @@ struct SceneEditorScreen: View {
             showingMenu = false
             return
         }
+        if Date.now.timeIntervalSince(openedAt) < Self.leaveGraceSeconds {
+            dismiss()
+            return
+        }
         if SceneSaver.documentBytes(scene: scene) == savedDocument {
             dismiss()
             return
@@ -1630,36 +1638,8 @@ private struct SaveProjectSheet: View {
 }
 
 struct Ter2Screen: View {
-    @State private var loaded: (StickmanScene, UnitAssets, BackgroundAssets)?
-
     var body: some View {
-        Group {
-            if let loaded {
-                SceneEditorScreen(scene: loaded.0, assets: loaded.1, backgrounds: loaded.2)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white)
-                    .ignoresSafeArea()
-                    .overlay(alignment: .topLeading) {
-                        FullscreenBackButton()
-                    }
-                    .toolbar(.hidden, for: .navigationBar)
-                    .statusBarHidden(true)
-                    .persistentSystemOverlays(.hidden)
-            }
-        }
-        .onAppear(perform: loadIfNeeded)
-    }
-
-    private func loadIfNeeded() {
-        if loaded != nil { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let built = SceneLoader.load(resource: "ter2", subdirectory: "testdata")
-            DispatchQueue.main.async {
-                loaded = built
-            }
-        }
+        DemoSceneScreen(resource: "ter2", subdirectory: "testdata")
     }
 }
 
@@ -1670,18 +1650,15 @@ struct StonedummyScreen: View {
 }
 
 struct DemoSceneScreen: View {
-    private let load: () -> (StickmanScene, UnitAssets, BackgroundAssets)
+    private let load: () throws -> (StickmanScene, UnitAssets, BackgroundAssets)
     private let tutorial: Bool
+    @Environment(\.dismiss) private var dismiss
     @State private var loaded: (StickmanScene, UnitAssets, BackgroundAssets)?
+    @State private var loadStarted = false
 
     init(resource: String, subdirectory: String = "demo", tutorial: Bool = false) {
-        load = { SceneLoader.load(resource: resource, subdirectory: subdirectory) }
+        load = { try SceneLoader.load(resource: resource, subdirectory: subdirectory) }
         self.tutorial = tutorial
-    }
-
-    init(url: URL) {
-        load = { SceneLoader.load(url: url) }
-        tutorial = false
     }
 
     var body: some View {
@@ -1710,12 +1687,27 @@ struct DemoSceneScreen: View {
     }
 
     private func loadIfNeeded() {
-        if loaded != nil { return }
+        if loaded != nil || loadStarted { return }
+        loadStarted = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let built = load()
-            DispatchQueue.main.async {
-                loaded = built
+            do {
+                let built = try load()
+                DispatchQueue.main.async {
+                    loaded = built
+                }
+            } catch let missing as MissingManifestItem {
+                failSceneLoad(missing.message)
+            } catch {
+                failSceneLoad(String(describing: error))
             }
+        }
+    }
+
+    private func failSceneLoad(_ text: String) {
+        print("Scene load failed: \(text)")
+        DispatchQueue.main.async {
+            ToastCenter.show(text)
+            dismiss()
         }
     }
 }

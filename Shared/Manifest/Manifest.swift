@@ -1,5 +1,17 @@
 import Foundation
 
+struct MissingManifestItem: Error {
+    let fullname: String
+
+    var message: String {
+        guard let colon = fullname.firstIndex(of: ":") else { return "Missing item: \(fullname)" }
+        let pack = String(fullname[..<colon])
+        let item = String(fullname[fullname.index(after: colon)...])
+        guard !pack.isEmpty, !item.isEmpty else { return "Missing item: \(fullname)" }
+        return "Missing item: \(item) from \(pack)"
+    }
+}
+
 nonisolated final class Manifest: @unchecked Sendable {
     static let shared = Manifest()
 
@@ -170,24 +182,40 @@ nonisolated final class Manifest: @unchecked Sendable {
         return itemsByFullName.values.first { $0.makeFullName() == key }
     }
 
-    func itemZip(fullname: String) -> Data {
+    func itemZip(fullname: String) throws -> Data {
         guard let item = findItem(fullname: fullname) else {
-            fatalError("Manifest missing item '\(fullname)'")
+            throw MissingManifestItem(fullname: fullname)
         }
+        return try loadZip(item: item, fullname: fullname)
+    }
+
+    /// Items picked from the manifest listing are expected to exist; stay loud if not.
+    func itemZipOrCrash(fullname: String) -> Data {
+        guard let item = findItem(fullname: fullname) else {
+            fatalError(MissingManifestItem(fullname: fullname).message)
+        }
+        do {
+            return try loadZip(item: item, fullname: fullname)
+        } catch {
+            fatalError("\(error)")
+        }
+    }
+
+    private func loadZip(item: Item, fullname: String) throws -> Data {
         if item.packName == Pack.customName {
             // Read directly: a fileExists check followed by a read is a TOCTOU
             // pair (a delete landing between them still crashes). A nil read
             // means the customs directory changed under the cached pack, so
-            // reload and retry once; stay loud only if it is still unreadable.
+            // reload and retry once; report missing only if still unreadable.
             if let zip = try? Data(contentsOf: CustomItems.file(systemName: item.systemName)) {
                 return zip
             }
             _ = reloadCustomPack()
             guard let fresh = findItem(fullname: fullname), fresh.packName == Pack.customName else {
-                fatalError("Manifest custom item '\(fullname)' is gone after reload (file deleted?)")
+                throw MissingManifestItem(fullname: fullname)
             }
             guard let zip = try? Data(contentsOf: CustomItems.file(systemName: fresh.systemName)) else {
-                fatalError("Manifest custom item '\(fullname)' unreadable after reload")
+                throw MissingManifestItem(fullname: fullname)
             }
             return zip
         }

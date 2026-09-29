@@ -34,7 +34,11 @@ enum ItemConstructor {
             ],
             edges: []
         )
-        unit.link()
+        do {
+            try unit.link()
+        } catch {
+            fatalError("\(error)")
+        }
         return unit
     }
 
@@ -47,7 +51,11 @@ enum ItemConstructor {
             ],
             edges: []
         )
-        unit.link()
+        do {
+            try unit.link()
+        } catch {
+            fatalError("\(error)")
+        }
         return unit
     }
 

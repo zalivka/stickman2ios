@@ -67,6 +67,7 @@ private struct MakePane: View {
     @State private var itemsSize: CGSize = .zero
     @State private var openCartoon = false
     @State private var openItems = false
+    @StateObject private var opener = SceneOpener()
     #if DEBUG
     @State private var openDesert = false
     @State private var openVillage = false
@@ -78,7 +79,6 @@ private struct MakePane: View {
     @State private var openRoad = false
     @State private var openShip = false
     @State private var openDraw = false
-    @State private var openTutorial = false
     #endif
 
     var body: some View {
@@ -101,7 +101,11 @@ private struct MakePane: View {
                     Button("DEBUG: road loop") { openRoad = true }
                     Button("DEBUG: ship") { openShip = true }
                     Button("DEBUG: JUST DRAW") { openDraw = true }
-                    Button("DEBUG: tutorial") { openTutorial = true }
+                    Button("DEBUG: tutorial") {
+                        opener.open("tutorial", tutorial: true) {
+                            try SceneLoader.load(resource: "intro", subdirectory: "tutorial")
+                        }
+                    }
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.orange)
@@ -115,7 +119,13 @@ private struct MakePane: View {
                     .position(x: dividerX, y: proxy.size.height / 2)
 
                 Button {
-                    openCartoon = true
+                    if UserDefaults.standard.bool(forKey: SceneEditorScreen.tutorialDoneKey) {
+                        openCartoon = true
+                    } else {
+                        opener.open("tutorial", tutorial: true) {
+                            try SceneLoader.load(resource: "intro", subdirectory: "tutorial")
+                        }
+                    }
                 } label: {
                     Text("New\nCartoon")
                 }
@@ -161,16 +171,14 @@ private struct MakePane: View {
                 )
             }
             .navigationDestination(isPresented: $openCartoon) {
-                if UserDefaults.standard.bool(forKey: SceneEditorScreen.tutorialDoneKey) {
-                    SceneEditorScreen(
-                        scene: .empty(),
-                        assets: UnitAssets(),
-                        backgrounds: BackgroundAssets()
-                    )
-                } else {
-                    DemoSceneScreen(resource: "intro", subdirectory: "tutorial", tutorial: true)
-                }
+                SceneEditorScreen(
+                    scene: .empty(),
+                    assets: UnitAssets(),
+                    backgrounds: BackgroundAssets()
+                )
             }
+            .sceneEditorDestination(opener)
+            .sceneLoadingOverlay(name: opener.loadingName)
             .navigationDestination(isPresented: $openItems) {
                 CustomItemsListScreen()
             }
@@ -206,9 +214,6 @@ private struct MakePane: View {
                 BonePaperScreen(
                     sheet: BonePaperSheet(width: 640, height: 480, paper: .white)
                 )
-            }
-            .navigationDestination(isPresented: $openTutorial) {
-                DemoSceneScreen(resource: "intro", subdirectory: "tutorial", tutorial: true)
             }
             #endif
         }

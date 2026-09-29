@@ -11,7 +11,7 @@ enum InstantiateUnit {
         if frameIndices.isEmpty {
             fatalError("InstantiateUnit no target frames")
         }
-        let zip = Manifest.shared.itemZip(fullname: item.makeFullName())
+        let zip = Manifest.shared.itemZipOrCrash(fullname: item.makeFullName())
         assets.loadItemFromArchive(
             zip,
             entryName: UnitAssets.atiEntryName(packName: item.packName, systemName: item.systemName),

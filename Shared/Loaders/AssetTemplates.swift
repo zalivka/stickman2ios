@@ -36,7 +36,7 @@ enum AssetTemplates {
     }
 
     static func poster(fullname: String) -> Data {
-        let zip = Manifest.shared.itemZip(fullname: fullname)
+        let zip = Manifest.shared.itemZipOrCrash(fullname: fullname)
         if ZipStore.contains("poster.png", in: zip) {
             return ZipStore.data(named: "poster.png", in: zip)
         }

@@ -190,7 +190,7 @@ struct ItemChooserPanel: View {
     }
 
     private func itemThumb(_ item: Item) -> CGImage {
-        let zip = Manifest.shared.itemZip(fullname: item.makeFullName())
+        let zip = Manifest.shared.itemZipOrCrash(fullname: item.makeFullName())
         return ItemLoader.thumb(from: zip, name: item.makeFullName())
     }
 

@@ -8,6 +8,16 @@
 import SwiftUI
 import UserNotifications
 
+extension Notification.Name {
+    static let presentToast = Notification.Name("presentToast")
+}
+
+enum ToastCenter {
+    static func show(_ text: String) {
+        NotificationCenter.default.post(name: .presentToast, object: text)
+    }
+}
+
 @main
 struct at_elementsApp: App {
     init() {
@@ -70,6 +80,10 @@ private struct ManifestBootView: View {
                 pendingURL = nil
                 importIncoming(url)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .presentToast)) { note in
+            guard let text = note.object as? String, !text.isEmpty else { return }
+            showToast(text)
         }
         .overlay {
             if !toast.isEmpty {

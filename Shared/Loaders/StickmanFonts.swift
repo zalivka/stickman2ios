@@ -54,7 +54,7 @@ enum StickmanFonts {
         return .custom(name, size: size)
     }
 
-    static func installSceneFonts(zip: Data, names: [String], resource: String) {
+    static func installSceneFonts(zip: Data, names: [String], resource: String) throws {
         boot()
         for name in names {
             if !name.hasPrefix("fonts/") || name.hasSuffix("/") {
@@ -62,18 +62,18 @@ enum StickmanFonts {
             }
             let file = (name as NSString).lastPathComponent
             if file.isEmpty {
-                fatalError("SceneLoader '\(resource).ats' empty fonts/ entry")
+                throw SceneLoadError(message: "SceneLoader '\(resource).ats' empty fonts/ entry")
             }
             let lower = file.lowercased()
             if !lower.hasSuffix(".ttf"), !lower.hasSuffix(".otf") {
-                fatalError("SceneLoader '\(resource).ats' font '\(file)' is not ttf/otf")
+                throw SceneLoadError(message: "SceneLoader '\(resource).ats' font '\(file)' is not ttf/otf")
             }
             let key = fontKey(file)
             if embedded.contains(where: { $0.key == key }) {
                 continue
             }
-            let data = ZipStore.data(named: name, in: zip)
-            register(data: data, file: file, key: key)
+            let data = try ZipStore.dataThrowing(named: name, in: zip)
+            try register(data: data, file: file, key: key)
         }
     }
 
@@ -116,30 +116,34 @@ enum StickmanFonts {
         else {
             fatalError("StickmanFonts '\(key)' has no descriptors")
         }
-        remember(CTFontCreateWithFontDescriptor(descriptor, 0, nil), key: key)
+        do {
+            try remember(CTFontCreateWithFontDescriptor(descriptor, 0, nil), key: key)
+        } catch {
+            fatalError("\(error)")
+        }
     }
 
-    private static func register(data: Data, file: String, key: String) {
+    private static func register(data: Data, file: String, key: String) throws {
         if data.isEmpty {
-            fatalError("StickmanFonts '\(key)' is empty")
+            throw SceneLoadError(message: "StickmanFonts '\(key)' is empty")
         }
         guard let provider = CGDataProvider(data: data as CFData), let cgFont = CGFont(provider) else {
-            fatalError("StickmanFonts '\(key)' is not a font")
+            throw SceneLoadError(message: "StickmanFonts '\(key)' is not a font")
         }
         var error: Unmanaged<CFError>?
         if !CTFontManagerRegisterGraphicsFont(cgFont, &error) {
             guard alreadyRegistered(error) else {
                 let detail = error.map { String(describing: $0.takeRetainedValue()) } ?? "unknown"
-                fatalError("StickmanFonts could not register '\(key)': \(detail)")
+                throw SceneLoadError(message: "StickmanFonts could not register '\(key)': \(detail)")
             }
         }
-        remember(CTFontCreateWithGraphicsFont(cgFont, 0, nil, nil), key: key)
+        try remember(CTFontCreateWithGraphicsFont(cgFont, 0, nil, nil), key: key)
         customBytes[key] = (file: file, data: data)
     }
 
-    private static func remember(_ font: CTFont, key: String) {
+    private static func remember(_ font: CTFont, key: String) throws {
         guard let name = CTFontCopyPostScriptName(font) as String?, !name.isEmpty else {
-            fatalError("StickmanFonts '\(key)' has no PostScript name")
+            throw SceneLoadError(message: "StickmanFonts '\(key)' has no PostScript name")
         }
         postScript[key] = name
     }

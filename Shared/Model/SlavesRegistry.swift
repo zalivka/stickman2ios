@@ -24,7 +24,7 @@ struct SlavesRegistry {
         unit.basePoint().attachable == .slave && attachment(of: unit) == nil
     }
 
-    mutating func populate(units: [StickmanUnit]) {
+    mutating func populate(units: [StickmanUnit]) throws {
         children = [:]
         var pending: [StickmanUnit] = []
         for unit in units {
@@ -49,7 +49,7 @@ struct SlavesRegistry {
                 return false
             }
             if stuck {
-                fatalError("SlavesRegistry stuck: \(pending.map(\.name))")
+                throw SceneLoadError(message: "SlavesRegistry stuck: \(pending.map(\.name))")
             }
         }
     }
@@ -85,7 +85,11 @@ struct SlavesRegistry {
     /// Android `getAllConnected` — root master plus every descendant slave.
     static func allConnected(of unit: StickmanUnit, in units: [StickmanUnit]) -> [StickmanUnit] {
         var registry = SlavesRegistry()
-        registry.populate(units: units)
+        do {
+            try registry.populate(units: units)
+        } catch {
+            fatalError("\(error)")
+        }
         let root = rootMaster(of: unit, in: units)
         let names = [root.name] + registry.allSlaves(of: root.name)
         return names.map { name in

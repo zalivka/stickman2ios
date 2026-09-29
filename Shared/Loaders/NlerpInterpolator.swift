@@ -166,7 +166,11 @@ enum NlerpInterpolator {
             unitType: unit1.unitType,
             bubble: unit1.bubble
         )
-        result.link()
+        do {
+            try result.link()
+        } catch {
+            fatalError("\(error)")
+        }
         let base = result.basePoint()
         result.scaleAt(pivotX: base.x, pivotY: base.y, target: scaleVal)
         result.alpha = alphaVal

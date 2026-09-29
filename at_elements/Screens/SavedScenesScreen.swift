@@ -11,6 +11,7 @@ struct SavedScenesScreen: View {
 struct SavedScenesGrid: View {
     var showsChrome = true
     @State private var items: [SavedScenes.Item] = []
+    @StateObject private var opener = SceneOpener()
     private let thumbWidth: CGFloat = 160
     private let thumbHeight: CGFloat = 64
 
@@ -24,8 +25,10 @@ struct SavedScenesGrid: View {
                     spacing: 1
                 ) {
                     ForEach(items) { item in
-                        NavigationLink {
-                            DemoSceneScreen(url: item.url)
+                        Button {
+                            opener.open(item.name) {
+                                try SceneLoader.load(url: item.url)
+                            }
                         } label: {
                             SavedSceneCell(item: item, width: thumbWidth, height: thumbHeight)
                         }
@@ -37,6 +40,8 @@ struct SavedScenesGrid: View {
         }
         .background((showsChrome ? Color.white : LandingScreen.pane).ignoresSafeArea())
         .modifier(SavedScenesChrome(enabled: showsChrome))
+        .sceneLoadingOverlay(name: opener.loadingName)
+        .sceneEditorDestination(opener)
         .onAppear {
             items = SavedScenes.collect()
         }

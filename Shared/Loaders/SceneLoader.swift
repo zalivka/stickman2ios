@@ -1,14 +1,27 @@
 import CoreGraphics
 import Foundation
 
+struct SceneLoadError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+
 enum HexRGB {
     static func parse(_ text: String) -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
+        do {
+            return try parseThrowing(text)
+        } catch {
+            fatalError("\(error)")
+        }
+    }
+
+    static func parseThrowing(_ text: String) throws -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
         if !text.hasPrefix("#") {
-            fatalError("SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
+            throw SceneLoadError(message: "SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
         }
         let hex = text.dropFirst()
         guard let value = UInt32(hex, radix: 16) else {
-            fatalError("SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
+            throw SceneLoadError(message: "SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
         }
         switch hex.count {
         case 6:
@@ -26,70 +39,84 @@ enum HexRGB {
                 a: CGFloat((value >> 24) & 0xFF) / 255
             )
         default:
-            fatalError("SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
+            throw SceneLoadError(message: "SceneLoader color '\(text)' is not #rrggbb or #aarrggbb")
         }
     }
 }
 
 enum SceneLoader {
-    static func load(resource: String, subdirectory: String) -> (StickmanScene, UnitAssets, BackgroundAssets) {
-        load(zip: ItemLoader.archive(resource: resource, subdirectory: subdirectory, ext: "ats"), resource: resource)
+    static func load(resource: String, subdirectory: String) throws -> (StickmanScene, UnitAssets, BackgroundAssets) {
+        try load(zip: ItemLoader.archive(resource: resource, subdirectory: subdirectory, ext: "ats"), resource: resource)
     }
 
-    static func load(url: URL) -> (StickmanScene, UnitAssets, BackgroundAssets) {
+    static func load(url: URL) throws -> (StickmanScene, UnitAssets, BackgroundAssets) {
         let zip: Data
         do {
             zip = try Data(contentsOf: url)
         } catch {
-            fatalError("SceneLoader could not read \(url.path): \(error)")
+            throw SceneLoadError(message: "SceneLoader could not read \(url.path): \(error)")
         }
-        return load(zip: zip, resource: url.deletingPathExtension().lastPathComponent)
+        return try load(zip: zip, resource: url.deletingPathExtension().lastPathComponent)
     }
 
-    static func load(zip: Data, resource: String) -> (StickmanScene, UnitAssets, BackgroundAssets) {
-        let names = ZipStore.names(in: zip)
-        if !names.contains("model.xml") {
-            fatalError("SceneLoader '\(resource).ats' missing model.xml")
+    static func load(zip: Data, resource: String) throws -> (StickmanScene, UnitAssets, BackgroundAssets) {
+        let names: [String]
+        do {
+            names = try ZipStore.namesThrowing(in: zip)
+        } catch {
+            throw SceneLoadError(message: "SceneLoader '\(resource).ats' is not a scene archive: \(error)")
         }
-        StickmanFonts.installSceneFonts(zip: zip, names: names, resource: resource)
-        var scene = SceneXML.parse(ZipStore.data(named: "model.xml", in: zip))
-        scene.unitAnimations = loadAnimations(zip: zip, names: names, resource: resource)
-        scene.unitTweens = loadUnitTweens(zip: zip, names: names, scene: scene, resource: resource)
-        scene.cameraTweens = loadCameraTweens(zip: zip, names: names, scene: scene, resource: resource)
+        if !names.contains("model.xml") {
+            throw SceneLoadError(message: "SceneLoader '\(resource).ats' missing model.xml")
+        }
+        try StickmanFonts.installSceneFonts(zip: zip, names: names, resource: resource)
+        var scene = try SceneXML.parse(ZipStore.dataThrowing(named: "model.xml", in: zip))
+        scene.unitAnimations = try loadAnimations(zip: zip, names: names, resource: resource)
+        scene.unitTweens = try loadUnitTweens(zip: zip, names: names, scene: scene, resource: resource)
+        scene.cameraTweens = try loadCameraTweens(zip: zip, names: names, scene: scene, resource: resource)
         // GOTCHA (doc/gotchas.md): pack items live at pack/items/name.ati, not zip root.
         // Android does not embed native (no-dot) pack items; those come from the bundled .atp.
         let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }
         let assets = UnitAssets()
         for item in items {
-            assets.loadItemFromArchive(ZipStore.data(named: item, in: zip), entryName: item)
+            assets.loadItemFromArchive(try ZipStore.dataThrowing(named: item, in: zip), entryName: item)
         }
-        ensureAssets(scene: scene, assets: assets, resource: resource)
+        try ensureAssets(scene: scene, assets: assets, resource: resource)
         let backgrounds = loadBackgrounds(scene: &scene, zip: zip, names: names, resource: resource)
         return (scene, assets, backgrounds)
     }
 
-    private static func loadAnimations(zip: Data, names: [String], resource: String) -> [String: FBFAnimation] {
+    /// File-supplied unit names must resolve without trapping in PackAlias.
+    static func resolveUnitName(_ name: String) throws -> String {
+        let core = UnitAssets.removeNumber(name)
+        if let colon = core.firstIndex(of: ":"), core[core.index(after: colon)...].isEmpty {
+            throw SceneLoadError(message: "SceneLoader unit name '\(name)' has empty own name")
+        }
+        return PackAlias.resolveUnitName(name)
+    }
+
+    private static func loadAnimations(zip: Data, names: [String], resource: String) throws -> [String: FBFAnimation] {
         if !names.contains("animations_v2.txt") {
             return [:]
         }
-        let data = ZipStore.data(named: "animations_v2.txt", in: zip)
+        let data = try ZipStore.dataThrowing(named: "animations_v2.txt", in: zip)
         let parsed: [FBFAnimation]
         do {
             parsed = try JSONDecoder().decode([FBFAnimation].self, from: data)
         } catch {
-            fatalError("SceneLoader '\(resource).ats' animations_v2.txt is not FBF JSON: \(error)")
+            throw SceneLoadError(message: "SceneLoader '\(resource).ats' animations_v2.txt is not FBF JSON: \(error)")
         }
         var result: [String: FBFAnimation] = [:]
         for animation in parsed {
             if animation.unitname.isEmpty {
-                fatalError("SceneLoader '\(resource).ats' FBF animation missing unitname")
+                throw SceneLoadError(message: "SceneLoader '\(resource).ats' FBF animation missing unitname")
             }
             if animation.period < 1 {
-                fatalError("SceneLoader '\(resource).ats' FBF '\(animation.unitname)' period is \(animation.period)")
+                throw SceneLoadError(message: "SceneLoader '\(resource).ats' FBF '\(animation.unitname)' period is \(animation.period)")
             }
-            let unitname = PackAlias.resolveUnitName(animation.unitname)
+            let unitname = try resolveUnitName(animation.unitname)
             if result[unitname] != nil {
-                fatalError("SceneLoader '\(resource).ats' duplicate FBF '\(unitname)'")
+                throw SceneLoadError(message: "SceneLoader '\(resource).ats' duplicate FBF '\(unitname)'")
             }
             var mapped = animation
             mapped.unitname = unitname
@@ -103,12 +130,12 @@ enum SceneLoader {
         names: [String],
         scene: StickmanScene,
         resource _: String
-    ) -> UnitTweenStorage {
+    ) throws -> UnitTweenStorage {
         if !names.contains(UnitTweenStorage.archiveName) {
             return UnitTweenStorage()
         }
         var storage = UnitTweenStorage()
-        storage.importArchive(ZipStore.data(named: UnitTweenStorage.archiveName, in: zip), scene: scene)
+        try storage.importArchive(ZipStore.dataThrowing(named: UnitTweenStorage.archiveName, in: zip), scene: scene)
         return storage
     }
 
@@ -117,12 +144,12 @@ enum SceneLoader {
         names: [String],
         scene: StickmanScene,
         resource _: String
-    ) -> CameraTweenStorage {
+    ) throws -> CameraTweenStorage {
         if !names.contains(CameraTweenStorage.archiveName) {
             return CameraTweenStorage()
         }
         var storage = CameraTweenStorage()
-        storage.importArchive(ZipStore.data(named: CameraTweenStorage.archiveName, in: zip), scene: scene)
+        try storage.importArchive(ZipStore.dataThrowing(named: CameraTweenStorage.archiveName, in: zip), scene: scene)
         return storage
     }
 
@@ -136,8 +163,14 @@ enum SceneLoader {
         // GOTCHA (doc/gotchas.md): old demos (demo_space, demo_fight) put bg.png at zip root
         // and omit bg_name. Android wraps that PNG as usermade and stamps every frame.
         if names.contains("bg.png") {
-            let png = ZipStore.data(named: "bg.png", in: zip)
-            if let image = BackgroundAssets.tryDecode(png) {
+            let png: Data?
+            do {
+                png = try ZipStore.dataThrowing(named: "bg.png", in: zip)
+            } catch {
+                backgrounds.recordLoadError("\(error)")
+                png = nil
+            }
+            if let png, let image = BackgroundAssets.tryDecode(png) {
                 let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
                 let bgName = "usermade:\(own)"
                 backgrounds.install(
@@ -189,13 +222,13 @@ enum SceneLoader {
         }
         let entry = "_bgs/\(ownName(bgName)).zip"
         if names.contains(entry) {
-            try backgrounds.installArchive(name: bgName, archive: ZipStore.data(named: entry, in: zip))
+            try backgrounds.installArchive(name: bgName, archive: ZipStore.dataThrowing(named: entry, in: zip))
             return
         }
         try BackgroundResolver.install(bgName, into: backgrounds)
     }
 
-    private static func ensureAssets(scene: StickmanScene, assets: UnitAssets, resource: String) {
+    private static func ensureAssets(scene: StickmanScene, assets: UnitAssets, resource: String) throws {
         var seen = Set<String>()
         for frame in scene.frames {
             for unit in frame.units {
@@ -204,24 +237,27 @@ enum SceneLoader {
                     continue
                 }
                 seen.insert(name)
+                if let colon = name.firstIndex(of: ":"), name[name.index(after: colon)...].isEmpty {
+                    throw SceneLoadError(message: "SceneLoader unit name '\(unit.name)' has empty own name")
+                }
                 if assets.hasAssetsFor(unitName: name) {
                     continue
                 }
                 if unit.unitType == .bubble, assets.hasArchive(for: name) {
                     continue
                 }
-                let zip = Manifest.shared.itemZip(fullname: name)
+                let zip = try Manifest.shared.itemZip(fullname: name)
                 assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: name))
                 if unit.unitType == .bubble {
                     continue
                 }
                 if !assets.hasAssetsFor(unitName: name) {
-                    fatalError("SceneLoader assets missing unit '\(name)'")
+                    throw SceneLoadError(message: "SceneLoader assets missing unit '\(name)'")
                 }
             }
         }
         if seen.isEmpty {
-            fatalError("SceneLoader '\(resource).ats' has no units")
+            throw SceneLoadError(message: "SceneLoader '\(resource).ats' has no units")
         }
     }
 
@@ -236,25 +272,29 @@ enum SceneLoader {
 }
 
 enum SceneXML {
-    static func parse(_ data: Data) -> StickmanScene {
+    static func parse(_ data: Data) throws -> StickmanScene {
         let parser = XMLParser(data: data)
         let sink = Sink()
         parser.delegate = sink
-        if !parser.parse() {
+        let ok = parser.parse()
+        if let failure = sink.failure {
+            throw SceneLoadError(message: failure)
+        }
+        if !ok {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
-            fatalError("SceneLoader model.xml parse failed: \(detail)")
+            throw SceneLoadError(message: "SceneLoader model.xml parse failed: \(detail)")
         }
         guard let width = sink.width, let height = sink.height else {
-            fatalError("SceneLoader model.xml missing scene w/h")
+            throw SceneLoadError(message: "SceneLoader model.xml missing scene w/h")
         }
         if width <= 0 || height <= 0 {
-            fatalError("SceneLoader scene size \(width)x\(height)")
+            throw SceneLoadError(message: "SceneLoader scene size \(width)x\(height)")
         }
         if sink.frames.isEmpty {
-            fatalError("SceneLoader model.xml has no frames")
+            throw SceneLoadError(message: "SceneLoader model.xml has no frames")
         }
         guard let interframes = sink.interframes else {
-            fatalError("SceneLoader scene missing interframes")
+            throw SceneLoadError(message: "SceneLoader scene missing interframes")
         }
         var scene = StickmanScene(
             width: width,
@@ -398,6 +438,14 @@ enum SceneXML {
         var noInterpolationFrames = 0
         var speedModifier = SpeedModifier()
         var frames: [StickmanFrame] = []
+        var failure: String?
+
+        private func fail(_ parser: XMLParser, _ message: String) {
+            if failure == nil {
+                failure = message
+            }
+            parser.abortParsing()
+        }
 
         private var frameId: Int?
         private var frameBgName: String?
@@ -424,18 +472,22 @@ enum SceneXML {
             switch elementName {
             case "scene":
                 guard let wText = attributes["w"], let w = Double(wText) else {
-                    fatalError("SceneLoader scene missing w")
+                    fail(parser, "SceneLoader scene missing w")
+                    return
                 }
                 guard let hText = attributes["h"], let h = Double(hText) else {
-                    fatalError("SceneLoader scene missing h")
+                    fail(parser, "SceneLoader scene missing h")
+                    return
                 }
                 width = CGFloat(w)
                 height = CGFloat(h)
                 guard let text = attributes["interframes"], let value = Int(text) else {
-                    fatalError("SceneLoader scene missing interframes")
+                    fail(parser, "SceneLoader scene missing interframes")
+                    return
                 }
                 if value < 1 {
-                    fatalError("SceneLoader interframes is \(value)")
+                    fail(parser, "SceneLoader interframes is \(value)")
+                    return
                 }
                 interframes = value
                 if let text = attributes["no_interpolation"] {
@@ -445,21 +497,29 @@ enum SceneXML {
                     case "false":
                         noInterpolation = false
                     default:
-                        fatalError("SceneLoader no_interpolation is \(text)")
+                        fail(parser, "SceneLoader no_interpolation is \(text)")
+                        return
                     }
                 }
                 if let text = attributes["no_interpolation_frames"] {
                     guard let frames = Int(text) else {
-                        fatalError("SceneLoader no_interpolation_frames is \(text)")
+                        fail(parser, "SceneLoader no_interpolation_frames is \(text)")
+                        return
                     }
                     noInterpolationFrames = frames
                 }
                 if let text = attributes["pivot_points"], !text.isEmpty {
-                    speedModifier = SpeedModifier.decode(text)
+                    do {
+                        speedModifier = try SpeedModifier.decode(text)
+                    } catch {
+                        fail(parser, "\(error)")
+                        return
+                    }
                 }
             case "frame":
                 guard let idText = attributes["id"], let id = Int(idText) else {
-                    fatalError("SceneLoader frame missing id")
+                    fail(parser, "SceneLoader frame missing id")
+                    return
                 }
                 // GOTCHA (doc/gotchas.md): older frames omit bg_name; Android Frame
                 // defaults to #ffffff. Root zip bg.png is applied after parse.
@@ -470,49 +530,76 @@ enum SceneXML {
                     bgName = "#ffffff"
                 }
                 if bgName.hasPrefix("#") {
-                    _ = HexRGB.parse(bgName)
+                    do {
+                        _ = try HexRGB.parseThrowing(bgName)
+                    } catch {
+                        fail(parser, "\(error)")
+                        return
+                    }
                 }
                 frameId = id
                 frameBgName = bgName
                 if let bgMoveText = attributes["bg"], !bgMoveText.isEmpty {
-                    frameBgMove = PictureMove.parse(bgMoveText)
+                    do {
+                        frameBgMove = try PictureMove.parse(bgMoveText)
+                    } catch {
+                        fail(parser, "\(error)")
+                        return
+                    }
                 } else {
                     frameBgMove = .identity
                 }
                 if let cameraText = attributes["camera"], !cameraText.isEmpty {
-                    frameCameraMove = PictureMove.parse(cameraText)
+                    do {
+                        frameCameraMove = try PictureMove.parse(cameraText)
+                    } catch {
+                        fail(parser, "\(error)")
+                        return
+                    }
                 } else {
                     frameCameraMove = .identity
                 }
                 frameUnits = []
             case "unit":
                 guard let name = attributes["name"], !name.isEmpty else {
-                    fatalError("SceneLoader unit missing name")
+                    fail(parser, "SceneLoader unit missing name")
+                    return
                 }
                 guard let scaleText = attributes["scale"], let scale = Double(scaleText) else {
-                    fatalError("SceneLoader unit '\(name)' missing scale")
+                    fail(parser, "SceneLoader unit '\(name)' missing scale")
+                    return
                 }
                 if scale <= 0 {
-                    fatalError("SceneLoader unit '\(name)' scale is \(scale)")
+                    fail(parser, "SceneLoader unit '\(name)' scale is \(scale)")
+                    return
                 }
                 guard let alphaText = attributes["alpha"], let alpha = Double(alphaText) else {
-                    fatalError("SceneLoader unit '\(name)' missing alpha")
+                    fail(parser, "SceneLoader unit '\(name)' missing alpha")
+                    return
                 }
                 // GOTCHA (doc/gotchas.md): Android stores alpha as-is; 1.08 is opaque.
                 if alpha < 0 {
-                    fatalError("SceneLoader unit '\(name)' alpha is \(alpha)")
+                    fail(parser, "SceneLoader unit '\(name)' alpha is \(alpha)")
+                    return
                 }
                 guard let arrangeText = attributes["arrange"], let arrange = Int(arrangeText) else {
-                    fatalError("SceneLoader unit '\(name)' missing arrange")
+                    fail(parser, "SceneLoader unit '\(name)' missing arrange")
+                    return
                 }
-                unitName = PackAlias.resolveUnitName(name)
+                do {
+                    unitName = try SceneLoader.resolveUnitName(name)
+                } catch {
+                    fail(parser, "\(error)")
+                    return
+                }
                 unitScale = CGFloat(scale)
                 unitAlpha = CGFloat(alpha)
                 unitArrange = arrange
                 unitFlipped = attributes["flipped"] == "true"
                 if let text = attributes["state"] {
                     guard let state = Int(text) else {
-                        fatalError("SceneLoader unit '\(name)' state '\(text)' is not an int")
+                        fail(parser, "SceneLoader unit '\(name)' state '\(text)' is not an int")
+                        return
                     }
                     unitState = state
                 } else {
@@ -525,16 +612,24 @@ enum SceneXML {
                 case "bubble":
                     unitType = .bubble
                     if let meta = attributes["meta"], !meta.isEmpty {
-                        unitBubble = BubbleMeta.parse(encoded: meta, unitName: name)
+                        do {
+                            unitBubble = try BubbleMeta.parse(encoded: meta, unitName: name)
+                        } catch {
+                            fail(parser, "\(error)")
+                            return
+                        }
                     } else {
                         unitBubble = .defaults
                     }
                 case let other?:
-                    fatalError("SceneLoader unit '\(name)' unknown type '\(other)'")
+                    fail(parser, "SceneLoader unit '\(name)' unknown type '\(other)'")
+                    return
                 }
                 unitPoints = []
             case "point":
-                unitPoints.append(parsePoint(attributes))
+                if let point = parsePoint(attributes, parser) {
+                    unitPoints.append(point)
+                }
             default:
                 break
             }
@@ -548,14 +643,16 @@ enum SceneXML {
         ) {
             if elementName == "unit" {
                 guard let name = unitName, let scale = unitScale, let alpha = unitAlpha, let arrange = unitArrange else {
-                    fatalError("SceneLoader unit ended without name/scale/alpha/arrange")
+                    fail(parser, "SceneLoader unit ended without name/scale/alpha/arrange")
+                    return
                 }
                 if unitPoints.isEmpty {
-                    fatalError("SceneLoader unit '\(name)' has no points")
+                    fail(parser, "SceneLoader unit '\(name)' has no points")
+                    return
                 }
                 var unit = StickmanUnit(
                     name: name,
-                    points: uniquePoints(unitPoints, unitName: name),
+                    points: uniquePoints(unitPoints, unitName: name, parser: parser),
                     edges: [],
                     scale: scale,
                     alpha: alpha,
@@ -565,7 +662,12 @@ enum SceneXML {
                     unitType: unitType,
                     bubble: unitBubble
                 )
-                unit.link()
+                do {
+                    try unit.link()
+                } catch {
+                    fail(parser, "\(error)")
+                    return
+                }
                 frameUnits.append(unit)
                 unitName = nil
                 unitScale = nil
@@ -578,10 +680,12 @@ enum SceneXML {
                 unitPoints = []
             } else if elementName == "frame" {
                 guard let id = frameId, let bgName = frameBgName else {
-                    fatalError("SceneLoader frame ended without id/bg_name")
+                    fail(parser, "SceneLoader frame ended without id/bg_name")
+                    return
                 }
                 if frameUnits.isEmpty {
-                    fatalError("SceneLoader frame \(id) has no units")
+                    fail(parser, "SceneLoader frame \(id) has no units")
+                    return
                 }
                 var frame = StickmanFrame(
                     id: id,
@@ -590,7 +694,12 @@ enum SceneXML {
                     bgMove: frameBgMove,
                     cameraMove: frameCameraMove
                 )
-                frame.refreshAttachments()
+                do {
+                    try frame.slaves.populate(units: frame.units)
+                } catch {
+                    fail(parser, "\(error)")
+                    return
+                }
                 frames.append(frame)
                 frameId = nil
                 frameBgName = nil
@@ -600,7 +709,7 @@ enum SceneXML {
             }
         }
 
-        private func uniquePoints(_ points: [StickmanPoint], unitName: String) -> [StickmanPoint] {
+        private func uniquePoints(_ points: [StickmanPoint], unitName: String, parser: XMLParser) -> [StickmanPoint] {
             var byId: [Int: StickmanPoint] = [:]
             var order: [Int] = []
             for point in points {
@@ -613,7 +722,8 @@ enum SceneXML {
                         || existing.attachedMasterName != point.attachedMasterName
                         || existing.attachedMasterPointId != point.attachedMasterPointId
                     {
-                        fatalError("SceneLoader unit '\(unitName)' duplicate point \(point.id) disagrees")
+                        fail(parser, "SceneLoader unit '\(unitName)' duplicate point \(point.id) disagrees")
+                        return points
                     }
                     continue
                 }
@@ -623,15 +733,18 @@ enum SceneXML {
             return order.map { byId[$0]! }
         }
 
-        private func parsePoint(_ attributes: [String: String]) -> StickmanPoint {
+        private func parsePoint(_ attributes: [String: String], _ parser: XMLParser) -> StickmanPoint? {
             guard let idText = attributes["id"], let id = Int(idText) else {
-                fatalError("SceneLoader point missing id")
+                fail(parser, "SceneLoader point missing id")
+                return nil
             }
             guard let xText = attributes["x"], let x = Double(xText) else {
-                fatalError("SceneLoader point \(id) missing x")
+                fail(parser, "SceneLoader point \(id) missing x")
+                return nil
             }
             guard let yText = attributes["y"], let y = Double(yText) else {
-                fatalError("SceneLoader point \(id) missing y")
+                fail(parser, "SceneLoader point \(id) missing y")
+                return nil
             }
             let isBase = attributes["base"] == "true"
             let parentId: Int?
@@ -639,7 +752,8 @@ enum SceneXML {
                 parentId = nil
             } else {
                 guard let parText = attributes["par"], let par = Int(parText) else {
-                    fatalError("SceneLoader point \(id) missing par")
+                    fail(parser, "SceneLoader point \(id) missing par")
+                    return nil
                 }
                 parentId = par
             }
@@ -652,20 +766,28 @@ enum SceneXML {
             case "slave":
                 attachable = .slave
             case let other?:
-                fatalError("SceneLoader point \(id) unknown attachable '\(other)'")
+                fail(parser, "SceneLoader point \(id) unknown attachable '\(other)'")
+                return nil
             }
             var attachedName: String?
             var attachedId: Int?
             if let attached = attributes["attached"], !attached.isEmpty {
                 let parts = attached.split(separator: "&", omittingEmptySubsequences: false).map(String.init)
                 if parts.count != 2 {
-                    fatalError("SceneLoader point \(id) attached '\(attached)' is not name&id")
+                    fail(parser, "SceneLoader point \(id) attached '\(attached)' is not name&id")
+                    return nil
                 }
                 guard let masterId = Int(parts[1]) else {
-                    fatalError("SceneLoader point \(id) attached id '\(parts[1])' is not an int")
+                    fail(parser, "SceneLoader point \(id) attached id '\(parts[1])' is not an int")
+                    return nil
                 }
                 if masterId != -1 && parts[0] != "null" && !parts[0].isEmpty {
-                    attachedName = PackAlias.resolveUnitName(parts[0])
+                    do {
+                        attachedName = try SceneLoader.resolveUnitName(parts[0])
+                    } catch {
+                        fail(parser, "\(error)")
+                        return nil
+                    }
                     attachedId = masterId
                 }
             }
