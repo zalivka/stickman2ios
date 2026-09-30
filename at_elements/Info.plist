@@ -30,11 +30,13 @@
 		</dict>
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Stickman saves exported videos to your photo library.</string>
+	<string>The app saves exported videos to your photo library.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>UIFileSharingEnabled</key>
-	<true/>
+	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

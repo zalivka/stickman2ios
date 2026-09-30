@@ -50,6 +50,7 @@ struct SceneEditorScreen: View {
     @State private var lastSavedName: String?
     @State private var saveToast = ""
     @State private var exportToast: ExportToast?
+    @State private var showingPhotosDenied = false
     @State private var showingFBF = false
     @State private var showingAdvanced = false
     @State private var showingSetText = false
@@ -472,11 +473,27 @@ struct SceneEditorScreen: View {
                     background: Color(red: 0.18, green: 0.65, blue: 0.30),
                     foreground: .white
                 ))
-            case .failed:
-                showExportToast(ExportToast(text: "Export failed", background: .red, foreground: .white))
+            case .failed(let failure):
+                switch failure {
+                case .photosDenied:
+                    showingPhotosDenied = true
+                    showExportToast(ExportToast(text: "Photos access denied — allow in Settings to save video", background: .red, foreground: .white))
+                case .exportFailed:
+                    showExportToast(ExportToast(text: "Export failed", background: .red, foreground: .white))
+                }
             case .idle:
                 break
             }
+        }
+        .alert("Photos access denied", isPresented: $showingPhotosDenied) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text("Allow photo access in Settings to save exported videos.")
         }
     }
 

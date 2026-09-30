@@ -196,7 +196,7 @@ final class BonePaperRecorder {
 
     // MARK: Saving
 
-    /// Writes `Documents/BonePaperRecordings/<started>/` with `session.json`, `result.png`, and `base.png` / `onion.png` when present.
+    /// Writes `Library/Application Support/BonePaperRecordings/<started>/` with `session.json`, `result.png`, and `base.png` / `onion.png` when present.
     func save(
         result: CGImage,
         onion: CGImage?,
@@ -214,7 +214,10 @@ final class BonePaperRecorder {
         let stamp = DateFormatter()
         stamp.locale = Locale(identifier: "en_US_POSIX")
         stamp.dateFormat = "yyyyMMdd-HHmmss"
-        let dir = URL.documentsDirectory
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fatalError("BonePaperRecorder has no Application Support")
+        }
+        let dir = support
             .appending(path: Self.folder)
             .appending(path: stamp.string(from: started))
         do {

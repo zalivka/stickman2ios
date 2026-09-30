@@ -3,11 +3,16 @@ import UIKit
 import UserNotifications
 
 final class VideoExport: ObservableObject {
+    enum Failure: Equatable {
+        case photosDenied
+        case exportFailed
+    }
+
     enum Phase: Equatable {
         case idle
         case saving
         case saved
-        case failed
+        case failed(Failure)
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -46,7 +51,7 @@ final class VideoExport: ObservableObject {
                             if error is JpegWriteError {
                                 return
                             }
-                            self.finish(job: job, next: .failed)
+                            self.finish(job: job, next: .failed(.exportFailed))
                         case .success(let count):
                             if active.isCancelled {
                                 return
@@ -62,8 +67,13 @@ final class VideoExport: ObservableObject {
                                     switch assembleResult {
                                     case .success:
                                         self.finish(job: job, next: .saved)
-                                    case .failure:
-                                        self.finish(job: job, next: .failed)
+                                    case .failure(let assembleError):
+                                        if let assemblerError = assembleError as? JpegVideoAssembler.AssemblerError,
+                                           case .photosDenied = assemblerError {
+                                            self.finish(job: job, next: .failed(.photosDenied))
+                                        } else {
+                                            self.finish(job: job, next: .failed(.exportFailed))
+                                        }
                                     }
                                 }
                             }
@@ -95,7 +105,7 @@ final class VideoExport: ObservableObject {
         if current !== job || phase != .saving {
             return
         }
-        phase = .failed
+        phase = .failed(.exportFailed)
         scheduleIdleReset(job: job)
     }
 

@@ -33,7 +33,7 @@ rsvg-convert -w 640 -h 480 out/forest_castle/drawing.svg -o /tmp/check.png   # v
 | `Vendor/BonePaper/Sources/BonePaper/BonePaperRecorder.swift` | Recorder: builds the log, saves the session folder. |
 | `Vendor/BonePaper/Sources/BonePaper/BonePaperScreen.swift` | `apply()` saves the recording (`#if DEBUG`) and exports. |
 | `Vendor/BonePaper/Sources/BonePaper/BonePaperToolbar.swift` | Brush limits (`BonePaperBrush.sizeRange`, `opacityRange`), colour presets (`BonePaperColorStore.presets`). |
-| `at_elements/Info.plist` | `UIFileSharingEnabled = true`, so Documents is visible in Finder. |
+| `at_elements/Info.plist` | `UIFileSharingEnabled = false`, so Documents stays private. Recordings live in Application Support. |
 | `tools/bonepaper_gen/hand.py` | Hand model: shape key points → log ops. |
 | `tools/bonepaper_gen/forest_castle.py`, `space_station.py` | Example scenes; use them as templates. |
 | `tools/bonepaper_gen/replay.py` | Approximate Pillow renderer for any `session.json`. |
@@ -142,7 +142,7 @@ The recorder calls `fatalError` if calls arrive in an impossible order:
 
 ### Saved files
 
-On **Apply** the recorder writes `Documents/BonePaperRecordings/<yyyyMMdd-HHmmss>/`, named after the session's start time:
+On **Apply** the recorder writes `Library/Application Support/BonePaperRecordings/<yyyyMMdd-HHmmss>/`, named after the session's start time:
 
 | file | when | content |
 |---|---|---|
@@ -155,14 +155,13 @@ On **Apply** the recorder writes `Documents/BonePaperRecordings/<yyyyMMdd-HHmmss
 
 ### Getting the files
 
-- **Finder:** select the device → Files → at_elements → drag out `BonePaperRecordings`.
-- **Terminal:**
+Via `devicectl` (Documents stays private, no Finder access):
 
   ```bash
   xcrun devicectl list devices
   xcrun devicectl device copy from --device <ID> \
     --domain-type appDataContainer --domain-identifier zalivka.at-elements \
-    --source Documents/BonePaperRecordings --destination ./recordings
+    --source "Library/Application Support/BonePaperRecordings" --destination ./recordings
   ```
 
   `devicectl` must run outside the agent sandbox; inside it, CoreDevice times out. The device used so far is iPhone SE (iPhone12,8), identifier `6DFF0468-9398-5DD8-B92F-A1759959D19E`.
@@ -546,6 +545,6 @@ The four yellow dashes move one gap along the road over the ten frames, growing 
 
 ## Open items
 
-- Choosing a session in the player (recordings in `Documents/BonePaperRecordings`, other generated scenes) instead of the fixed desert file.
+- Choosing a session in the player (recordings in `Library/Application Support/BonePaperRecordings`, other generated scenes) instead of the fixed desert file.
 - 10–20 more real drawings of varied subjects (people, animals, houses) from the target users, to tune the hand model. A 120 Hz device would give real `raw` detail.
 - `undo`/`redo` in `replay.py`.
