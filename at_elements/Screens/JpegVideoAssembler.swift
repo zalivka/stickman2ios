@@ -54,6 +54,7 @@ enum JpegVideoAssembler {
             }
             let code = session.getReturnCode()
             if ReturnCode.isCancel(code) {
+                completion(.failure(AssemblerError.cancelled))
                 return
             }
             guard ReturnCode.isSuccess(code) else {
@@ -96,5 +97,6 @@ enum JpegVideoAssembler {
         case missingOutput
         case photosDenied
         case photosSaveFailed
+        case cancelled
     }
 }

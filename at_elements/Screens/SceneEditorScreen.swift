@@ -72,6 +72,7 @@ struct SceneEditorScreen: View {
     @State private var playHintScheduled = false
     @State private var tutorialNextPress = 0
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Android `MainEditor.SIMPLE_TUTORIAL` — set once Play is pressed from the tutorial hint.
     static let tutorialDoneKey = "simple_tutorial"
@@ -438,6 +439,28 @@ struct SceneEditorScreen: View {
                 onApply: applyTweenEasing
             )
         }
+        .overlay(alignment: .bottom) {
+            if videoExport.phase == .saving {
+                HStack(spacing: 12) {
+                    ProgressView(value: videoExport.progress)
+                        .progressViewStyle(.linear)
+                        .frame(width: 120)
+                    Text("Saving video… \(Int(videoExport.progress * 100))%")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.black)
+                    Button("Cancel") { videoExport.cancel() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("Cancel video export")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.yellow)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.bottom, 20)
+            }
+        }
         .overlay {
             if let exportToast {
                 Text(exportToast.text)
@@ -466,13 +489,15 @@ struct SceneEditorScreen: View {
         .onChange(of: videoExport.phase) { _, phase in
             switch phase {
             case .saving:
-                showExportToast(ExportToast(text: "Saving video — will be saved to Photos", background: .yellow, foreground: .black))
+                break
             case .saved:
                 showExportToast(ExportToast(
                     text: "Video is ready — saved to Photos",
                     background: Color(red: 0.18, green: 0.65, blue: 0.30),
                     foreground: .white
                 ))
+            case .cancelled:
+                showExportToast(ExportToast(text: "Export cancelled", background: Color.black.opacity(0.78), foreground: .white))
             case .failed(let failure):
                 switch failure {
                 case .photosDenied:
@@ -494,6 +519,18 @@ struct SceneEditorScreen: View {
             Button("Not Now", role: .cancel) {}
         } message: {
             Text("Allow photo access in Settings to save exported videos.")
+        }
+        .onDisappear {
+            if videoExport.phase == .saving {
+                videoExport.cancel()
+                ToastCenter.show("Export cancelled")
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, videoExport.phase == .saving {
+                videoExport.cancel()
+                ToastCenter.show("Export cancelled")
+            }
         }
     }
 

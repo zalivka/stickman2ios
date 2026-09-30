@@ -41,6 +41,18 @@ enum JpegSequenceWriter {
         directory().appendingPathComponent(fileName(index: index), isDirectory: false)
     }
 
+    /// Removes the intermediate-frame directory if present. Cleanup failure
+    /// must never crash a finished export, so errors are only logged.
+    static func clean() {
+        let dir = directory()
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: dir)
+        } catch {
+            print("JpegSequenceWriter clean \(dir.path): \(error)")
+        }
+    }
+
     static func write(
         scene: StickmanScene,
         assets: UnitAssets,
@@ -52,6 +64,7 @@ enum JpegSequenceWriter {
         if scene.frames.count < 2 {
             fatalError("JpegSequenceWriter needs at least 2 keyframes, got \(scene.frames.count)")
         }
+        clean()
         MovieGenerator.generate(
             scene: scene,
             assets: assets,

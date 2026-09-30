@@ -19,17 +19,17 @@
 
 ## 3. Permissions UX
 - [x] 3.1 Done: `VideoExport.Phase.failed(Failure)` carries `.photosDenied` vs `.exportFailed`; denied shows "allow in Settings" toast + Open Settings alert.
-- [ ] 3.2 Notifications (`VideoExportNotifier.prepare` in `VideoExport.swift:27`): don't prompt mid-export without context. Explain why ("notify when backgrounded") or ask only on background export.
+- [x] 3.2 Done: notifications removed — no mid-export prompt; background/leave cancels the export with an "Export cancelled" toast.
 - [ ] 3.3 Replace generic `showToast("error")` in `at_elementsApp.swift:115,118`, `SceneEditorScreen:1179`, `CustomItemsListScreen:154` with actionable strings.
 
 ## 4. Files / UTIs / background
 - [ ] 4.1 Test open-in from Files/Mail for `ats/ati` (`CFBundleDocumentTypes`, `LSSupportsOpeningDocumentsInPlace=false`). Must import or show friendly error.
-- [ ] 4.2 Verify background export: `beginBackgroundTask(video-export)` + expiry → `.failed`, no hang, notification only if allowed. Test lock + background mid-FFmpeg.
+- [ ] 4.2 Verify background/leave mid-export cancels cleanly (no hang, "Export cancelled" toast, Export re-enabled). No background task or notification anymore.
 - [ ] 4.3 Check tmp cleanup: `export.mp4`, `frame%04d.jpeg` in tmp/cache don't grow unbounded.
 
 ## 5. Export quality
 - [ ] 5.1 Confirm `mpeg4 + qscale 1, 60fps` (`JpegVideoAssembler.swift:38-49`) plays in Photos, sane size. The `+1s duration` tail freezes last frame — trim or justify.
-- [ ] 5.2 Add real export UI: progress %, cancel (`FFmpegKit.cancel` + `JpegWriteStop` exist but no button). Toast hiding after 2s is not enough.
+- [x] 5.2 Done: bottom progress chip with % + Cancel on the Animation screen; leave/background cancels with "Export cancelled" toast.
 
 ## 6. UI / HIG (landscape-only iPhone+iPad)
 - [ ] 6.1 Small screens: `LandingScreen` rail 100pt, bias-positioned hex buttons — check SE width for clip/overlap.

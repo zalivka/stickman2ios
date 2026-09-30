@@ -81,7 +81,7 @@ enum FrameRasterizer {
         if name.hasPrefix("usermade:") {
             context.saveGState()
             context.concatenate(move.toTransform())
-            drawImage(backgrounds.image(for: name))
+            drawImage(backgrounds.image(for: name), alpha: 1)
             context.restoreGState()
             return
         }
@@ -95,20 +95,24 @@ enum FrameRasterizer {
     }
 
     /// UIKit Y-down. Raw `CGContext.draw(CGImage)` is Y-up and flips bitmaps/bg.
-    private static func drawImage(_ image: CGImage) {
+    /// `UIImage.draw(in:)` ignores the context global alpha, so opacity is
+    /// passed explicitly instead of relying on `setAlpha`.
+    private static func drawImage(_ image: CGImage, alpha: CGFloat) {
         UIImage(cgImage: image, scale: 1, orientation: .up).draw(
-            in: CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            in: CGRect(x: 0, y: 0, width: image.width, height: image.height),
+            blendMode: .normal,
+            alpha: alpha
         )
     }
 
     private static func drawUnit(_ drawn: StickmanUnit, assets: UnitAssets, context: CGContext) {
         context.saveGState()
-        context.setAlpha(drawn.alpha)
         switch drawn.unitType {
         case .bubble:
+            context.setAlpha(drawn.alpha)
             drawBubble(drawn, context: context)
         case .unit:
-            drawBitmaps(drawn, assets: assets, context: context)
+            drawBitmaps(drawn, assets: assets, alpha: drawn.alpha, context: context)
         }
         context.restoreGState()
     }
@@ -140,7 +144,7 @@ enum FrameRasterizer {
         context.restoreGState()
     }
 
-    private static func drawBitmaps(_ drawn: StickmanUnit, assets: UnitAssets, context: CGContext) {
+    private static func drawBitmaps(_ drawn: StickmanUnit, assets: UnitAssets, alpha: CGFloat, context: CGContext) {
         struct Bone {
             var weight: Int
             var start: CGPoint
@@ -178,7 +182,7 @@ enum FrameRasterizer {
                 y: bone.start.y + yOffset
             )
             context.scaleBy(x: drawn.scale, y: mirror ? -drawn.scale : drawn.scale)
-            drawImage(bitmap)
+            drawImage(bitmap, alpha: alpha)
             context.restoreGState()
         }
     }
