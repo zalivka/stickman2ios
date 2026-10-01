@@ -447,6 +447,7 @@ final class BonePaperDrawView: UIView {
     private var stroking = false
     private var zoomScale: CGFloat = 1
     // Screen points before a brush/eraser stroke starts. Lets a still finger wait for pinch.
+    // Divided by zoom when zoomed in, so the same gap is not a long stretch of the paper.
     private static let strokeSlop: CGFloat = 12
 
     override init(frame: CGRect) {
@@ -586,7 +587,8 @@ final class BonePaperDrawView: UIView {
             guard let startView = pendingView, let startWorld = lastWorld else { return }
             let dx = view.x - startView.x
             let dy = view.y - startView.y
-            if hypot(dx, dy) < Self.strokeSlop {
+            let slop = Self.strokeSlop / max(zoomScale, 1)
+            if hypot(dx, dy) < slop {
                 return
             }
             document.beginStroke(erase: tool == .eraser, opacity: opacity)

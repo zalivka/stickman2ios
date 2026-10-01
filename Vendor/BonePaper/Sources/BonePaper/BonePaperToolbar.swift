@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 enum BonePaperBrush {
-    static let sizeRange: ClosedRange<CGFloat> = 4...48
-    static let opacityRange: ClosedRange<CGFloat> = 0.05...1
+    static let sizeRange: ClosedRange<CGFloat> = 1...48
+    static let opacityRange: ClosedRange<CGFloat> = 0.01...1
 }
 
 enum BonePaperChrome {
@@ -356,7 +356,7 @@ private struct BonePaperDragControl: View {
     var onSeeking: (Bool) -> Void
 
     private static let side: CGFloat = 44
-    private static let trackWidth: CGFloat = 176
+    private static let trackWidth: CGFloat = 352
     private static let trackPadding: CGFloat = 12
     private static let trackGap: CGFloat = 8
     private static let space = "bonepaper.slider"
