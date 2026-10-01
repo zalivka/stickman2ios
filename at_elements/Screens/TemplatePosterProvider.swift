@@ -7,7 +7,7 @@ struct TemplatePosterProvider: ImageDataProvider {
 
     init(item: Item) {
         fullName = item.makeFullName()
-        cacheKey = "\(AssetTemplates.packName):\(item.systemName)"
+        cacheKey = "\(AssetTemplates.packName):\(AssetTemplates.revision()):\(item.systemName)"
     }
 
     func data(handler: @escaping @Sendable (Result<Data, any Error>) -> Void) {

@@ -35,6 +35,25 @@ enum AssetTemplates {
         return templates
     }
 
+    /// Kingfisher keeps posters across launches. Android re-unpacks this pack when
+    /// `meta.txt` version moves; the same signal, plus the archive file, drops the old art.
+    static func revision() -> String {
+        guard let pack = Manifest.shared.pack(named: packName) else {
+            fatalError("AssetTemplates missing pack '\(packName)'")
+        }
+        let url = ExternalPack.bundleArchive(packName)
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        } catch {
+            fatalError("AssetTemplates could not stat \(url.path): \(error)")
+        }
+        guard let size = values.fileSize, let modified = values.contentModificationDate else {
+            fatalError("AssetTemplates \(url.lastPathComponent) has no size or modification date")
+        }
+        return "\(pack.version)|\(size)|\(Int(modified.timeIntervalSince1970))"
+    }
+
     static func poster(fullname: String) throws -> Data {
         let zip = try Manifest.shared.itemZip(fullname: fullname)
         let names = try ZipStore.namesThrowing(in: zip)
