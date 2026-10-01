@@ -94,3 +94,11 @@ Last-frame Next is Android `MainEditor.onNextFramePressed`: clone the last frame
 Do not compute page size from a `PreferenceKey` height sitting in DualNavigationChrome `@State`. That starts at 0 → `windowSize` 1, and the UIButton coordinator can keep that first long-press closure, so a hold only steps one frame while the bar is showing 1–20. Store Android `WINDOW_SIZE` on `SeekFramesPageWindow` from the bar’s laid-out height; long-press reads `pageWindow.size` at fire time (page 1–20 → frame 21). Last page: jump to the last frame, never clone — that is tap-only. Clear the swallow flag on the next run-loop turn so a leftover hold cannot eat the next tap, and a same-press `touchUpInside` cannot add a frame.
 
 Do not put that `UIButton` in a 60×60 SwiftUI frame and `setImage` the chrome PNG at `UIScreen.main.scale`. `UIViewRepresentable` does not clip; the button's intrinsic size is the image in points and the artwork paints over `SeekFramesBar`. Size the `UIImage` so it displays at `barWidth / 1.5` (40pt), keep the control in the original 40+8+8 slot, and `clipsToBounds`.
+
+## iPad pinch zoom on the skeleton canvas
+
+`SkeletonCanvas` stores the pinch layout against one size and draws with another. `resolvedLayout` keeps the stored layout only when those sizes match; otherwise it fits the scene again. Hit testing asks with the stored size, so it uses the zoomed layout. The picture stays fitted. Taps then miss the points you can see.
+
+On iPhone, and in the Animation Editor, the `GeometryReader` box and the `Canvas` size are the same rectangle, so the zoom shows. On iPad the Skeleton Editor canvas is inset from that reader by the safe area. The sizes differ, the draw throws the pinch away, and only the hit targets move.
+
+Pin the canvas to the reader: `.frame(width: proxy.size.width, height: proxy.size.height)`. Draw, hit-test, and pinch then share one box. Compare sizes with a 1pt tolerance (`sizesMatch`); a sub-point mismatch on iPad is enough to drop the zoom. Do not add a second `GeometryReader` inside the overlay to remeasure the canvas.

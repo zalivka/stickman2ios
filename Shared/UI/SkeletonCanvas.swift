@@ -227,6 +227,9 @@ struct SkeletonCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             let _ = layerEpoch
+            // One size for draw, hit-test, and pinch. The Canvas reports its own
+            // size, which on iPad differs from the reader by safe-area insets,
+            // so the canvas is pinned to the reader box instead.
             Canvas { context, size in
                 let layout = resolvedLayout(size: size)
                 switch mode {
@@ -276,6 +279,7 @@ struct SkeletonCanvas: View {
                     }
                 }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
             .overlay {
                 if mode == .editor || mode == .skeleton {
                     SkeletonTouchOverlay(
@@ -740,13 +744,21 @@ struct SkeletonCanvas: View {
         if let posterLayout {
             return posterLayout
         }
-        if let layout, layoutSize == size {
+        if let layout, sizesMatch(layoutSize, size) {
             return layout
         }
         return SkeletonLayout.fit(sceneWidth: sceneWidth, sceneHeight: sceneHeight, in: size)
     }
 
+    /// Sub-point differences show up on iPad between the reader and the canvas.
+    private func sizesMatch(_ a: CGSize, _ b: CGSize) -> Bool {
+        abs(a.width - b.width) < 1 && abs(a.height - b.height) < 1
+    }
+
     private func freezeLayout(in size: CGSize) {
+        if size.width < 1 || size.height < 1 {
+            return
+        }
         let fit = SkeletonLayout.fit(sceneWidth: sceneWidth, sceneHeight: sceneHeight, in: size)
         layout = fit
         editSession?.layout = fit
