@@ -79,7 +79,7 @@ enum SceneLoader {
         let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }
         let assets = UnitAssets()
         for item in items {
-            assets.loadItemFromArchive(try ZipStore.dataThrowing(named: item, in: zip), entryName: item)
+            try assets.loadItemFromArchive(try ZipStore.dataThrowing(named: item, in: zip), entryName: item)
         }
         try ensureAssets(scene: scene, assets: assets, resource: resource)
         let backgrounds = loadBackgrounds(scene: &scene, zip: zip, names: names, resource: resource)
@@ -247,7 +247,7 @@ enum SceneLoader {
                     continue
                 }
                 let zip = try Manifest.shared.itemZip(fullname: name)
-                assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: name))
+                try assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: name))
                 if unit.unitType == .bubble {
                     continue
                 }

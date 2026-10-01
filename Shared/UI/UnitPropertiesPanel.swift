@@ -90,12 +90,16 @@ struct UnitPropertiesPanel: View {
                     .padding(.top, 8)
 
                 Button(action: onDeselect) {
-                    Image(decorative: thumb, scale: 1)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(4)
-                        .frame(width: 56, height: 56)
-                        .background(.white)
+                    Group {
+                        if let thumb {
+                            Image(decorative: thumb, scale: 1)
+                                .resizable()
+                                .scaledToFit()
+                        }
+                    }
+                    .padding(4)
+                    .frame(width: 56, height: 56)
+                    .background(.white)
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 2)
@@ -275,9 +279,11 @@ struct UnitPropertiesPanel: View {
         return unit.name
     }
 
-    private var thumb: CGImage {
+    private var thumb: CGImage? {
         let stored = assets.archive(for: unit.name)
-        return ItemLoader.thumb(from: stored.zip, name: unit.name)
+        return ThumbCache.imageIfPresent("props:" + unit.name) {
+            try ItemLoader.thumb(from: stored.zip, name: unit.name)
+        }
     }
 
     private func actionButton(

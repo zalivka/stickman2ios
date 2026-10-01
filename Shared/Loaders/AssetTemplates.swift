@@ -35,14 +35,15 @@ enum AssetTemplates {
         return templates
     }
 
-    static func poster(fullname: String) -> Data {
-        let zip = Manifest.shared.itemZipOrCrash(fullname: fullname)
-        if ZipStore.contains("poster.png", in: zip) {
-            return ZipStore.data(named: "poster.png", in: zip)
+    static func poster(fullname: String) throws -> Data {
+        let zip = try Manifest.shared.itemZip(fullname: fullname)
+        let names = try ZipStore.namesThrowing(in: zip)
+        if names.contains("poster.png") {
+            return try ZipStore.dataThrowing(named: "poster.png", in: zip)
         }
-        if ZipStore.contains("thumb.png", in: zip) {
-            return ZipStore.data(named: "thumb.png", in: zip)
+        if names.contains("thumb.png") {
+            return try ZipStore.dataThrowing(named: "thumb.png", in: zip)
         }
-        fatalError("AssetTemplates '\(fullname)' missing poster.png and thumb.png")
+        throw ItemLoadError("AssetTemplates '\(fullname)' missing poster.png and thumb.png")
     }
 }

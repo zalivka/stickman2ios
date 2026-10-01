@@ -303,10 +303,24 @@ nonisolated final class Manifest: @unchecked Sendable {
     }
 
     private func customScale(zip: Data) -> CGFloat {
-        if !ZipStore.contains("meta.txt", in: zip) {
+        let names: [String]
+        let data: Data
+        do {
+            names = try ZipStore.namesThrowing(in: zip)
+            if !names.contains("meta.txt") {
+                return 1
+            }
+            data = try ZipStore.dataThrowing(named: "meta.txt", in: zip)
+        } catch {
+            if ZipStore.isArchive(zip) {
+                let message = ItemLoadError.text(error)
+                DispatchQueue.main.async {
+                    ToastCenter.show(message)
+                }
+            }
             return 1
         }
-        guard let object = try? JSONSerialization.jsonObject(with: ZipStore.data(named: "meta.txt", in: zip)) as? [String: Any],
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let number = object["scale"] as? NSNumber
         else {
             return 1

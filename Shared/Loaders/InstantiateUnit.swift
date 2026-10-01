@@ -7,20 +7,20 @@ enum InstantiateUnit {
         into scene: inout StickmanScene,
         assets: UnitAssets,
         frameIndices: [Int]
-    ) -> String {
+    ) throws -> String {
         if frameIndices.isEmpty {
             fatalError("InstantiateUnit no target frames")
         }
-        let zip = Manifest.shared.itemZipOrCrash(fullname: item.makeFullName())
-        assets.loadItemFromArchive(
+        let zip = try Manifest.shared.itemZip(fullname: item.makeFullName())
+        try assets.loadItemFromArchive(
             zip,
             entryName: UnitAssets.atiEntryName(packName: item.packName, systemName: item.systemName),
             forceReload: false
         )
-        let model = ItemLoader.load(zip: zip, into: assets)
+        let model = try ItemLoader.load(zip: zip, into: assets)
         var scale = item.scale
-        if ZipStore.contains("meta.txt", in: zip) {
-            let atiScale = ItemMeta.scale(from: ZipStore.data(named: "meta.txt", in: zip))
+        if try ZipStore.namesThrowing(in: zip).contains("meta.txt") {
+            let atiScale = try ItemMeta.scale(from: try ZipStore.dataThrowing(named: "meta.txt", in: zip))
             if atiScale > 0.01 {
                 scale = atiScale
             }

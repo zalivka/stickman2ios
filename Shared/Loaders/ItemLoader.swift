@@ -2,73 +2,97 @@ import Compression
 import CoreGraphics
 import Foundation
 
+struct ItemLoadError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+    init(_ message: String) { self.message = message }
+
+    static func text(_ error: Error) -> String {
+        if let item = error as? ItemLoadError { return item.message }
+        if let missing = error as? MissingManifestItem { return missing.message }
+        if let scene = error as? SceneLoadError { return scene.message }
+        if let zip = error as? ZipError { return zip.message }
+        let text = String(describing: error)
+        if text.isEmpty { return "Item load failed" }
+        return text
+    }
+}
+
 enum ItemLoader {
-    static func archive(resource: String, subdirectory: String) -> Data {
-        archive(resource: resource, subdirectory: subdirectory, ext: "ati")
+    static func archive(resource: String, subdirectory: String) throws -> Data {
+        try archive(resource: resource, subdirectory: subdirectory, ext: "ati")
     }
 
-    static func archive(resource: String, subdirectory: String, ext: String) -> Data {
+    static func archive(resource: String, subdirectory: String, ext: String) throws -> Data {
         guard let url = Bundle.main.url(forResource: resource, withExtension: ext, subdirectory: subdirectory)
             ?? Bundle.main.url(forResource: resource, withExtension: ext)
         else {
-            fatalError("ItemLoader missing \(subdirectory)/\(resource).\(ext) (and bundle-root \(resource).\(ext))")
+            throw ItemLoadError("ItemLoader missing \(subdirectory)/\(resource).\(ext) (and bundle-root \(resource).\(ext))")
         }
         do {
             return try Data(contentsOf: url)
         } catch {
-            fatalError("ItemLoader could not read \(url.path): \(error)")
+            throw ItemLoadError("ItemLoader could not read \(url.path): \(error)")
         }
     }
 
-    static func unit(from zip: Data) -> StickmanUnit {
-        var unit = ModelXML.parse(ZipStore.data(named: "model.xml", in: zip))
+    static func unit(from zip: Data) throws -> StickmanUnit {
+        let data = try ZipStore.dataThrowing(named: "model.xml", in: zip)
+        var unit = try ModelXML.parse(data)
         do {
             try unit.link()
         } catch {
-            fatalError("\(error)")
+            throw ItemLoadError(ItemLoadError.text(error))
         }
         return unit
     }
 
-    static func unit(resource: String, subdirectory: String) -> StickmanUnit {
-        unit(from: archive(resource: resource, subdirectory: subdirectory))
+    static func unit(resource: String, subdirectory: String) throws -> StickmanUnit {
+        try unit(from: archive(resource: resource, subdirectory: subdirectory))
     }
 
-    static func load(resource: String, subdirectory: String) -> (StickmanUnit, UnitAssets, CGFloat) {
-        let zip = archive(resource: resource, subdirectory: subdirectory)
+    static func load(resource: String, subdirectory: String) throws -> (StickmanUnit, UnitAssets, CGFloat) {
+        let zip = try archive(resource: resource, subdirectory: subdirectory)
         let assets = UnitAssets()
-        let unit = load(zip: zip, into: assets)
-        return (unit, assets, ItemMeta.scale(from: ZipStore.data(named: "meta.txt", in: zip)))
+        let unit = try load(zip: zip, into: assets)
+        let scale = try ItemMeta.scale(from: try ZipStore.dataThrowing(named: "meta.txt", in: zip))
+        return (unit, assets, scale)
     }
 
-    static func load(zip: Data, into assets: UnitAssets) -> StickmanUnit {
-        let unit = unit(from: zip)
-        assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: unit.name), forceReload: false)
+    static func load(zip: Data, into assets: UnitAssets) throws -> StickmanUnit {
+        let unit = try unit(from: zip)
+        try assets.loadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: unit.name), forceReload: false)
         if unit.unitType == .bubble {
             if unit.bubble == nil {
-                fatalError("ItemLoader '\(unit.name)' bubble missing meta")
+                throw ItemLoadError("ItemLoader '\(unit.name)' bubble missing meta")
             }
             return unit
         }
         let own = UnitAssets.removeNumber(unit.name)
         if !assets.hasAssetsFor(unitName: own) {
-            fatalError("ItemLoader assets missing unit '\(unit.name)'")
+            throw ItemLoadError("ItemLoader assets missing unit '\(unit.name)'")
         }
         return unit
     }
 
-    static func thumb(from zip: Data, name: String) -> CGImage {
-        if !ZipStore.contains("thumb.png", in: zip) {
-            fatalError("ItemLoader '\(name)' missing thumb.png")
-        }
-        return PNGImage.cgImage(from: ZipStore.data(named: "thumb.png", in: zip), name: "\(name)/thumb.png")
+    static func thumb(from zip: Data, name: String) throws -> CGImage {
+        let data = try ZipStore.dataThrowing(named: "thumb.png", in: zip)
+        return try PNGImage.loaded(from: data, name: "\(name)/thumb.png")
     }
 }
 
 enum PNGImage {
     static func cgImage(from data: Data, name: String) -> CGImage {
+        do {
+            return try loaded(from: data, name: name)
+        } catch {
+            fatalError(ItemLoadError.text(error))
+        }
+    }
+
+    static func loaded(from data: Data, name: String) throws -> CGImage {
         guard let provider = CGDataProvider(data: data as CFData) else {
-            fatalError("PNGImage '\(name)' has no data provider")
+            throw ItemLoadError("PNGImage '\(name)' has no data provider")
         }
         guard let image = CGImage(
             pngDataProviderSource: provider,
@@ -76,23 +100,23 @@ enum PNGImage {
             shouldInterpolate: true,
             intent: .defaultIntent
         ) else {
-            fatalError("PNGImage '\(name)' is not a PNG")
+            throw ItemLoadError("PNGImage '\(name)' is not a PNG")
         }
         return image
     }
 }
 
 enum ItemMeta {
-    static func scale(from data: Data) -> CGFloat {
+    static func scale(from data: Data) throws -> CGFloat {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            fatalError("ItemLoader meta.txt is not JSON")
+            throw ItemLoadError("ItemLoader meta.txt is not JSON")
         }
         guard let number = object["scale"] as? NSNumber else {
-            fatalError("ItemLoader meta.txt missing scale")
+            throw ItemLoadError("ItemLoader meta.txt missing scale")
         }
         let scale = CGFloat(truncating: number)
         if scale <= 0 {
-            fatalError("ItemLoader meta.txt scale is \(scale)")
+            throw ItemLoadError("ItemLoader meta.txt scale is \(scale)")
         }
         return scale
     }
@@ -133,6 +157,11 @@ nonisolated enum ZipStore {
         } catch {
             fatalError("\(error)")
         }
+    }
+
+    /// False when the bytes have no zip end-of-central-directory record.
+    static func isArchive(_ data: Data) -> Bool {
+        (try? eocdOffset(in: data)) != nil
     }
 
     static func namesThrowing(in zip: Data) throws -> [String] {
@@ -433,19 +462,23 @@ nonisolated private enum CRC32 {
 }
 
 enum ModelXML {
-    static func parse(_ data: Data) -> StickmanUnit {
+    static func parse(_ data: Data) throws -> StickmanUnit {
         let parser = XMLParser(data: data)
         let sink = Sink()
         parser.delegate = sink
-        if !parser.parse() {
+        let ok = parser.parse()
+        if let message = sink.failure {
+            throw ItemLoadError(message)
+        }
+        if !ok {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
-            fatalError("ItemLoader model.xml parse failed: \(detail)")
+            throw ItemLoadError("ItemLoader model.xml parse failed: \(detail)")
         }
         guard let name = sink.unitName, !sink.points.isEmpty else {
-            fatalError("ItemLoader model.xml has no unit name or points")
+            throw ItemLoadError("ItemLoader model.xml has no unit name or points")
         }
         if sink.unitType == .bubble, sink.bubble == nil {
-            fatalError("ItemLoader unit '\(name)' bubble missing meta")
+            throw ItemLoadError("ItemLoader unit '\(name)' bubble missing meta")
         }
         return StickmanUnit(
             name: name,
@@ -523,6 +556,7 @@ enum ModelXML {
         var unitType: StickmanUnitType = .unit
         var bubble: BubbleMeta?
         var points: [StickmanPoint] = []
+        var failure: String?
 
         func parser(
             _ parser: XMLParser,
@@ -531,6 +565,7 @@ enum ModelXML {
             qualifiedName qName: String?,
             attributes: [String: String] = [:]
         ) {
+            if failure != nil { return }
             if elementName == "unit" {
                 let name = attributes["name"].map(PackAlias.resolveUnitName)
                 unitName = name
@@ -540,32 +575,36 @@ enum ModelXML {
                     bubble = nil
                 case "bubble":
                     guard let resolved = name, !resolved.isEmpty else {
-                        fatalError("ItemLoader bubble unit missing name")
+                        fail(parser, "ItemLoader bubble unit missing name")
+                        return
                     }
                     unitType = .bubble
                     if let meta = attributes["meta"], !meta.isEmpty {
                         do {
                             bubble = try BubbleMeta.parse(encoded: meta, unitName: resolved)
                         } catch {
-                            fatalError("\(error)")
+                            fail(parser, ItemLoadError.text(error))
                         }
                     } else {
                         bubble = .defaults
                     }
                 case let other?:
-                    fatalError("ItemLoader unit '\(name ?? "")' unknown type '\(other)'")
+                    fail(parser, "ItemLoader unit '\(name ?? "")' unknown type '\(other)'")
                 }
                 return
             }
             if elementName != "point" { return }
             guard let idText = attributes["id"], let id = Int(idText) else {
-                fatalError("ItemLoader point missing id")
+                fail(parser, "ItemLoader point missing id")
+                return
             }
             guard let xText = attributes["x"], let x = Double(xText) else {
-                fatalError("ItemLoader point \(id) missing x")
+                fail(parser, "ItemLoader point \(id) missing x")
+                return
             }
             guard let yText = attributes["y"], let y = Double(yText) else {
-                fatalError("ItemLoader point \(id) missing y")
+                fail(parser, "ItemLoader point \(id) missing y")
+                return
             }
             let isBase = attributes["base"] == "true"
             let parentId: Int?
@@ -573,7 +612,8 @@ enum ModelXML {
                 parentId = nil
             } else {
                 guard let parText = attributes["par"], let par = Int(parText) else {
-                    fatalError("ItemLoader point \(id) missing par")
+                    fail(parser, "ItemLoader point \(id) missing par")
+                    return
                 }
                 parentId = par
             }
@@ -582,7 +622,9 @@ enum ModelXML {
             case nil: attachable = .none
             case "master": attachable = .master
             case "slave": attachable = .slave
-            default: fatalError("ItemLoader point \(id) attachable '\(attributes["attachable"]!)'")
+            default:
+                fail(parser, "ItemLoader point \(id) attachable '\(attributes["attachable"]!)'")
+                return
             }
             points.append(
                 StickmanPoint(
@@ -600,6 +642,13 @@ enum ModelXML {
                     kinematicStop: attributes["kinstop"] == "true"
                 )
             )
+        }
+
+        private func fail(_ parser: XMLParser, _ message: String) {
+            if failure == nil {
+                failure = message
+            }
+            parser.abortParsing()
         }
     }
 }

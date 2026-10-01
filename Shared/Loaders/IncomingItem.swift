@@ -1,12 +1,22 @@
 import Foundation
 
 enum IncomingItem {
-    enum Failure: Error {
+    enum Failure: Error, CustomStringConvertible {
         case notAnItem
         case foreignPack
         case illegalName
         case readFailed(Error)
         case writeFailed(Error)
+
+        var description: String {
+            switch self {
+            case .notAnItem: return "Not an item"
+            case .foreignPack: return "Item pack is not custom"
+            case .illegalName: return "Illegal item name"
+            case .readFailed(let error): return "Could not read item: \(error)"
+            case .writeFailed(let error): return "Could not save item: \(error)"
+            }
+        }
     }
 
     static func importURL(_ url: URL) async throws {
@@ -22,13 +32,13 @@ enum IncomingItem {
         } catch {
             throw Failure.readFailed(error)
         }
-        if !isItem(zip) {
+        if try isItem(zip) == false {
             throw Failure.notAnItem
         }
-        if rejectsForeignPack(zip) {
+        if try rejectsForeignPack(zip) {
             throw Failure.foreignPack
         }
-        let name = incomingName(from: zip, fileURL: url)
+        let name = try incomingName(from: zip, fileURL: url)
         if !SceneSaver.isGoodFileName(name) {
             throw Failure.illegalName
         }
@@ -57,11 +67,12 @@ enum IncomingItem {
     }
 
     /// Android `EntryActivity.getType` ITEM: a `.name` tag, `assets.xml`, or an `svg` entry.
-    private static func isItem(_ zip: Data) -> Bool {
-        if ZipStore.contains("assets.xml", in: zip) {
+    private static func isItem(_ zip: Data) throws -> Bool {
+        let names = try ZipStore.namesThrowing(in: zip)
+        if names.contains("assets.xml") {
             return true
         }
-        for name in ZipStore.names(in: zip) {
+        for name in names {
             let base = (name as NSString).lastPathComponent
             if base.hasSuffix(".name"), base != ".name" {
                 return true
@@ -74,11 +85,12 @@ enum IncomingItem {
     }
 
     /// Android `ProcessItemTask`: a `meta.txt` pack other than `@` is not a custom item.
-    private static func rejectsForeignPack(_ zip: Data) -> Bool {
-        if !ZipStore.contains("meta.txt", in: zip) {
+    private static func rejectsForeignPack(_ zip: Data) throws -> Bool {
+        let names = try ZipStore.namesThrowing(in: zip)
+        if !names.contains("meta.txt") {
             return false
         }
-        let data = ZipStore.data(named: "meta.txt", in: zip)
+        let data = try ZipStore.dataThrowing(named: "meta.txt", in: zip)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let pack = object["pack"] as? String
         else {
@@ -88,8 +100,8 @@ enum IncomingItem {
     }
 
     /// Android `EntryActivity.getName`: stem of the first `*.name` entry, else the filename stem.
-    private static func incomingName(from zip: Data, fileURL: URL) -> String {
-        if let entry = ZipStore.names(in: zip).first(where: { name in
+    private static func incomingName(from zip: Data, fileURL: URL) throws -> String {
+        if let entry = try ZipStore.namesThrowing(in: zip).first(where: { name in
             let base = (name as NSString).lastPathComponent
             return base.hasSuffix(".name") && base != ".name"
         }) {

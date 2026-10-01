@@ -13,7 +13,15 @@ struct TemplatePosterProvider: ImageDataProvider {
     func data(handler: @escaping @Sendable (Result<Data, any Error>) -> Void) {
         let fullName = fullName
         DispatchQueue.global(qos: .userInitiated).async {
-            handler(.success(AssetTemplates.poster(fullname: fullName)))
+            do {
+                handler(.success(try AssetTemplates.poster(fullname: fullName)))
+            } catch {
+                let message = ItemLoadError.text(error)
+                DispatchQueue.main.async {
+                    ToastCenter.show(message)
+                }
+                handler(.failure(error))
+            }
         }
     }
 }

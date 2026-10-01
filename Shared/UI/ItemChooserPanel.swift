@@ -109,11 +109,15 @@ struct ItemChooserPanel: View {
                         onPick(item)
                     } label: {
                         HStack(spacing: 8) {
-                            Image(decorative: itemThumb(item), scale: UIScreen.main.scale)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 50, height: 50)
-                                .background(Color.white)
+                            Group {
+                                if let thumb = itemThumb(item) {
+                                    Image(decorative: thumb, scale: UIScreen.main.scale)
+                                        .resizable()
+                                        .scaledToFit()
+                                }
+                            }
+                            .frame(width: 50, height: 50)
+                            .background(Color.white)
                             Text(item.humanName)
                                 .font(.system(size: 14))
                                 .foregroundStyle(.white)
@@ -191,11 +195,11 @@ struct ItemChooserPanel: View {
         }
     }
 
-    private func itemThumb(_ item: Item) -> CGImage {
+    private func itemThumb(_ item: Item) -> CGImage? {
         let fullName = item.makeFullName()
-        return ThumbCache.image("chooser:" + fullName) {
-            let zip = Manifest.shared.itemZipOrCrash(fullname: fullName)
-            return ItemLoader.thumb(from: zip, name: fullName)
+        return ThumbCache.imageIfPresent("chooser:" + fullName) {
+            let zip = try Manifest.shared.itemZip(fullname: fullName)
+            return try ItemLoader.thumb(from: zip, name: fullName)
         }
     }
 

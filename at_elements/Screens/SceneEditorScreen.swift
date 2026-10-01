@@ -1329,12 +1329,16 @@ struct SceneEditorScreen: View {
 
     private func insert(_ item: Item) {
         prepareSelectionUndo()
-        selectedUnitName = InstantiateUnit.insert(
-            item: item,
-            into: &scene,
-            assets: assets,
-            frameIndices: insertFrames
-        )
+        do {
+            selectedUnitName = try InstantiateUnit.insert(
+                item: item,
+                into: &scene,
+                assets: assets,
+                frameIndices: insertFrames
+            )
+        } catch {
+            showToast(ItemLoadError.text(error))
+        }
     }
 
     private var insertFrames: [Int] {
@@ -1778,10 +1782,8 @@ struct DemoSceneScreen: View {
                 DispatchQueue.main.async {
                     loaded = built
                 }
-            } catch let missing as MissingManifestItem {
-                failSceneLoad(missing.message)
             } catch {
-                failSceneLoad(String(describing: error))
+                failSceneLoad(ItemLoadError.text(error))
             }
         }
     }

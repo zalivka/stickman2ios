@@ -92,25 +92,27 @@ final class UnitAssets {
         archives[Self.removeNumber(unitName)] != nil
     }
 
-    func loadItemFromArchive(_ zip: Data, entryName: String, forceReload: Bool = true) {
+    func loadItemFromArchive(_ zip: Data, entryName: String, forceReload: Bool = true) throws {
         if entryName.isEmpty {
-            fatalError("UnitAssets empty archive entry name")
+            throw ItemLoadError("UnitAssets empty archive entry name")
         }
-        let model = ModelXML.parse(ZipStore.data(named: "model.xml", in: zip))
+        let model = try ModelXML.parse(try ZipStore.dataThrowing(named: "model.xml", in: zip))
         let key = Self.removeNumber(model.name)
-        if archives[key] == nil {
-            archives[key] = StoredArchive(entryName: entryName, zip: zip)
-        }
         if !forceReload && hasAssetsFor(unitName: model.name) {
+            if archives[key] == nil {
+                archives[key] = StoredArchive(entryName: entryName, zip: zip)
+            }
             return
         }
         if model.unitType == .bubble {
+            archives[key] = StoredArchive(entryName: entryName, zip: zip)
             captureRest(from: model)
             return
         }
-        let xml = ZipStore.data(named: "assets.xml", in: zip)
-        let parsed = AssetsXML.parse(xml)
-        install(parsed, zip: zip)
+        let xml = try ZipStore.dataThrowing(named: "assets.xml", in: zip)
+        let parsed = try AssetsXML.parse(xml)
+        try install(parsed, zip: zip)
+        archives[key] = StoredArchive(entryName: entryName, zip: zip)
         captureRest(from: model)
     }
 
@@ -811,12 +813,13 @@ final class UnitAssets {
         return image
     }
 
-    private func install(_ rows: [EdgeAssetRow], zip: Data) {
-        let names = Set(ZipStore.names(in: zip))
+    private func install(_ rows: [EdgeAssetRow], zip: Data) throws {
+        let names = Set(try ZipStore.namesThrowing(in: zip))
         var bitmaps: [String: CGImage] = [:]
-        func bitmap(named name: String) -> CGImage {
+        func bitmap(named name: String) throws -> CGImage {
             if let cached = bitmaps[name] { return cached }
-            let image = PNG.image(from: ZipStore.data(named: name, in: zip), name: name)
+            let data = try ZipStore.dataThrowing(named: name, in: zip)
+            let image = try PNG.loaded(from: data, name: name)
             bitmaps[name] = image
             return image
         }
@@ -837,7 +840,7 @@ final class UnitAssets {
                     state: row.state,
                     nativeFlipped: row.nativeFlipped,
                     bmName: row.bmName,
-                    bitmap: bitmap(named: row.bmName),
+                    bitmap: try bitmap(named: row.bmName),
                     paintBuffer: nil,
                     svgName: row.svgName,
                     commandScale: row.commandScale
@@ -845,7 +848,7 @@ final class UnitAssets {
             )
         }
         if assets.isEmpty {
-            fatalError("UnitAssets zip has no packed bitmaps for \(rows.map(\.bmName))")
+            throw ItemLoadError("UnitAssets zip has no packed bitmaps for \(rows.map(\.bmName))")
         }
 
         for asset in assets {
@@ -909,13 +912,19 @@ final class UnitAssets {
     /// missing manifest, malformed JSON, replaced picture, bad size — drops the buffer with a log,
     /// never a crash. The picture itself always loads.
     private func attachSidecars(zip: Data) {
-        let names = Set(ZipStore.names(in: zip))
+        let names: Set<String>
+        do {
+            names = Set(try ZipStore.namesThrowing(in: zip))
+        } catch {
+            print("UnitAssets sidecars ignored: \(error)")
+            return
+        }
         guard names.contains(Self.sidecarManifest) else { return }
         let manifest: BonePaperManifest
         do {
             manifest = try JSONDecoder().decode(
                 BonePaperManifest.self,
-                from: ZipStore.data(named: Self.sidecarManifest, in: zip)
+                from: try ZipStore.dataThrowing(named: Self.sidecarManifest, in: zip)
             )
         } catch {
             print("UnitAssets \(Self.sidecarManifest) ignored: \(error)")
@@ -958,12 +967,19 @@ final class UnitAssets {
             print("UnitAssets '\(asset.bmName)' picture missing beside its sidecar")
             return nil
         }
-        let png = ZipStore.data(named: asset.bmName, in: zip)
+        let png: Data
+        let data: Data
+        do {
+            png = try ZipStore.dataThrowing(named: asset.bmName, in: zip)
+            data = try ZipStore.dataThrowing(named: record.entry, in: zip)
+        } catch {
+            print("UnitAssets '\(asset.bmName)' sidecar ignored: \(error)")
+            return nil
+        }
         if sha256Hex(png) != record.sha256 {
             print("UnitAssets '\(asset.bmName)' sidecar stale, picture changed")
             return nil
         }
-        let data = ZipStore.data(named: record.entry, in: zip)
         guard let image = PNG.decodedImage(from: data) else {
             print("UnitAssets '\(asset.bmName)' sidecar is not a PNG")
             return nil
@@ -1051,8 +1067,16 @@ private enum PNG {
     }
 
     static func image(from data: Data, name: String) -> CGImage {
+        do {
+            return try loaded(from: data, name: name)
+        } catch {
+            fatalError(ItemLoadError.text(error))
+        }
+    }
+
+    static func loaded(from data: Data, name: String) throws -> CGImage {
         guard let provider = CGDataProvider(data: data as CFData) else {
-            fatalError("UnitAssets '\(name)' has no data provider")
+            throw ItemLoadError("UnitAssets '\(name)' has no data provider")
         }
         guard let image = CGImage(
             pngDataProviderSource: provider,
@@ -1060,20 +1084,20 @@ private enum PNG {
             shouldInterpolate: true,
             intent: .defaultIntent
         ) else {
-            fatalError("UnitAssets '\(name)' is not a PNG")
+            throw ItemLoadError("UnitAssets '\(name)' is not a PNG")
         }
         if DevFlags.decodedBoneBitmaps {
-            return decodedBitmap(image, name: name)
+            return try decodedBitmap(image, name: name)
         }
         return image
     }
 
     /// Copy PNG pixels into a plain bitmap so later draws do not inflate the file again.
-    private static func decodedBitmap(_ source: CGImage, name: String) -> CGImage {
+    private static func decodedBitmap(_ source: CGImage, name: String) throws -> CGImage {
         let width = source.width
         let height = source.height
         if width < 1 || height < 1 {
-            fatalError("UnitAssets '\(name)' decoded size \(width)x\(height)")
+            throw ItemLoadError("UnitAssets '\(name)' decoded size \(width)x\(height)")
         }
         guard let context = CGContext(
             data: nil,
@@ -1084,11 +1108,11 @@ private enum PNG {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
-            fatalError("UnitAssets '\(name)' could not allocate \(width)x\(height)")
+            throw ItemLoadError("UnitAssets '\(name)' could not allocate \(width)x\(height)")
         }
         context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let image = context.makeImage() else {
-            fatalError("UnitAssets '\(name)' decoded bitmap failed")
+            throw ItemLoadError("UnitAssets '\(name)' decoded bitmap failed")
         }
         return image
     }
@@ -1141,16 +1165,20 @@ enum AssetsXML {
         return XMLWrite.data(xml)
     }
 
-    static func parse(_ data: Data) -> [EdgeAssetRow] {
+    static func parse(_ data: Data) throws -> [EdgeAssetRow] {
         let parser = XMLParser(data: data)
         let sink = Sink()
         parser.delegate = sink
-        if !parser.parse() {
+        let ok = parser.parse()
+        if let message = sink.failure {
+            throw ItemLoadError(message)
+        }
+        if !ok {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
-            fatalError("UnitAssets assets.xml parse failed: \(detail)")
+            throw ItemLoadError("UnitAssets assets.xml parse failed: \(detail)")
         }
         if sink.assets.isEmpty {
-            fatalError("UnitAssets assets.xml has no edgeAsset rows")
+            throw ItemLoadError("UnitAssets assets.xml has no edgeAsset rows")
         }
         return sink.assets
     }
@@ -1158,6 +1186,7 @@ enum AssetsXML {
     nonisolated private final class Sink: NSObject, XMLParserDelegate {
         var unitName: String?
         var assets: [EdgeAssetRow] = []
+        var failure: String?
 
         func parser(
             _ parser: XMLParser,
@@ -1166,28 +1195,35 @@ enum AssetsXML {
             qualifiedName qName: String?,
             attributes: [String: String] = [:]
         ) {
+            if failure != nil { return }
             if elementName == "unit" {
                 unitName = attributes["name"].map(PackAlias.resolveUnitName)
                 return
             }
             if elementName != "edgeAsset" { return }
             guard let name = unitName else {
-                fatalError("UnitAssets edgeAsset outside unit")
+                fail(parser, "UnitAssets edgeAsset outside unit")
+                return
             }
             guard let startText = attributes["start"], let start = Int(startText) else {
-                fatalError("UnitAssets edgeAsset missing start")
+                fail(parser, "UnitAssets edgeAsset missing start")
+                return
             }
             guard let endText = attributes["end"], let end = Int(endText) else {
-                fatalError("UnitAssets edgeAsset missing end")
+                fail(parser, "UnitAssets edgeAsset missing end")
+                return
             }
             guard let xText = attributes["x_offset"], let x = Double(xText) else {
-                fatalError("UnitAssets edgeAsset \(start)-\(end) missing x_offset")
+                fail(parser, "UnitAssets edgeAsset \(start)-\(end) missing x_offset")
+                return
             }
             guard let yText = attributes["y_offset"], let y = Double(yText) else {
-                fatalError("UnitAssets edgeAsset \(start)-\(end) missing y_offset")
+                fail(parser, "UnitAssets edgeAsset \(start)-\(end) missing y_offset")
+                return
             }
             guard let bm = attributes["bm"], !bm.isEmpty else {
-                fatalError("UnitAssets edgeAsset \(start)-\(end) missing bm")
+                fail(parser, "UnitAssets edgeAsset \(start)-\(end) missing bm")
+                return
             }
             assets.append(
                 EdgeAssetRow(
@@ -1204,6 +1240,13 @@ enum AssetsXML {
                     commandScale: attributes["command_scale"]
                 )
             )
+        }
+
+        private func fail(_ parser: XMLParser, _ message: String) {
+            if failure == nil {
+                failure = message
+            }
+            parser.abortParsing()
         }
     }
 }

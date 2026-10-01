@@ -30,10 +30,8 @@ final class SceneOpener: ObservableObject {
                     self?.opened = Loaded(scene: built.0, assets: built.1, backgrounds: built.2, tutorial: tutorial)
                     self?.loadingName = nil
                 }
-            } catch let missing as MissingManifestItem {
-                self?.fail(missing.message)
             } catch {
-                self?.fail(String(describing: error))
+                self?.fail(ItemLoadError.text(error))
             }
         }
     }

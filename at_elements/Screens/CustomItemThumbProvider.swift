@@ -1,10 +1,6 @@
 import Foundation
 import Kingfisher
 
-struct MissingThumb: Error {
-    var file: String
-}
-
 struct CustomItemThumbProvider: ImageDataProvider {
     let url: URL
     let cacheKey: String
@@ -19,12 +15,13 @@ struct CustomItemThumbProvider: ImageDataProvider {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let zip = try Data(contentsOf: url)
-                if !ZipStore.contains("thumb.png", in: zip) {
-                    handler(.failure(MissingThumb(file: url.lastPathComponent)))
-                    return
-                }
-                handler(.success(ZipStore.data(named: "thumb.png", in: zip)))
+                let thumb = try ZipStore.dataThrowing(named: "thumb.png", in: zip)
+                handler(.success(thumb))
             } catch {
+                let message = ItemLoadError.text(error)
+                DispatchQueue.main.async {
+                    ToastCenter.show(message)
+                }
                 handler(.failure(error))
             }
         }

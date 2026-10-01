@@ -113,7 +113,7 @@ private struct ManifestBootView: View {
                     showToast("error")
                 }
             } catch {
-                showToast("error")
+                showToast(ItemLoadError.text(error))
             }
         }
     }

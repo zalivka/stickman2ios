@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TerrenceScreen: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var loaded: (StickmanScene, UnitAssets)?
 
     var body: some View {
@@ -16,8 +17,6 @@ struct TerrenceScreen: View {
                         FullscreenBackButton()
                     }
                     .toolbar(.hidden, for: .navigationBar)
-                    .statusBarHidden(true)
-                    .persistentSystemOverlays(.hidden)
             }
         }
         .onAppear(perform: loadIfNeeded)
@@ -26,10 +25,18 @@ struct TerrenceScreen: View {
     private func loadIfNeeded() {
         if loaded != nil { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let item = ItemLoader.load(resource: "terrence", subdirectory: "testdata")
-            let built = ItemConstructor.scene(unit: item.0, scale: item.2, frameCount: 5)
-            DispatchQueue.main.async {
-                loaded = (built, item.1)
+            do {
+                let item = try ItemLoader.load(resource: "terrence", subdirectory: "testdata")
+                let built = ItemConstructor.scene(unit: item.0, scale: item.2, frameCount: 5)
+                DispatchQueue.main.async {
+                    loaded = (built, item.1)
+                }
+            } catch {
+                let message = ItemLoadError.text(error)
+                DispatchQueue.main.async {
+                    ToastCenter.show(message)
+                    dismiss()
+                }
             }
         }
     }

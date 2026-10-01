@@ -79,10 +79,12 @@ struct PresentUnitsPanel: View {
         let number = UnitName.number(unit.name)
         return ZStack(alignment: .bottomTrailing) {
             Color.white
-            Image(decorative: thumb(unit), scale: 1)
-                .resizable()
-                .scaledToFit()
-                .padding(2)
+            if let image = thumb(unit) {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(2)
+            }
             if number > 0 {
                 Text("\(number)")
                     .font(.system(size: 12, weight: .bold))
@@ -114,11 +116,11 @@ struct PresentUnitsPanel: View {
         }
     }()
 
-    private func thumb(_ unit: StickmanUnit) -> CGImage {
+    private func thumb(_ unit: StickmanUnit) -> CGImage? {
         let key = "scene:" + UnitAssets.removeNumber(unit.name)
-        return ThumbCache.image(key) {
+        return ThumbCache.imageIfPresent(key) {
             let stored = assets.archive(for: unit.name)
-            return ItemLoader.thumb(from: stored.zip, name: unit.name)
+            return try ItemLoader.thumb(from: stored.zip, name: unit.name)
         }
     }
 }

@@ -47,10 +47,29 @@ nonisolated enum CustomItems {
             if fileName.hasPrefix("~") {
                 return nil
             }
-            guard let zip = try? Data(contentsOf: url),
-                  ZipStore.contains("model.xml", in: zip),
-                  ZipStore.contains("thumb.png", in: zip)
-            else {
+            let zip: Data
+            do {
+                zip = try Data(contentsOf: url)
+            } catch {
+                DispatchQueue.main.async {
+                    ToastCenter.show("\(fileName): \(error)")
+                }
+                return nil
+            }
+            if !ZipStore.isArchive(zip) {
+                return nil
+            }
+            let names: [String]
+            do {
+                names = try ZipStore.namesThrowing(in: zip)
+            } catch {
+                let message = ItemLoadError.text(error)
+                DispatchQueue.main.async {
+                    ToastCenter.show("\(fileName): \(message)")
+                }
+                return nil
+            }
+            if !names.contains("model.xml") || !names.contains("thumb.png") {
                 return nil
             }
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
@@ -124,16 +143,16 @@ nonisolated enum CustomItems {
     }
 
     private static func displayName(zip: Data, fileName: String) -> String {
-        guard ZipStore.contains("meta.txt", in: zip) else {
+        guard let names = try? ZipStore.namesThrowing(in: zip), names.contains("meta.txt") else {
             return fileName
         }
-        let data = ZipStore.data(named: "meta.txt", in: zip)
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let name = object["name"] as? String,
-           !name.isEmpty
-        {
-            return name
+        guard let data = try? ZipStore.dataThrowing(named: "meta.txt", in: zip),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = object["name"] as? String,
+              !name.isEmpty
+        else {
+            return fileName
         }
-        return fileName
+        return name
     }
 }

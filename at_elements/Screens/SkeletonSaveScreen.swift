@@ -252,15 +252,16 @@ private struct SaveItemThumb: View {
     }
 
     nonisolated private static func load(_ url: URL) -> UIImage? {
-        let zip: Data
         do {
-            zip = try Data(contentsOf: url)
+            let zip = try Data(contentsOf: url)
+            let data = try ZipStore.dataThrowing(named: "thumb.png", in: zip)
+            return UIImage(data: data)
         } catch {
+            let message = ItemLoadError.text(error)
+            DispatchQueue.main.async {
+                ToastCenter.show(message)
+            }
             return nil
         }
-        if !ZipStore.contains("thumb.png", in: zip) {
-            return nil
-        }
-        return UIImage(data: ZipStore.data(named: "thumb.png", in: zip))
     }
 }

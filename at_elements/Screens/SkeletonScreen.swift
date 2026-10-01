@@ -766,11 +766,19 @@ struct SkeletonScreen: View {
         }
         let source = source
         DispatchQueue.global(qos: .userInitiated).async {
-            let built = Self.load(source)
-            DispatchQueue.main.async {
-                scene = built.scene
-                assets = built.assets
-                sourceZip = built.zip
+            do {
+                let built = try Self.load(source)
+                DispatchQueue.main.async {
+                    scene = built.scene
+                    assets = built.assets
+                    sourceZip = built.zip
+                }
+            } catch {
+                let message = ItemLoadError.text(error)
+                DispatchQueue.main.async {
+                    ToastCenter.show(message)
+                    dismiss()
+                }
             }
         }
     }
@@ -781,38 +789,39 @@ struct SkeletonScreen: View {
         var zip: Data?
     }
 
-    private static func load(_ source: Source) -> Loaded {
+    private static func load(_ source: Source) throws -> Loaded {
         switch source {
         case .custom(let item):
             let zip: Data
             do {
                 zip = try Data(contentsOf: item.url)
             } catch {
-                fatalError("SkeletonScreen could not read \(item.url.path): \(error)")
+                throw ItemLoadError("SkeletonScreen could not read \(item.url.path): \(error)")
             }
-            return build(zip: zip, defaultScale: 1)
+            return try build(zip: zip, defaultScale: 1)
         case .template(let template):
-            let zip = Manifest.shared.itemZipOrCrash(fullname: template.makeFullName())
-            return build(zip: zip, defaultScale: template.scale)
+            let zip = try Manifest.shared.itemZip(fullname: template.makeFullName())
+            return try build(zip: zip, defaultScale: template.scale)
         case .unit(let unit):
             return Loaded(scene: ItemConstructor.scene(unit: unit), assets: UnitAssets(), zip: nil)
         }
     }
 
-    private static func build(zip: Data, defaultScale: CGFloat) -> Loaded {
-        let unit = ItemLoader.unit(from: zip)
+    private static func build(zip: Data, defaultScale: CGFloat) throws -> Loaded {
+        let unit = try ItemLoader.unit(from: zip)
         let assets = UnitAssets()
         // A skeleton with no bone pictures yet is a valid state here, so assets.xml may be absent.
-        if ZipStore.contains("assets.xml", in: zip) {
-            assets.loadItemFromArchive(
+        let names = try ZipStore.namesThrowing(in: zip)
+        if names.contains("assets.xml") {
+            try assets.loadItemFromArchive(
                 zip,
                 entryName: UnitAssets.atiEntryName(for: unit.name),
                 forceReload: false
             )
         }
         var scale = defaultScale
-        if ZipStore.contains("meta.txt", in: zip) {
-            let atiScale = ItemMeta.scale(from: ZipStore.data(named: "meta.txt", in: zip))
+        if names.contains("meta.txt") {
+            let atiScale = try ItemMeta.scale(from: try ZipStore.dataThrowing(named: "meta.txt", in: zip))
             if atiScale > 0.01 {
                 scale = atiScale
             }
