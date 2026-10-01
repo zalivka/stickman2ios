@@ -32,8 +32,12 @@ struct MainPanel: View {
     var editUnitActivated = false
     var editFrameActivated = false
     var menuActivated = false
-    /// Tutorial play hint: every other control keeps its slot but is invisible and untappable.
+    /// Tutorial: every other control keeps its slot but is invisible and untappable.
     var onlyPlay = false
+    /// Hole for the play spotlight. Separate from `onlyPlay`, which is on for the whole tutorial.
+    var spotlightsPlay = false
+    /// Tutorial keeps Play invisible until the play step. The rail stays.
+    var showsPlay = true
 
     @State private var undoFlashToken = 0
     @State private var undoFlashing = false
@@ -65,7 +69,7 @@ struct MainPanel: View {
                 isPlay: true,
                 action: onPlay
             )
-            .tutorialHole(onlyPlay)
+            .tutorialHole(spotlightsPlay)
             if let onDraw {
                 chromeButton(
                     icon: Self.drawIcon,
@@ -184,7 +188,7 @@ struct MainPanel: View {
         isPlay: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        let hidden = onlyPlay && !isPlay
+        let hidden = (onlyPlay && !isPlay) || (isPlay && !showsPlay)
         return Button(action: action) {
             VStack(spacing: 4) {
                 Image(decorative: icon, scale: UIScreen.main.scale)

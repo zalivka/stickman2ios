@@ -5,7 +5,10 @@ struct FullscreenPreviewScreen: View {
     let source: StickmanScene
     let assets: UnitAssets
     var backgrounds: BackgroundAssets = BackgroundAssets()
+    /// Tutorial Play: the finished screen offers "Start editing" and "Replay".
+    var finishesTutorial = false
 
+    @Environment(\.dismiss) private var dismiss
     @State private var movie: StickmanScene?
     @State private var phase: Phase = .generating
     @State private var percent = 0
@@ -23,7 +26,11 @@ struct FullscreenPreviewScreen: View {
             if let movie {
                 canvas(movie)
                 if phase == .finished {
-                    ReplayOverlay(text: overlayText, onTap: tapOverlay)
+                    if finishesTutorial {
+                        TutorialFinishOverlay(onStart: { dismiss() }, onReplay: startPlaying)
+                    } else {
+                        ReplayOverlay(text: overlayText, onTap: tapOverlay)
+                    }
                 }
                 if phase != .generating {
                     HStack(spacing: 0) {
@@ -41,7 +48,8 @@ struct FullscreenPreviewScreen: View {
             }
         }
         .background(SkeletonCanvas.previewBackdrop)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(besideMainPanel: false)
         }
@@ -54,8 +62,6 @@ struct FullscreenPreviewScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .onAppear(perform: startGenerate)
         .onDisappear(perform: dismissGenerate)
         .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { _ in

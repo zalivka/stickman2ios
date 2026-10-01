@@ -27,6 +27,8 @@ struct SceneEditorScreen: View {
     @State private var mode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
+    /// True only for the preview opened from the tutorial Play hint.
+    @State private var previewFinishesTutorial = false
     @State private var showingCamera = false
     @State private var showingBackground = false
     @State private var showingSpeedEffects = false
@@ -107,24 +109,29 @@ struct SceneEditorScreen: View {
     }
 
     var body: some View {
+        editorReady
+    }
+
+    /// Split out of `body` so the type checker does not solve one expression for the whole screen.
+    private var editorStage: some View {
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
-                if showsMainPanel {
-                    MainPanel(
-                        onPlay: play,
-                        onInsert: toggleInsert,
-                        onEditUnit: toggleEditUnit,
-                        onEditFrame: toggleEditFrame,
-                        onUndo: performUndo,
-                        undoEnabled: undo.canUndo,
-                        onMenu: toggleMenu,
-                        insertActivated: showingInsert,
-                        editUnitActivated: showingEditUnit,
-                        editFrameActivated: showingEditFrame,
-                        menuActivated: showingMenu,
-                        onlyPlay: tutorialStep == .play
-                    )
-                }
+                MainPanel(
+                    onPlay: play,
+                    onInsert: toggleInsert,
+                    onEditUnit: toggleEditUnit,
+                    onEditFrame: toggleEditFrame,
+                    onUndo: performUndo,
+                    undoEnabled: undo.canUndo,
+                    onMenu: toggleMenu,
+                    insertActivated: showingInsert,
+                    editUnitActivated: showingEditUnit,
+                    editFrameActivated: showingEditFrame,
+                    menuActivated: showingMenu,
+                    onlyPlay: tutorialStep != nil,
+                    spotlightsPlay: tutorialStep == .play,
+                    showsPlay: tutorialStep == nil || tutorialStep == .play
+                )
                 SkeletonCanvas(
                     unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
                     frameUnits: scene.currentFrame.units,
@@ -232,6 +239,10 @@ struct SceneEditorScreen: View {
                     .transition(.move(edge: .leading))
             }
         }
+    }
+
+    private var editorChrome: some View {
+        editorStage
         .overlay(alignment: .trailing) {
             if tutorialStep != .move {
                 DualNavigationChrome(
@@ -261,9 +272,20 @@ struct SceneEditorScreen: View {
                 undo.commitEnteringRange(from: scene, indices: Array(range))
             }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .overlay(alignment: .top) {
-            if let chip = selectedUnitTweenSpan {
+            if tutorialStep == .move {
+                Text("Move me to start animating")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Self.moveChip)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .padding(.top, 16)
+                    .allowsHitTesting(false)
+            } else if let chip = selectedUnitTweenSpan {
                 HStack(spacing: 0) {
                     Button {
                         openTweenEasing(for: chip)
@@ -301,33 +323,39 @@ struct SceneEditorScreen: View {
         .overlayPreferenceValue(TutorialHoleKey.self) { anchor in
             tutorialSpotlight(anchor)
         }
-        .overlay(alignment: .topLeading) {
+        .overlay(alignment: .bottomLeading) {
             if tutorialStep != nil {
                 Button(action: skipTutorial) {
                     Text("Skip")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Self.tutorialSkipGray)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Self.tutorialSkipFill)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, (showsMainPanel ? MainPanel.width : 0) + 8)
-                .padding(.top, 8)
+                .padding(.leading, 12)
+                .padding(.bottom, 16)
             }
         }
         .onAppear {
             if !backgrounds.loadErrors.isEmpty {
                 showToast(backgrounds.loadErrors.joined(separator: "\n"), seconds: 3.5)
-            } else if tutorialStep == .move {
-                showToast("Move me to start animating", seconds: 3.5)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
+    }
+
+    private var editorCovers: some View {
+        editorChrome
         .fullScreenCover(isPresented: $showingPreview) {
-            FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
+            FullscreenPreviewScreen(
+                source: scene,
+                assets: assets,
+                backgrounds: backgrounds,
+                finishesTutorial: previewFinishesTutorial
+            )
         }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
@@ -439,6 +467,10 @@ struct SceneEditorScreen: View {
                 onApply: applyTweenEasing
             )
         }
+    }
+
+    private var editorReady: some View {
+        editorCovers
         .overlay(alignment: .bottom) {
             if videoExport.phase == .saving {
                 HStack(spacing: 12) {
@@ -534,15 +566,12 @@ struct SceneEditorScreen: View {
         }
     }
 
-    private var showsMainPanel: Bool {
-        tutorialStep == nil || tutorialStep == .play
-    }
-
     private func play() {
         if scene.frames.count < 2 {
             showToast("Add more frames")
             return
         }
+        previewFinishesTutorial = tutorialStep == .play
         if tutorialStep == .play {
             tutorialStep = nil
             UserDefaults.standard.set(true, forKey: Self.tutorialDoneKey)
@@ -590,12 +619,14 @@ struct SceneEditorScreen: View {
     private var tutorialHint: Text? {
         switch tutorialStep {
         case .nextFrame:
-            let title: Text = Text("Good to be alive!")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(Self.tutorialGreen)
-            return title + Text("\nTap the blue arrow to go to the next frame")
+            let title = Text("Good to be alive!")
+                .font(.system(size: 28, weight: .bold))
+            let detail = Text("\nTap the blue arrow to go to the next frame")
+                .font(.system(size: 22, weight: .semibold))
+            return title + detail
         case .play:
             return Text("Watch the cartoon")
+                .font(.system(size: 28, weight: .bold))
         case .move, .animate, nil:
             return nil
         }
@@ -611,10 +642,9 @@ struct SceneEditorScreen: View {
         }
     }
 
-    /// Android `tips_select_next_frame` title `#00ff31`.
-    private static let tutorialGreen = Color(red: 0, green: 1, blue: 0x31 / 255)
-    /// Android `boarding4_skip` text `#AAAAAA`.
-    private static let tutorialSkipGray = Color(white: 0xaa / 255)
+    /// `#8F40E9`
+    private static let moveChip = Color(red: 0x8F / 255, green: 0x40 / 255, blue: 0xE9 / 255)
+    private static let tutorialSkipFill = Color(white: 0.28)
 
     private func toggleMenu() {
         showingMenu.toggle()
@@ -1728,13 +1758,12 @@ struct DemoSceneScreen: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
-                    .ignoresSafeArea()
+                    .ignoresSafeArea(edges: [.horizontal, .bottom])
+                    .modifier(StatusBarClearance())
                     .overlay(alignment: .topLeading) {
                         FullscreenBackButton()
                     }
                     .toolbar(.hidden, for: .navigationBar)
-                    .statusBarHidden(true)
-                    .persistentSystemOverlays(.hidden)
             }
         }
         .onAppear(perform: loadIfNeeded)

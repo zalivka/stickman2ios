@@ -27,9 +27,8 @@ struct LandingScreen: View {
                 tabRail
             }
             .background(Self.pane.ignoresSafeArea())
+            .modifier(StatusBarClearance())
             .toolbar(.hidden, for: .navigationBar)
-            .statusBarHidden(true)
-            .persistentSystemOverlays(.hidden)
         }
     }
 
@@ -60,6 +59,25 @@ struct LandingScreen: View {
     static let rail = Color(red: 0x24 / 255, green: 0x25 / 255, blue: 0x30 / 255)
     static let tabSelected = Color.white.opacity(0.14)
     static let railWidth: CGFloat = 100
+}
+
+/// Hiding the navigation bar drops the top safe area on iPad, so the status bar covers the first row.
+/// Pad only when this view actually starts above the status bar, so a correct inset is not doubled.
+struct StatusBarClearance: ViewModifier {
+    func body(content: Content) -> some View {
+        GeometryReader { geo in
+            let gap = max(0, Self.statusBarHeight - geo.frame(in: .global).minY)
+            content
+                .padding(.top, gap)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+        }
+    }
+
+    private static var statusBarHeight: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.statusBarManager?.statusBarFrame.height ?? 0
+    }
 }
 
 private struct MakePane: View {

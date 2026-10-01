@@ -39,7 +39,6 @@ struct TutorialSpotlight: View {
                 .fill(Color.black.opacity(Self.dimAlpha), style: FillStyle(eoFill: true))
                 .opacity(dimShown ? 1 : 0)
             text
-                .font(.system(size: 18, weight: .light))
                 .foregroundStyle(Color.white)
                 .multilineTextAlignment(.center)
                 .padding(15)
