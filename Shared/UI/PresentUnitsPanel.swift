@@ -115,7 +115,10 @@ struct PresentUnitsPanel: View {
     }()
 
     private func thumb(_ unit: StickmanUnit) -> CGImage {
-        let stored = assets.archive(for: unit.name)
-        return ItemLoader.thumb(from: stored.zip, name: unit.name)
+        let key = "scene:" + UnitAssets.removeNumber(unit.name)
+        return ThumbCache.image(key) {
+            let stored = assets.archive(for: unit.name)
+            return ItemLoader.thumb(from: stored.zip, name: unit.name)
+        }
     }
 }

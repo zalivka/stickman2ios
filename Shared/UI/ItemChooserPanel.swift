@@ -186,12 +186,17 @@ struct ItemChooserPanel: View {
     }
 
     private func packLogo(_ packName: String) -> CGImage {
-        PNGImage.cgImage(from: Manifest.shared.packLogo(packName), name: "\(packName)/logo.png")
+        ThumbCache.image("logo:" + packName) {
+            PNGImage.cgImage(from: Manifest.shared.packLogo(packName), name: "\(packName)/logo.png")
+        }
     }
 
     private func itemThumb(_ item: Item) -> CGImage {
-        let zip = Manifest.shared.itemZipOrCrash(fullname: item.makeFullName())
-        return ItemLoader.thumb(from: zip, name: item.makeFullName())
+        let fullName = item.makeFullName()
+        return ThumbCache.image("chooser:" + fullName) {
+            let zip = Manifest.shared.itemZipOrCrash(fullname: fullName)
+            return ItemLoader.thumb(from: zip, name: fullName)
+        }
     }
 
     private enum Level {
