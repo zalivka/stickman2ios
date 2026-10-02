@@ -396,7 +396,7 @@ nonisolated final class Manifest: @unchecked Sendable {
         "zalivka.vio",
         "zalivka.space1",
     ]
-    private static let chooserHidden: Set<String> = ["irr.intro", "stickman", "christmas", "common"]
+    private static let chooserHidden: Set<String> = ["irr.intro", "stickman", "christmas", "common", "assorted.bgs"]
 
     private func packsMatching(_ query: Query) -> [Pack] {
         if query.isEmpty {
