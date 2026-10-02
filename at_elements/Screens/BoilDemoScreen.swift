@@ -62,8 +62,6 @@ struct BoilDemoScreen: View {
             FullscreenBackButton(besideMainPanel: false)
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
     }
 
     /// `boil` nil draws the still copy of every part. Otherwise every part uses that boil copy.

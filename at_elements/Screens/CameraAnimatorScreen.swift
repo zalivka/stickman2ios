@@ -108,7 +108,8 @@ struct CameraAnimatorScreen: View {
                 .padding(.top, 10)
             }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .overlay(alignment: .topLeading) {
             FullscreenBackButton()
         }
@@ -126,8 +127,6 @@ struct CameraAnimatorScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
         }

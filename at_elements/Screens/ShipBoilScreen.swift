@@ -32,8 +32,6 @@ struct ShipBoilScreen: View {
             FullscreenBackButton(besideMainPanel: false)
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
     }
 
     /// No copy twice in a row, including the wrap back to the first.

@@ -31,9 +31,8 @@ struct SkeletonPreviewScreen: View {
             SkeletonPreviewPanel(canvasPane: $canvasPane, onBack: { dismiss() })
         }
         .background(canvasPane)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
     }
 }

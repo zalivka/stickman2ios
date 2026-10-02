@@ -56,10 +56,9 @@ struct SpeedEffectsScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(SkeletonCanvas.previewBackdrop)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .onAppear(perform: open)
         .onDisappear(perform: dismissGenerate)
         .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { _ in

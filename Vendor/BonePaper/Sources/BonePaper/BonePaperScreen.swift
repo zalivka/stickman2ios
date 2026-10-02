@@ -218,8 +218,6 @@ public struct BonePaperScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .onAppear {
             if placement != nil {
                 withAnimation(.easeInOut(duration: BonePaperStageView.transitionDuration)) {

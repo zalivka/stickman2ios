@@ -181,7 +181,8 @@ struct SkeletonScreen: View {
         }
         .background(SkeletonCanvas.checkerLight)
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .accessibilityLabel(title)
         .onAppear(perform: loadIfNeeded)
         .fullScreenCover(isPresented: $showingPreview) {
@@ -238,8 +239,6 @@ struct SkeletonScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
     }
 
     private var galleryBones: [UnitAssets.GalleryBone] {

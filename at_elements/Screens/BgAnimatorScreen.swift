@@ -122,7 +122,8 @@ struct BgAnimatorScreen: View {
                     onNextAtEnd: { scene.addFrame() }
                 )
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .modifier(StatusBarClearance())
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(
                 extraLeading: BackgroundStrip.width(pictureMode: pictureStrip)
@@ -170,8 +171,6 @@ struct BgAnimatorScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
         }

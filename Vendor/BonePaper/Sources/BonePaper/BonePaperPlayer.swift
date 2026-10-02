@@ -41,8 +41,6 @@ public struct BonePaperPlayerScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .onAppear {
             player.attach()
             if !migrationToastShown, let from = player.migratedFrom {

@@ -33,7 +33,7 @@
 
 ## 6. UI / HIG (landscape-only iPhone+iPad)
 - [ ] 6.1 Small screens: `LandingScreen` rail 100pt, bias-positioned hex buttons — check SE width for clip/overlap.
-- [ ] 6.2 `statusBarHidden + persistentSystemOverlays(.hidden)`: verify Home indicator / swipe still reachable, no stuck fullscreen.
+- [x] 6.2 Done: dropped `statusBarHidden` + `persistentSystemOverlays(.hidden)` — Home indicator and status bar stay visible.
 - [ ] 6.3 iPad: multitasking / Stage Manager, split view at 1/3 width must not break editor.
 - [ ] 6.4 Accessibility: custom `.plain` buttons need labels, min 44pt targets, contrast on `#3d3e4c` pane, Dynamic Type where text matters.
 - [ ] 6.5 Empty states + confirms: LOAD grid empty, delete background/scene confirm, unsaved-changes guard.
