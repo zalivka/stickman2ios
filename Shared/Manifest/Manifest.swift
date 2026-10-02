@@ -108,6 +108,7 @@ nonisolated final class Manifest: @unchecked Sendable {
     func reloadAll() -> Int {
         print("manifest: requestReload")
         BootLog.say("reloadAll start")
+        AssetTemplates.sync()
         let urls = ExternalPack.bundleArchives()
         BootLog.say("reloadAll \(urls.count) bundle .atp")
         var loaded: [String: Pack] = [:]
@@ -133,6 +134,9 @@ nonisolated final class Manifest: @unchecked Sendable {
     func reloadPack(_ name: String) -> Int {
         if name == Pack.customName {
             return reloadCustomPack()
+        }
+        if name == AssetTemplates.packName {
+            AssetTemplates.sync()
         }
         print("manifest: requestReloadPack \(name)")
         let pack = obtainBundlePack(ExternalPack.bundleArchive(name))
@@ -218,6 +222,9 @@ nonisolated final class Manifest: @unchecked Sendable {
                 throw MissingManifestItem(fullname: fullname)
             }
             return zip
+        }
+        if item.packName == AssetTemplates.packName {
+            return try AssetTemplates.itemData(item.systemName)
         }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
         return ZipStore.data(atiNamed: "\(item.systemName).ati", in: zip)

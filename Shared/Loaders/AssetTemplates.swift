@@ -35,8 +35,36 @@ enum AssetTemplates {
         return templates
     }
 
-    /// Kingfisher keeps posters across launches. Android re-unpacks this pack when
-    /// `meta.txt` version moves; the same signal, plus the archive file, drops the old art.
+    /// Android `ExternalPack.unpackEmbedded`: a different `meta.txt` version deletes the
+    /// unpacked tree and writes the bundle archive over it. Same version keeps the files.
+    static func sync() {
+        let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
+        let bundled = PackMeta.parse(ZipStore.data(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
+        if bundled.mSysName != packName {
+            fatalError("AssetTemplates meta.mSysName '\(bundled.mSysName)' != '\(packName)'")
+        }
+        if installedVersion() == bundled.version, FileManager.default.fileExists(atPath: itemsDirectory().path) {
+            return
+        }
+        let parent = directory().deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        } catch {
+            fatalError("AssetTemplates could not create \(parent.path): \(error)")
+        }
+        ZipStore.unpack(zip, to: directory())
+    }
+
+    static func itemData(_ systemName: String) throws -> Data {
+        let url = itemsDirectory().appendingPathComponent("\(systemName).ati")
+        do {
+            return try Data(contentsOf: url)
+        } catch {
+            throw ItemLoadError("AssetTemplates '\(systemName)' \(url.path): \(error)")
+        }
+    }
+
+    /// Kingfisher keeps posters across launches. The key follows the pack that `sync` installed.
     static func revision() -> String {
         guard let pack = Manifest.shared.pack(named: packName) else {
             fatalError("AssetTemplates missing pack '\(packName)'")
@@ -64,5 +92,27 @@ enum AssetTemplates {
             return try ZipStore.dataThrowing(named: "thumb.png", in: zip)
         }
         throw ItemLoadError("AssetTemplates '\(fullname)' missing poster.png and thumb.png")
+    }
+
+    private static func directory() -> URL {
+        guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fatalError("AssetTemplates has no Application Support")
+        }
+        return root
+            .appendingPathComponent("at_elements", isDirectory: true)
+            .appendingPathComponent("packs", isDirectory: true)
+            .appendingPathComponent(packName, isDirectory: true)
+    }
+
+    private static func itemsDirectory() -> URL {
+        directory().appendingPathComponent("items", isDirectory: true)
+    }
+
+    private static func installedVersion() -> Int {
+        let url = directory().appendingPathComponent("meta.txt")
+        guard let data = try? Data(contentsOf: url) else {
+            return 0
+        }
+        return PackMeta.parse(data, source: url.path).version
     }
 }
