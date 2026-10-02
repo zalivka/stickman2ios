@@ -25,4 +25,4 @@ Read this when a run fails or the still PNG looks wrong. The procedure is in [re
 | Push outline points along their normals | Spikes at corners and at the export's zero-length closing segments. |
 | Dark outline `#2B2B2B` | At 14 px it covers a small head. Same-colour lines match the huts. |
 | Shark (`template.basic`) | Many paths per part, opacity 0, `command_scale="auto"`. |
-| Bitmap items (the sword) | No SVG. An ink-versus-paint split was described and not built. |
+| Bitmap items (the sword) | No SVG. Slopmaxing covers that. See [slopmax.md](slopmax.md). |

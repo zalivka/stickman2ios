@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sun: bitmap to SVG</title>
+<style>
+  body { margin: 0; background: #111; color: #eee; font: 16px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+  p { margin: 0 0 12px; }
+  .algo { color: #c8c8c8; }
+  .step { margin: 28px 0 0; }
+  h2 { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; }
+  img { display: block; width: min(360px, 100%); height: auto; background: #000; }
+  img.wide { width: 100%; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  pre { margin: 12px 0 0; padding: 12px; background: #1c1c1c; overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sun: bitmap, polygon, insets, brush, SVG, raster</h1>
+  <p>Source is <code>sun.png</code> from <code>zalivka.space1</code>. The insets exist because that bitmap is one yellow.</p>
+
+  <section class="step">
+    <h2>1. Bitmap</h2>
+    <img src="1-bitmap.png" alt="Source sun bitmap, a soft yellow burst">
+    <p>300×280. 37,311 solid pixels. Almost all of them are (240, 240, 80).</p>
+    <p class="algo">A pixel counts as solid when alpha is above 200. The next step never sees the soft glow: those pixels are below that cut.</p>
+  </section>
+
+  <section class="step">
+    <h2>2. Polygon</h2>
+    <img src="2-polygon.png" alt="One yellow polygon of the sun silhouette">
+    <p>One region, colour #FBF058, 47 corners. First corner (25.2, 159.2), then (15.5, 171.0), (18.2, 176.8).</p>
+    <p class="algo">White (every channel at least 240) and black (every channel at most 24, plus a 1 px fringe) are dropped. A pixel stays if it is gray, saturation under 24 and peak at least 70, or any colour with peak at least 110. The two yellows here, (240, 240, 80) and (240, 224, 80), differ by 16. Centres are rounded to multiples of 16 and merged when the largest channel gap is 36 or less, so they become one centre. Each solid pixel is given to the nearest centre by the sum of channel differences.</p>
+    <p class="algo">That colour then grows, 4-connected, up to 16 steps, into any pixel with alpha above 32. A blob under 40 pixels is ignored, and a blob needs at least 20 solid pixels before it is a shape. The colour written down is the median of those solid pixels, which is why the yellow is #FBF058 and not the rounded centre.</p>
+    <p class="algo">The outline walks pixel corners with the interior on the left. At a junction it takes the sharpest left turn. A loop shorter than 4 corners, or a polygon under area 30, is dropped. A representative point has to land inside the mask, which throws away a hole. The kept loop is grown by 2.5 px with round corners (4 segments per quarter circle), then Douglas–Peucker at tolerance 1.8 with topology kept. That 1.8 is what turns the pixel stairs into the 47 corners.</p>
+  </section>
+
+  <section class="step">
+    <h2>3. Insets</h2>
+    <img src="3-insets.png" alt="Same polygon painted orange, yellow, and white">
+    <p>The edge stays #F07818. buffer(−36) is the yellow body #FFE24A. buffer(−74) is the white center #FFFFFF.</p>
+    <p class="algo">Negative buffer moves every edge inward by that many pixels. Round joins turn a corner into an arc. These colours are assigned. They are not a second trace. The yellow body has area 22,547. The white disk has area 6,429.</p>
+  </section>
+
+  <section class="step">
+    <h2>4. Polygon to brush</h2>
+    <p>The orange ring only. Yellow and white take the same steps. Short side is 251, long side is 276, so this is a closed outline at brush 14, not one limb stroke.</p>
+    <p class="algo">The test uses the minimum-area rectangle around the polygon. A limb is a short side under 42 and a long side more than 2.2 times the short side: one stroke down the long axis, width clamped to 14…48, each end inset by half that width. Anything else with at least 4 corners is a closed outline. Brush width is 14 when the short side is at least 42, otherwise max(6, short side × 0.4).</p>
+
+    <h3>Corners, shifted by 40 px</h3>
+    <img src="4a-corners.png" alt="47 corners of the orange ring inside the padded canvas">
+    <p>47 corners. The gray box is the original 300×280 bitmap. The first corner (25.2, 159.2) is now (65.2, 199.2).</p>
+    <p class="algo">Each side becomes its own straight motion, with a point about every 2 px. Splitting at the corners is what makes the finger slow down and turn there. A limb would use a Catmull–Rom curve through two end points instead of this.</p>
+
+    <h3>Run past the start</h3>
+    <img src="4b-overshoot.png" alt="Orange loop with a yellow tail past the start">
+    <p>The finger draws the loop, then keeps going. The yellow tail is 68 px, 7.3% of the perimeter. The white dot is the start.</p>
+    <p class="algo">A closed stroke adds a random 4–14% of the perimeter past the start, walked along the same loop. The extra length is what keeps a fill from leaking through the join. This run rolled 7.3%.</p>
+
+    <h3>Wobble</h3>
+    <img src="4c-wobble.png" alt="Gray polygon with the orange wobbled path on top">
+    <p>Gray is the polygon. Orange is the finger path after three sideways waves. Scale is 2. The orange line sits at most 2.8 px off the polygon, 1.0 px on average.</p>
+    <p class="algo">Three sines, added along the path and pushed sideways, perpendicular to the local tangent. Each wave has amplitude 0.3–0.7 times the scale, wavelength 60–240 px, and a random phase. The scale is jitter × min(4, 1.2 + extent / 90). Jitter is 0.5. This ring is 276 px across, so 1.2 + 276 / 90 exceeds 4 and the scale caps at 0.5 × 4 = 2.</p>
+
+    <h3>One scallop, four times</h3>
+    <img class="wide" src="4z-detail.png" alt="Zoomed scallop: corners, wobble, samples, 14 px stroke">
+    <p>Left to right: the corners, the wobble against the polygon, the 60 Hz samples, the 14 px stroke.</p>
+
+    <h3>60 Hz samples</h3>
+    <img src="4d-samples.png" alt="Orange dots sampled along the wobbled ring">
+    <p>246 samples, 243 kept. The first 12 px of motion after touch-down are dropped. The first kept point is (64.6, 198.7).</p>
+    <p class="algo">Speed is a random 500–900 px/s, times a size factor clamped between 0.75 and 1.1. A turn slows the finger: over about 10 px either side, the pace is (radius / 120) to the power 1/3, clamped to 0.55–1.15. Time along a piece mixes constant speed with a minimum-jerk curve, 60% constant and 40% jerk. Samples are taken at 60 Hz, then each one is kicked by gaussian noise of 0.25 px. The stroke keeps its start point and drops samples until the finger has moved 12 px, which is why 246 samples become 243 points.</p>
+
+    <h3>14 px stroke and the fill tap</h3>
+    <img src="4f-fill.png" alt="Orange 14 px outline with the fill tap marked">
+    <p>Each sample is a round stamp of radius 7. The tap is (199.1, 183.0), inside the polygon inset by 11 px, then nudged by up to 3 px. It lands 0.4 s after the outline.</p>
+    <p class="algo">The tap point is the representative point of the polygon inset by half the brush plus 4, here 11 px. It is then moved by a random ±3 px on each axis. A fill that follows a stroke of the same colour waits 0.3–0.7 s. A new colour adds another 1–2 s, which is why the yellow stroke starts at 9.6 s.</p>
+
+    <h3>Flat fill under the stroke</h3>
+    <img src="4g-under.png" alt="Flat orange fill of the polygon">
+    <p>The polygon, grown by 1.5 px. This is a flat SVG path, not a finger stroke.</p>
+    <p class="algo">Positive buffer by 1.5 px, round joins. The path is inserted as the first child of the SVG, so it paints under every stroke. It is not a hand operation and it does not wobble.</p>
+
+    <h3>Fill, then the stroke on top</h3>
+    <img src="4h-under-stroke.png" alt="Flat fill with the wobbly 14 px stroke over it">
+    <p>Same colour. The ragged edge is the 14 px stroke walking off the flat fill.</p>
+
+    <h3>All three rings</h3>
+    <img src="4-brush.png" alt="Sloppy brush drawing of the three sun rings">
+    <p>Largest first: orange stroke, orange fill, yellow stroke, yellow fill, white stroke, white fill. Yellow is 453 points. White is 103. The white disk paints over the yellow, and the yellow over the orange.</p>
+  </section>
+
+  <section class="step">
+    <h2>5. SVG</h2>
+    <p>The same stroke, with the time column dropped.</p>
+    <p class="algo">Each stroke operation becomes a polyline: fill none, stroke-width 14, round caps, round joins. A fill operation becomes a filled path. Coordinates are written to one decimal. The SVG width and height are then multiplied by 4. The viewBox stays the unscaled canvas, 380×360, so one unit is still one brush pixel and the raster is what enlarges it.</p>
+    <pre>&lt;polyline points="64.6,198.7 55.8,209.3 55.5,210.7 55.2,212.2 56.1,213.5 …" /&gt;</pre>
+  </section>
+
+  <section class="step">
+    <h2>6. Raster</h2>
+    <img src="5-raster.png" alt="The SVG rasterized at 4x">
+    <p>rsvg-convert at 4× makes sun_0.png, 1520×1440. That PNG is what the .ati stores. The shape is the SVG from step 5.</p>
+    <p class="algo">librsvg rasterizes the polylines and the flat fills. 380×360 times 4 is 1520×1440. The joint is the source joint plus the 40 px pad, times 4, and the offsets stored in the item are the negation of that point. The bitmap is not cropped, so a later boil frame cannot shift the joint.</p>
+  </section>
+</main>
+</body>
+</html>

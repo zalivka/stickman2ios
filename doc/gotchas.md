@@ -51,7 +51,9 @@ Fonts match Android `Fonts.getByName`: `default` is system; bundled keys `roboto
 
 ## `.atp` packs are unpacked, then Manifest reads the tree
 
-An `.atp` is distribution only. `ExternalPack` copies bundle `packs/*.atp` into Application Support when `meta.txt` `version` is newer, then Manifest indexes `manifest.xml` + `items/<sname>.ati` + `translate_<lang>.xml` (else `en`). Bump `version` to force re-unpack. Native `assets/scenes/*` packs are out of scope.
+An `.atp` is distribution only. Bump `meta.txt` `version` to publish a new pack. Native `assets/scenes/*` packs are out of scope.
+
+`template.basic` is unpacked to `Application Support/at_elements/packs/template.basic`. `AssetTemplates.sync` runs before the manifest reload. A different version deletes that directory and unpacks the bundle archive over it, so every template item is the new file, not a leftover poster. Same version keeps the tree. Template loads read `items/<sname>.ati` from there. Other packs are still read from the bundle zip.
 
 `Manifest` is a serial queue. `schedule(task, then:)` enqueues both jobs together so nothing interleaves. Two separate `await`s are not a chain. Call `requestReload()` on app start (not from the widget). `reloadPack` / `reloadAll` only run inside `schedule`.
 
@@ -60,6 +62,10 @@ Insert queries one pack at a time (`Query(packName)`). Do not mix `common` or cu
 Android `PACK_CUSTOM_ITEMS` is `@`: not an `.atp`. `ReloadCustomPackTask` lists `*.ati` in the customs directory (skip `~`). The chooser tile is `~custom_agg` (“Custom items”, `angry_cat`). iOS registers `@` itself as that pack and lists those files. `itemZip` reads the `.ati` file; `UnitAssets.atiEntryName` for `@` is `name.ati`. Reload after `CustomsSeeder` and on `.customItemsDidChange`.
 
 Missing `fullname=` is Android’s paid lock. iOS has no IAP: every manifest item with an `.ati` is usable (`fullname` is always `pack:sname`). Do not hide or refuse insert for a missing XML `fullname`. Android chooser also lists locked items; it only skips `readOnly`. `super.pack` is the pack that actually omits `fullname` (49 of 52). Other bundled packs already stamp `fullname` on every item. Extra `.ati` files not listed in `manifest.xml` (`vk.gr1` / `vk.gr2`) stay out, same as Android.
+
+## A slopmaxed unit is drawn at the scene scale
+
+A slopmaxed bone is a 4× bitmap. Playback multiplies that bitmap by the scene unit `scale` (`xOffset * unit.scale`). `meta.txt` `scale` only sizes a newly dropped rest pose. Divide the scene scale by 4 as well, or the part is four times too big. A bubble (`common:sign`) has no bitmap; leave its scale. Steps and the offset formula are in [slopmax.md](slopmax.md). The slopmaxing script is `tools/bonepaper_gen/out/camera/build.py`.
 
 ## Unit alpha can be > 1
 

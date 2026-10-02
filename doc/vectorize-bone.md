@@ -2,6 +2,8 @@
 
 The intro man (`AT_Man.ati` inside `tutorial/intro.ats`) was turned into the custom item `@:bluehairsvg` by tracing each bone PNG to outlines and stroking those outlines with the BonePaper hand. The script is `tools/bonepaper_gen/out/bluehairsvg/build.py`.
 
+Slopmaxing an item or a scene uses this tracer, then packs a 4× `.ati` and divides the scene scale by 4. The white-paint sentinel, the ring keep, and the scene rewrite are in [slopmax.md](slopmax.md). The slopmaxing script is `tools/bonepaper_gen/out/camera/build.py`.
+
 The source is the raster, `bm_*_state_0.png`. Black marks are dropped. What remains is split by colour, and each blob becomes a simplified polygon. That polygon is what gets brushed.
 
 ## Colour split
@@ -35,6 +37,8 @@ A fill whose area is more than 85% of the canvas is a leak. Stop.
 
 Rasterize with `rsvg-convert` at 4× (`SAMPLE = 4`) and keep those pixels. A 1× picture stretched on the phone turns a one-pixel antialiased edge into a staircase.
 
-Bone points are multiplied by 4. `x_offset` / `y_offset` become the joint's place in the cropped 4× bitmap, negated. Item `meta.txt` `scale` is `0.5 / 4 = 0.125`, so a newly dropped item is the same size as the original `AT_Man` (whose scale is 0.5) rather than four times bigger.
+Bone points are multiplied by 4. `x_offset` / `y_offset` become the joint's place in the 4× bitmap, negated. Item `meta.txt` `scale` is `0.5 / 4 = 0.125`, so a newly dropped item is the same size as the original `AT_Man` (whose scale is 0.5) rather than four times bigger.
+
+`bluehairsvg` cropped each bone to its alpha box. Slopmaxing does not. Cropping moves the joint, and two frames cropped apart will not share one. The offset is the joint in the full padded canvas. See [slopmax.md](slopmax.md).
 
 An item already placed in a scene keeps the old skeleton and the old scale. Remove it and add `bluehairsvg` again.

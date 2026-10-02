@@ -2,6 +2,8 @@
 
 Double a `template.basic` item that ships vector source: bone points, SVG commands, and the bone bitmaps. The iOS pack is `at_elements/packs/template.basic.atp`. Leave the Android copy of that pack alone.
 
+This is not slopmaxing. Slopmax traces bitmaps with the sloppy brush and divides the scene scale by 4. See [slopmax.md](slopmax.md).
+
 Done this way: `trex`, `man1`, `man2`, `dog`, `catapult`, and `gun` (the pistol; there is no `handgun` item). Pack `meta.txt` `version` is 8 after those edits.
 
 ## What stays

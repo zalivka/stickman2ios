@@ -40,6 +40,7 @@ rsvg-convert -w 640 -h 480 out/forest_castle/drawing.svg -o /tmp/check.png   # v
 | `tools/bonepaper_gen/svg_export.py` | `session.json` → SVG via `shapely`. |
 | `tools/bonepaper_gen/requirements.txt` | Pinned `pillow` and `shapely`; the SVG output is only byte-stable with these versions. |
 | `tools/bonepaper_gen/out/<scene>/` | Generated `session.json`, `replay.png`, SVGs. |
+| `tools/bonepaper_gen/out/camera/build.py` | Slopmaxing script: bitmap item or scene → 4× sloppy `.ati`. See `doc/slopmax.md`. |
 
 Callers of BonePaper in the app:
 

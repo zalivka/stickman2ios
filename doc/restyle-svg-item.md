@@ -18,6 +18,7 @@ Redraw each bone with `hand.py`, the same finger model as the village background
 - Boiling a finished `session.json` (`boil.py`) — the strokes already exist.
 - Boiling the original SVG without redrawing it (`item_boil.py`) — that keeps the thin Kurwa outline.
 - Turning the result into a real `.ati`. That was deliberately not done.
+- Slopmaxing a bitmap item into an `.ati`. That is [slopmax.md](slopmax.md) and `tools/bonepaper_gen/out/camera/build.py`. This skill never writes an `.ati`.
 
 Worked results: dog at 269 page px, T-Rex at 300. Findings live in `doc/bone-paper-recording.md` under "Line boil".
 
