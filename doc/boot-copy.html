@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What lands in at_elements</title>
+<style>
+  :root {
+    --ink: #1c1915;
+    --muted: #5c564c;
+    --line: #c9c1b4;
+    --paper: #f4f0e6;
+    --card: #fffdf8;
+    --ok: #2f6b45;
+    --ok-bg: #e5f2e8;
+    --bad: #9d2c2c;
+    --bad-bg: #f8e4e2;
+    --stay: #3d4f73;
+    --stay-bg: #e7edf6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.45 "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 36px 28px 72px; }
+  h1 { font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
+  .lede { margin: 0 0 28px; max-width: 68ch; color: var(--muted); }
+  h2 { font-size: 20px; margin: 36px 0 12px; font-weight: 600; }
+  code, .path {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  .tree {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 22px 8px;
+  }
+  .root {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .folder {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin: 0 0 14px;
+    overflow: hidden;
+  }
+  .folder header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    font-weight: 600;
+  }
+  .folder.ok header { background: var(--ok-bg); color: var(--ok); }
+  .folder.bad header { background: var(--bad-bg); color: var(--bad); }
+  .folder .body { padding: 10px 14px 12px 42px; }
+  .file { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 13px; margin: 3px 0; }
+  .from { color: var(--muted); font-family: Georgia, serif; font-size: 14px; }
+  .badge {
+    margin-left: auto;
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .note {
+    margin: 8px 0 18px;
+    color: var(--bad);
+    font-weight: 600;
+  }
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .lane {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 16px 8px;
+  }
+  .lane h3 { margin: 0 0 4px; font-size: 17px; }
+  .when { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+  ol { margin: 0; padding-left: 20px; }
+  li { margin: 0 0 10px; }
+  .fail {
+    background: var(--bad-bg);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--bad);
+  }
+  .stay {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .stay header {
+    background: var(--stay-bg);
+    color: var(--stay);
+    display: inline-flex;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .err {
+    margin-top: 18px;
+    background: #1c1915;
+    color: #f4f0e6;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .err em { color: #f0b4ae; font-style: normal; }
+  svg.flow { width: 100%; height: auto; display: block; }
+  @media (max-width: 800px) { .lanes { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>What is copied into <span class="path">at_elements</span></h1>
+  <p class="lede">On launch the app writes three groups of files under <span class="path">Library/Application Support/at_elements</span>. Two of those writes create the parent folder. The third dies while creating <span class="path">templates</span>, before a single template file is unpacked.</p>
+
+  <svg class="flow" viewBox="0 0 1040 420" role="img" aria-label="Bundle files copied into Application Support, with the templates create marked as the failure">
+    <rect x="16" y="16" width="300" height="388" rx="12" fill="#fffdf8" stroke="#c9c1b4"/>
+    <text x="32" y="46" font-family="Georgia, serif" font-size="18" font-weight="600" fill="#1c1915">App bundle</text>
+    <text x="32" y="68" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#5c564c">inside the .app</text>
+
+    <rect x="32" y="88" width="268" height="72" rx="8" fill="#e5f2e8" stroke="#2f6b45"/>
+    <text x="46" y="114" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1c1915">demo/*.ats</text>
+    <text x="46" y="136" font-family="Georgia, serif" font-size="13" fill="#5c564c">every bundled scene</text>
+
+    <rect x="32" y="172" width="268" height="92" rx="8" fill="#e5f2e8" stroke="#2f6b45"/>
+    <text x="46" y="198" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1c1915">testdata/aaa_sword.ati</text>
+    <text x="46" y="218" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1c1915">testdata/akm.ati</text>
+    <text x="46" y="238" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1c1915">testdata/bow.ati</text>
+
+    <rect x="32" y="276" width="268" height="108" rx="8" fill="#f8e4e2" stroke="#9d2c2c"/>
+    <text x="46" y="312" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1c1915">packs/template.basic.atp</text>
+    <text x="46" y="336" font-family="Georgia, serif" font-size="13" fill="#9d2c2c">whole archive, meant to unpack</text>
+
+    <rect x="724" y="16" width="300" height="388" rx="12" fill="#fffdf8" stroke="#c9c1b4"/>
+    <text x="740" y="46" font-family="Georgia, serif" font-size="18" font-weight="600" fill="#1c1915">On the phone</text>
+    <text x="740" y="68" font-family="ui-monospace, Menlo, monospace" font-size="11" fill="#5c564c">Application Support/at_elements/</text>
+
+    <rect x="740" y="88" width="268" height="72" rx="8" fill="#e5f2e8" stroke="#2f6b45"/>
+    <text x="754" y="114" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#2f6b45">saved/</text>
+    <text x="754" y="136" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#1c1915">*.ats copied here</text>
+
+    <rect x="740" y="172" width="268" height="92" rx="8" fill="#e5f2e8" stroke="#2f6b45"/>
+    <text x="754" y="198" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#2f6b45">customs/</text>
+    <text x="754" y="220" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#1c1915">aaa_sword.ati</text>
+    <text x="754" y="240" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#1c1915">akm.ati, bow.ati</text>
+
+    <rect x="740" y="276" width="268" height="108" rx="8" fill="#f8e4e2" stroke="#9d2c2c" stroke-width="2"/>
+    <text x="754" y="304" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#9d2c2c">templates/   ← crash</text>
+    <text x="754" y="328" font-family="Georgia, serif" font-size="13" fill="#9d2c2c">mkdir refused, EACCES</text>
+    <text x="754" y="352" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#5c564c">sword.atp never written</text>
+
+    <path d="M316 124 H712" stroke="#2f6b45" stroke-width="2" fill="none"/>
+    <polygon points="724,124 710,117 710,131" fill="#2f6b45"/>
+    <text x="430" y="114" font-family="Georgia, serif" font-size="14" fill="#2f6b45">DemoSeeder</text>
+
+    <path d="M316 218 H712" stroke="#2f6b45" stroke-width="2" fill="none"/>
+    <polygon points="724,218 710,211 710,225" fill="#2f6b45"/>
+    <text x="418" y="208" font-family="Georgia, serif" font-size="14" fill="#2f6b45">CustomsSeeder</text>
+
+    <path d="M316 330 H470" stroke="#9d2c2c" stroke-width="2" fill="none" stroke-dasharray="6 4"/>
+    <path d="M550 330 H712" stroke="#9d2c2c" stroke-width="2" fill="none" stroke-dasharray="6 4"/>
+    <polygon points="724,330 710,323 710,337" fill="#9d2c2c"/>
+    <text x="418" y="308" font-family="Georgia, serif" font-size="14" fill="#9d2c2c">AssetTemplates.prepare</text>
+    <circle cx="510" cy="330" r="20" fill="#9d2c2c"/>
+    <text x="502" y="337" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#fffdf8">×</text>
+  </svg>
+
+  <h2>The folder on disk</h2>
+  <div class="tree">
+    <div class="root">…/Library/Application Support/at_elements/</div>
+
+    <div class="folder ok">
+      <header>saved/ <span class="badge">COPIED</span></header>
+      <div class="body">
+        <div class="file">*.ats</div>
+        <div class="from">from bundle <span class="path">demo/*.ats</span>, by <span class="path">DemoSeeder.copyIfNeeded</span></div>
+      </div>
+    </div>
+
+    <div class="folder ok">
+      <header>customs/ <span class="badge">COPIED</span></header>
+      <div class="body">
+        <div class="file">aaa_sword.ati</div>
+        <div class="file">akm.ati</div>
+        <div class="file">bow.ati</div>
+        <div class="from">from bundle <span class="path">testdata/</span>, by <span class="path">CustomsSeeder.copyIfNeeded</span></div>
+      </div>
+    </div>
+
+    <div class="folder bad">
+      <header>templates/ <span class="badge">NOT CREATED</span></header>
+      <div class="body">
+        <div class="file">sword.atp, man1.atp, …</div>
+        <div class="file">meta.txt</div>
+        <div class="from">would be unpacked from bundle <span class="path">packs/template.basic.atp</span></div>
+      </div>
+    </div>
+    <p class="note">The fatal error is the mkdir of <span class="path">templates</span>. <span class="path">ZipStore.unpack</span> has not run, so none of those template files are on disk.</p>
+  </div>
+
+  <h2>Two writers at once</h2>
+  <div class="lanes">
+    <div class="lane">
+      <h3>Main thread</h3>
+      <p class="when">ManifestBootView.task, after the first frame</p>
+      <ol>
+        <li><span class="path">DemoSeeder</span> mkdirs <span class="path">at_elements/saved</span> and copies the <span class="path">.ats</span> files.</li>
+        <li><span class="path">CustomsSeeder</span> mkdirs <span class="path">at_elements/customs</span> and copies the three <span class="path">.ati</span> files.</li>
+        <li>Then it waits for the manifest queue.</li>
+      </ol>
+    </div>
+    <div class="lane">
+      <h3>Manifest queue</h3>
+      <p class="when">started in App.init, before the view task</p>
+      <ol>
+        <li><span class="path">reloadAll</span> calls <span class="path">AssetTemplates.prepare</span> first.</li>
+        <li class="fail"><span class="path">createDirectory</span> of <span class="path">at_elements/templates</span> returns POSIX 13. The process stops here.</li>
+        <li>Unpack of <span class="path">template.basic.atp</span> does not start.</li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>Left in the bundle</h2>
+  <div class="stay">
+    <header>read in place, never copied</header>
+    <div><span class="path">packs/assorted.bgs.atp</span>, <span class="path">packs/zalivka.space1.atp</span>, and every other <span class="path">.atp</span> except <span class="path">template.basic</span>. Backgrounds and items in those packs are read from the zip inside the app.</div>
+  </div>
+
+  <div class="err">AssetTemplates could not create …/Library/Application Support/at_elements/<em>templates</em><br>NSCocoaErrorDomain Code=513 · NSPOSIXErrorDomain Code=13 Permission denied<br>“You don’t have permission to save the file “templates” in the folder “at_elements”.”</div>
+</main>
+</body>
+</html>

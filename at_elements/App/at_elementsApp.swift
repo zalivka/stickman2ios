@@ -22,7 +22,6 @@ struct at_elementsApp: App {
     init() {
         AppSettings.boot()
         BootLog.say("App.init")
-        Manifest.shared.startBootReload()
         StickmanFonts.boot()
     }
 
@@ -68,6 +67,7 @@ private struct ManifestBootView: View {
         }
         .task {
             BootLog.say("ManifestBootView.task start")
+            AssetTemplates.prepare()
             DemoSeeder.copyIfNeeded()
             CustomsSeeder.copyIfNeeded()
             _ = await Manifest.shared.awaitBootReload()

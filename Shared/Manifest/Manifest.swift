@@ -108,7 +108,7 @@ nonisolated final class Manifest: @unchecked Sendable {
     func reloadAll() -> Int {
         print("manifest: requestReload")
         BootLog.say("reloadAll start")
-        AssetTemplates.sync()
+        AssetTemplates.prepare()
         let urls = ExternalPack.bundleArchives()
         BootLog.say("reloadAll \(urls.count) bundle .atp")
         var loaded: [String: Pack] = [:]
@@ -136,7 +136,7 @@ nonisolated final class Manifest: @unchecked Sendable {
             return reloadCustomPack()
         }
         if name == AssetTemplates.packName {
-            AssetTemplates.sync()
+            AssetTemplates.prepare()
         }
         print("manifest: requestReloadPack \(name)")
         let pack = obtainBundlePack(ExternalPack.bundleArchive(name))

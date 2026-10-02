@@ -35,28 +35,63 @@ enum AssetTemplates {
         return templates
     }
 
-    /// Android `ExternalPack.unpackEmbedded`: a different `meta.txt` version deletes the
-    /// unpacked tree and writes the bundle archive over it. Same version keeps the files.
-    static func sync() {
+    /// A different `meta.txt` version replaces `templates/<name>.atp` and `meta.txt`.
+    /// Same version keeps those files. The bytes are the pack's `items/<name>.ati`.
+    static func prepare() {
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
         let bundled = PackMeta.parse(ZipStore.data(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
         if bundled.mSysName != packName {
             fatalError("AssetTemplates meta.mSysName '\(bundled.mSysName)' != '\(packName)'")
         }
-        if installedVersion() == bundled.version, FileManager.default.fileExists(atPath: itemsDirectory().path) {
+        let items = flatItems(in: zip)
+        if installedVersion() == bundled.version, installedItemNames() == Set(items.map(\.name)) {
             return
         }
-        let parent = directory().deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        } catch {
-            fatalError("AssetTemplates could not create \(parent.path): \(error)")
+        let fm = FileManager.default
+        let dest = directory()
+        let tmp = dest.appendingPathExtension("unpacking")
+        if fm.fileExists(atPath: tmp.path) {
+            do {
+                try fm.removeItem(at: tmp)
+            } catch {
+                fatalError("AssetTemplates could not replace \(tmp.path): \(error)")
+            }
         }
-        ZipStore.unpack(zip, to: directory())
+        do {
+            try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        } catch {
+            fatalError("AssetTemplates could not create \(tmp.path): \(error)")
+        }
+        for item in items {
+            let url = tmp.appendingPathComponent("\(item.name).atp")
+            do {
+                try item.data.write(to: url, options: .atomic)
+            } catch {
+                fatalError("AssetTemplates could not write \(url.path): \(error)")
+            }
+        }
+        let metaURL = tmp.appendingPathComponent("meta.txt")
+        do {
+            try ZipStore.data(named: "meta.txt", in: zip).write(to: metaURL, options: .atomic)
+        } catch {
+            fatalError("AssetTemplates could not write \(metaURL.path): \(error)")
+        }
+        if fm.fileExists(atPath: dest.path) {
+            do {
+                try fm.removeItem(at: dest)
+            } catch {
+                fatalError("AssetTemplates could not replace \(dest.path): \(error)")
+            }
+        }
+        do {
+            try fm.moveItem(at: tmp, to: dest)
+        } catch {
+            fatalError("AssetTemplates could not move \(tmp.path) to \(dest.path): \(error)")
+        }
     }
 
     static func itemData(_ systemName: String) throws -> Data {
-        let url = itemsDirectory().appendingPathComponent("\(systemName).ati")
+        let url = directory().appendingPathComponent("\(systemName).atp")
         do {
             return try Data(contentsOf: url)
         } catch {
@@ -64,7 +99,7 @@ enum AssetTemplates {
         }
     }
 
-    /// Kingfisher keeps posters across launches. The key follows the pack that `sync` installed.
+    /// Kingfisher keeps posters across launches. The key follows the pack that `prepare` installed.
     static func revision() -> String {
         guard let pack = Manifest.shared.pack(named: packName) else {
             fatalError("AssetTemplates missing pack '\(packName)'")
@@ -100,12 +135,35 @@ enum AssetTemplates {
         }
         return root
             .appendingPathComponent("at_elements", isDirectory: true)
-            .appendingPathComponent("packs", isDirectory: true)
-            .appendingPathComponent(packName, isDirectory: true)
+            .appendingPathComponent("templates", isDirectory: true)
     }
 
-    private static func itemsDirectory() -> URL {
-        directory().appendingPathComponent("items", isDirectory: true)
+    private static func flatItems(in zip: Data) -> [(name: String, data: Data)] {
+        var items: [(name: String, data: Data)] = []
+        for entry in ZipStore.names(in: zip) {
+            guard entry.hasPrefix("items/"), entry.hasSuffix(".ati"), !entry.hasSuffix("/") else { continue }
+            let name = String(entry.dropFirst("items/".count).dropLast(".ati".count))
+            if name.isEmpty || name.contains("/") || name.contains("..") {
+                fatalError("AssetTemplates refuses entry '\(entry)'")
+            }
+            items.append((name, ZipStore.data(named: entry, in: zip)))
+        }
+        if items.isEmpty {
+            fatalError("AssetTemplates \(packName) has no items/*.ati")
+        }
+        return items
+    }
+
+    private static func installedItemNames() -> Set<String> {
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(
+            at: directory(),
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return Set(urls.filter { $0.pathExtension == "atp" }.map { $0.deletingPathExtension().lastPathComponent })
     }
 
     private static func installedVersion() -> Int {

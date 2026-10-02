@@ -53,7 +53,7 @@ Fonts match Android `Fonts.getByName`: `default` is system; bundled keys `roboto
 
 An `.atp` is distribution only. Bump `meta.txt` `version` to publish a new pack. Native `assets/scenes/*` packs are out of scope.
 
-`template.basic` is unpacked to `Application Support/at_elements/packs/template.basic`. `AssetTemplates.sync` runs before the manifest reload. A different version deletes that directory and unpacks the bundle archive over it, so every template item is the new file, not a leftover poster. Same version keeps the tree. Template loads read `items/<sname>.ati` from there. Other packs are still read from the bundle zip.
+`template.basic` is written flat to `Application Support/at_elements/templates`: each `items/<sname>.ati` becomes `<sname>.atp`, plus the pack `meta.txt` (`version` lives there). `AssetTemplates.prepare` runs before the manifest reload. A different version, or a different set of item names, deletes that directory and writes the files again. Same version and the same names keep the files. Template loads read `<sname>.atp` from there. Other packs are still read from the bundle zip.
 
 `Manifest` is a serial queue. `schedule(task, then:)` enqueues both jobs together so nothing interleaves. Two separate `await`s are not a chain. Call `requestReload()` on app start (not from the widget). `reloadPack` / `reloadAll` only run inside `schedule`.
 
