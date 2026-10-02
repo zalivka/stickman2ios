@@ -291,7 +291,7 @@ nonisolated final class Manifest: @unchecked Sendable {
                     setName: "",
                     scale: customScale(zip: zip),
                     faceable: false,
-                    multiframed: false,
+                    multiframed: customMultiframed(zip: zip),
                     hidden: false,
                     readOnly: false
                 )
@@ -334,6 +334,22 @@ nonisolated final class Manifest: @unchecked Sendable {
         }
         let scale = CGFloat(truncating: number)
         return scale > 0.01 ? scale : 1
+    }
+
+    private func customMultiframed(zip: Data) -> Bool {
+        guard let names = try? ZipStore.namesThrowing(in: zip), names.contains("meta.txt"),
+              let data = try? ZipStore.dataThrowing(named: "meta.txt", in: zip),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return false
+        }
+        if let flag = object["multiframed"] as? Bool {
+            return flag
+        }
+        if let number = object["multiframed"] as? NSNumber {
+            return number.boolValue
+        }
+        return false
     }
 
     private func onPacksReloaded(_ content: [String: Pack]) {
