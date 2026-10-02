@@ -67,6 +67,10 @@ Missing `fullname=` is Android’s paid lock. iOS has no IAP: every manifest ite
 
 A slopmaxed bone is a 4× bitmap. Playback multiplies that bitmap by the scene unit `scale` (`xOffset * unit.scale`). `meta.txt` `scale` only sizes a newly dropped rest pose. Divide the scene scale by 4 as well, or the part is four times too big. A bubble (`common:sign`) has no bitmap; leave its scale. Steps and the offset formula are in [slopmax.md](slopmax.md). The slopmaxing script is `tools/bonepaper_gen/out/camera/build.py`.
 
+## Bone frames share a bitmap id
+
+Frames of one bone are one gallery bone only when the files are `bm_<id>_state_<n>.png` and they share `<id>`. `<n>` is the frame. Set `<edgeAsset state>` to the same number: iOS playback reads the attribute, Android does not. Android `Utils.BM_NAME_PATTERN` (`bm_(\\d+)_state_(\\d+).png` in `LoadAssetsRepositoryImpl`) takes the bone id and the frame from the filename. iOS `galleryBones` groups that pattern and shows the lowest state. `sun_0.png`, `sun_1.png`, and `sun_2.png` were three bones. The sun item is `bm_1_state_0.png`, `bm_1_state_1.png`, `bm_1_state_2.png`.
+
 ## Unit alpha can be > 1
 
 Scene XML stores `alpha` as a raw float. Android parses it as-is (`demo_camera` has `@:Чёрный_СтикМан#2` at `1.08`). Draw only applies a transparency layer when `alpha < 1`, so values at or above 1 are opaque. Do not reject `alpha > 1` on load. Still fatal on `alpha < 0`.

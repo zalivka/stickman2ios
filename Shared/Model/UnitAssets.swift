@@ -224,26 +224,63 @@ final class UnitAssets {
         return getDrawable(key, state: state)?.weight ?? -1
     }
 
-    /// Unique bone bitmaps for the gallery rail, ordered by first-seen weight then bmName.
+    /// Android `Utils.BM_NAME_PATTERN`. Frames that share the id are one gallery bone.
+    /// The row is the lowest state. Any other name is one bone by itself.
+    private static func androidBoneFrame(_ bmName: String) -> (id: Int, state: Int)? {
+        let prefix = "bm_"
+        let middle = "_state_"
+        let suffix = ".png"
+        guard bmName.hasPrefix(prefix), bmName.hasSuffix(suffix) else { return nil }
+        let core = bmName.dropFirst(prefix.count).dropLast(suffix.count)
+        guard let split = core.range(of: middle) else { return nil }
+        let idText = core[..<split.lowerBound]
+        let stateText = core[split.upperBound...]
+        guard !idText.isEmpty, !stateText.isEmpty,
+              idText.allSatisfy(\.isNumber), stateText.allSatisfy(\.isNumber),
+              let id = Int(idText), let state = Int(stateText) else { return nil }
+        return (id, state)
+    }
+
+    /// Unique bones for the gallery rail, ordered by weight then bitmap name.
+    /// `bm_<id>_state_<n>.png` frames collapse to one row (the lowest state), matching Android.
     func galleryBones(unitName: String) -> [GalleryBone] {
         let name = Self.removeNumber(unitName)
         struct Seen {
             var bmName: String
             var thumb: CGImage
             var weight: Int
+            var state: Int
         }
-        var byBm: [String: Seen] = [:]
+        var seen: [String: Seen] = [:]
+        func consider(_ asset: EdgeAsset) {
+            if let frame = Self.androidBoneFrame(asset.bmName) {
+                let key = "bone:\(frame.id)"
+                if let existing = seen[key], existing.state <= frame.state { return }
+                seen[key] = Seen(
+                    bmName: asset.bmName,
+                    thumb: asset.bitmap,
+                    weight: asset.weight,
+                    state: frame.state
+                )
+                return
+            }
+            if seen[asset.bmName] != nil { return }
+            seen[asset.bmName] = Seen(
+                bmName: asset.bmName,
+                thumb: asset.bitmap,
+                weight: asset.weight,
+                state: asset.state
+            )
+        }
         for (key, states) in edgeAssets where key.unitName == name {
             for asset in states.values {
-                if byBm[asset.bmName] != nil { continue }
-                byBm[asset.bmName] = Seen(bmName: asset.bmName, thumb: asset.bitmap, weight: asset.weight)
+                consider(asset)
             }
         }
         for asset in looseBones.values where asset.unitName == name {
-            if byBm[asset.bmName] != nil { continue }
-            byBm[asset.bmName] = Seen(bmName: asset.bmName, thumb: asset.bitmap, weight: asset.weight)
+            consider(asset)
         }
-        return byBm.values
+        return seen.values
             .sorted {
                 if $0.weight != $1.weight { return $0.weight < $1.weight }
                 return $0.bmName < $1.bmName

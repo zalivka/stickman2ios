@@ -26,7 +26,17 @@ Colour centres merge when the max channel difference is `<= 36`. The moon's crat
 
 A ring loses its outline. The tracer keeps a loop only when a representative point lands inside the mask, so a star's red rim and a sword's black rim are thrown away and only the centre survives. The slopmaxing script keeps the largest loop anyway. Inner colours paint over that fill, which is how the explosion stays a red rim, an orange star, and a yellow centre.
 
-Brush constants are the tracer's: `JITTER = 0.5`, brush 14, `PAD = 40`, `SAMPLE = 4`. A limb (short side `< 42` and long side `> short × 2.2`) is one stroke. A compact part is a closed outline plus one fill. A fill bigger than 85% of the canvas is a leak. Stop.
+Brush constants are the tracer's: `JITTER = 0.5`, brush 14, `PAD = 40`, `SAMPLE = 4`. A limb (short side `< 42` and long side `> short × 2.2`) is one stroke. A compact part is a flat fill of the shape, then the closed outline, then a fill tap for every colour still showing inside. The flat fill is painted when the shape is drawn. One tap leaves the other colour showing. A fill bigger than 85% of the canvas is a leak. Stop.
+
+## Partial fills
+
+A fill tap recolours only the colour under the tap. A window drawn across the wall and a shadow stays half empty if you tap only the wall. Count the colours inside the outline and tap each one. The same rule is scene rule 4 in [bone-paper-recording.md](bone-paper-recording.md).
+
+The lunar base (`stickman2` `bgs/space/lunar_base`) showed a second way to get that stripe. Five of the seven windows were half wall: the three on the habitat and the two on the dome. The two lab windows sat on one grey and filled.
+
+`brush_svg` used to collect a flat copy of every shape and splice those paths in at the start of the SVG, under every brush layer. The wall is drawn before the window, so the wall fill is a later layer and covers that window rectangle. The window tap then recolours only the patch it hits. The rest of the pane stays wall.
+
+Paint the flat shape when the shape is drawn. `_stamp` in `brush_svg` appends a `buffer(1.5)` fill to the scene layers, then the outline, then a tap for any colour still showing inside. Leave those fills in that order. A block of them at the bottom of the SVG gets covered by the fill of whatever was drawn earlier.
 
 Empty bitmap, no colour, and no regions are loud failures. Do not substitute a blank bone.
 
@@ -74,6 +84,8 @@ Pack items are not embedded in the `.ats`. After the rename the scene looks up `
 Leave `camera=`, the thumbs, and `metadata.txt`. Leave the background unless asked. `demo_camera` is `bg_name="usermade:1477936027689"`, `_bgs/1477936027689.zip`, and `bg="1.0 0.0 0.0 0.0"` on every frame. `demo_space2` got a new sky only as its own request. That raster is 1280×960, so those frames use `bg="0.5 0.0 0.0 0.0"` to fill 640×480.
 
 Do not add boil frames unless asked. The sun's three frames and `animations_v2.txt` are a separate pass. Every boil frame uses the same uncropped canvas and the same offset.
+
+When those frames are written into an `.ati`, name them `bm_<id>_state_<n>.png` with one `<id>` for the bone. `<n>` matches `<edgeAsset state>`. Android (`Utils.BM_NAME_PATTERN`, `bm_(\\d+)_state_(\\d+).png`) reads the bone id and the frame from that name and does not read `state` on the tag. iOS playback still reads the attribute. iOS `galleryBones` groups the same pattern and shows the lowest state. A name that does not match, such as `sun_0.png`, is its own bone. The sun uses `bm_1_state_0.png`, `bm_1_state_1.png`, and `bm_1_state_2.png`.
 
 ## Where they go
 

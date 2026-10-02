@@ -93,6 +93,8 @@ Pack items are not embedded in the `.ats`. After the rename the scene looks up `
 
 Leave `camera=`, the thumbs, and `metadata.txt`. Leave the background unless asked. Do not add boil frames unless asked. Every boil frame uses the same uncropped canvas and the same offset.
 
+When those frames are written into an `.ati`, name them `bm_<id>_state_<n>.png` with one `<id>` for the bone. `<n>` matches `<edgeAsset state>`. Android (`Utils.BM_NAME_PATTERN`, `bm_(\\d+)_state_(\\d+).png`) reads the bone id and the frame from that name and does not read `state` on the tag. iOS playback still reads the attribute. iOS `galleryBones` groups the same pattern and shows the lowest state. A name that does not match, such as `sun_0.png`, is its own bone.
+
 ## Scene-authoring rules
 
 1. Anything you fill must be drawn with `closed=True`. Otherwise the fill leaks through the gap.

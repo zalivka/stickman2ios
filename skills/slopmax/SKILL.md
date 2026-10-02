@@ -53,6 +53,8 @@ Stars go behind every other object. Dim them (source opacity × 0.4 over the sky
 
 Do not crop a bone to its alpha box. A crop moves the joint, and two frames cropped apart will not share one.
 
+Name every frame of one bone `bm_<id>_state_<n>.png` with the same `<id>`. `<n>` matches that row's `<edgeAsset state>`. Android and the iOS gallery both treat that id as one bone. `sun_0.png` is a separate bone.
+
 ```text
 joint in the source bitmap = (-old_x_offset, -old_y_offset)
 new offset                 = -((joint + 40) * 4)

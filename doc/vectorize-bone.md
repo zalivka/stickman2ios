@@ -6,13 +6,15 @@ Slopmaxing an item or a scene uses this tracer, then packs a 4× `.ati` and divi
 
 The source is the raster, `bm_*_state_0.png`. Black marks are dropped. What remains is split by colour, and each blob becomes a simplified polygon. That polygon is what gets brushed.
 
+Write redrawn frames back under that same name: `bm_<id>_state_<n>.png`, one `<id>` per bone, `<n>` equal to the edge `state`. Android and the iOS gallery both collapse that id to one bone. A name like `sun_0.png` does not. Details are in [slopmax.md](slopmax.md).
+
 ## Colour split
 
 Work on solid pixels only (`alpha > 200`). Drop white (`rgb >= 240`) and the black ink (`rgb <= 24`), plus a one-pixel fringe around that ink so the dark edge of a black stroke is not its own colour. Gray limbs (low saturation, peak `>= 70`) stay. A near-black outline such as `#2C2C2B` does not.
 
 Bucket the remaining pixels into flat colours: round to 16, then merge centres within 36. Assign every solid pixel to the nearest centre. A blob under 40 pixels is ignored. The colour written later is the median of the solid pixels in that blob, not the rounded centre.
 
-Black strokes used to sit between two colours and leave a white crack once they were removed. Grow each colour across the silhouette (`alpha > 32`) for up to 16 steps so neighbouring regions meet. Then `buffer(2.5)` the polygon before simplifying, and later put a flat fill of `buffer(1.5)` under the brush, because the wobble walks off the traced edge.
+Black strokes used to sit between two colours and leave a white crack once they were removed. Grow each colour across the silhouette (`alpha > 32`) for up to 16 steps so neighbouring regions meet. Then `buffer(2.5)` the polygon before simplifying, and paint a flat fill of `buffer(1.5)` when that shape is drawn, because the wobble walks off the traced edge. That fill is a layer at that moment. Putting it under the whole SVG lets a wall fill, drawn earlier, paint over a window.
 
 ## Outline
 
@@ -29,7 +31,7 @@ How a polygon is drawn:
 | Shape | Test | Draw |
 |---|---|---|
 | Limb | short side `< 42` and long side `> short × 2.2` | One stroke down the long axis. Width is the short side, clamped to 14…48. Inset each end by half that width so the round cap stays inside the part. |
-| Compact part (eye, ear, torso patch) | anything else with at least 4 corners | Closed outline. Brush is 14 when the short side is `≥ 42`, otherwise `max(6, short × 0.4)`. One fill tap in the inset interior. |
+| Compact part (eye, ear, torso patch) | anything else with at least 4 corners | Closed outline. Brush is 14 when the short side is `≥ 42`, otherwise `max(6, short × 0.4)`. One fill tap per connected colour in the inset. A single tap recolours only that colour, so a shape sitting on two colours needs both. |
 
 A fill whose area is more than 85% of the canvas is a leak. Stop.
 
