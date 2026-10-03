@@ -15,11 +15,42 @@ struct CustomItemsListScreen: View {
     @State private var copyName = ""
     @State private var copyError = ""
     @State private var shareItem: CustomItems.Item?
+    @State private var newHintToken = 0
+    @State private var newHintVisible = false
 
     var body: some View {
         HStack(spacing: 0) {
             slotsGrid
             templatesRail
+        }
+        .overlay {
+            if items.isEmpty {
+                VStack(spacing: 6) {
+                    Text("Create a new item")
+                        .font(.system(size: 22, weight: .semibold))
+                    Text("Or use a template")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .foregroundStyle(.white)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: pointAtNew)
+                .anchorPreference(key: HintAnchorKey.self, value: .bounds) { ["hint": $0] }
+            }
+        }
+        .overlayPreferenceValue(HintAnchorKey.self) { anchors in
+            GeometryReader { geo in
+                if newHintVisible, let hint = anchors["hint"], let button = anchors["new"] {
+                    let text = geo[hint]
+                    let target = geo[button]
+                    NewItemHintLine(
+                        from: CGPoint(x: text.maxX + 18, y: text.midY),
+                        to: CGPoint(x: target.minX - 18, y: target.midY)
+                    )
+                    .id(newHintToken)
+                }
+            }
+            .allowsHitTesting(false)
         }
         .background(slotsDarkGrey.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
@@ -112,6 +143,16 @@ struct CustomItemsListScreen: View {
                 .background(slotsBrightGreen)
             }
             .buttonStyle(.plain)
+            .anchorPreference(key: HintAnchorKey.self, value: .bounds) { ["new": $0] }
+            .overlay {
+                if newHintVisible {
+                    Rectangle()
+                        .stroke(.white, lineWidth: 3)
+                        .id(newHintToken)
+                        .modifier(HintFlash())
+                        .allowsHitTesting(false)
+                }
+            }
 
             Text("Templates")
                 .font(.system(size: 14))
@@ -141,6 +182,18 @@ struct CustomItemsListScreen: View {
         .frame(width: templateIconSize + 16)
     }
 
+    private func pointAtNew() {
+        newHintToken += 1
+        newHintVisible = true
+        let token = newHintToken
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if token == newHintToken {
+                newHintVisible = false
+            }
+        }
+    }
+
     private func confirmCopy(_ item: CustomItems.Item) {
         do {
             try CustomItems.copy(item, as: copyName)
@@ -155,6 +208,43 @@ struct CustomItemsListScreen: View {
         } catch {
             copyError = "Could not copy the item: \(error.localizedDescription)"
         }
+    }
+}
+
+private struct HintAnchorKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private struct HintFlash: ViewModifier {
+    @State private var bright = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(bright ? 1 : 0.15)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.16).repeatCount(7, autoreverses: true)) {
+                    bright = true
+                }
+            }
+    }
+}
+
+private struct NewItemHintLine: View {
+    var from: CGPoint
+    var to: CGPoint
+
+    var body: some View {
+        Path { path in
+            path.move(to: from)
+            path.addLine(to: to)
+        }
+        .stroke(slotsBrightGreen, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .modifier(HintFlash())
     }
 }
 
