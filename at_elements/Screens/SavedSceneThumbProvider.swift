@@ -15,16 +15,16 @@ struct SavedSceneThumbProvider: ImageDataProvider {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let zip = try Data(contentsOf: url)
-                let names = ZipStore.names(in: zip)
+                let names = try ZipStore.namesThrowing(in: zip)
                 let thumbName: String
                 if names.contains("thumb_big.png") {
                     thumbName = "thumb_big.png"
                 } else if names.contains("thumb.png") {
                     thumbName = "thumb.png"
                 } else {
-                    fatalError("SavedSceneThumbProvider '\(url.lastPathComponent)' has no thumb_big.png or thumb.png")
+                    throw ZipError(message: "SavedSceneThumbProvider '\(url.lastPathComponent)' has no thumb")
                 }
-                handler(.success(ZipStore.data(named: thumbName, in: zip)))
+                handler(.success(try ZipStore.dataThrowing(named: thumbName, in: zip)))
             } catch {
                 handler(.failure(error))
             }

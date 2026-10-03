@@ -27,15 +27,39 @@ enum SavedScenes {
                 options: [.skipsHiddenFiles]
             )
         } catch {
-            fatalError("SavedScenes could not list \(dir.path): \(error)")
+            return []
         }
         return items(from: urls.filter { $0.pathExtension.lowercased() == SceneSaver.ext })
+    }
+
+    /// A scene stays in the grid only when its archive, model, and thumb all read.
+    private static func isListable(_ url: URL) -> Bool {
+        guard let zip = try? Data(contentsOf: url),
+              let names = try? ZipStore.namesThrowing(in: zip),
+              names.contains("model.xml"),
+              let xml = try? ZipStore.dataThrowing(named: "model.xml", in: zip),
+              (try? SceneXML.parse(xml)) != nil
+        else {
+            return false
+        }
+        let thumbName: String
+        if names.contains("thumb_big.png") {
+            thumbName = "thumb_big.png"
+        } else if names.contains("thumb.png") {
+            thumbName = "thumb.png"
+        } else {
+            return false
+        }
+        return (try? ZipStore.dataThrowing(named: thumbName, in: zip)) != nil
     }
 
     private static func items(from urls: [URL]) -> [Item] {
         let items = urls.compactMap { url -> Item? in
             let name = url.deletingPathExtension().lastPathComponent
             if name.hasPrefix("~") || name.hasPrefix("best_") {
+                return nil
+            }
+            if !isListable(url) {
                 return nil
             }
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?

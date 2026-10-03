@@ -3,7 +3,7 @@ import Combine
 final class VideoExport: ObservableObject {
     enum Failure: Equatable {
         case photosDenied
-        case exportFailed
+        case exportFailed(String)
     }
 
     enum Phase: Equatable {
@@ -45,11 +45,11 @@ final class VideoExport: ObservableObject {
                     switch result {
                     case .failure(let error):
                         JpegSequenceWriter.clean()
-                        if error is JpegWriteError {
+                        if case .cancelled = error as? JpegWriteError {
                             self.finish(.cancelled)
                             return
                         }
-                        self.finish(.failed(.exportFailed))
+                        self.finish(.failed(.exportFailed(Self.failureText(error))))
                     case .success(let count):
                         if active.isCancelled {
                             JpegSequenceWriter.clean()
@@ -57,7 +57,9 @@ final class VideoExport: ObservableObject {
                             return
                         }
                         if count < 1 {
-                            fatalError("VideoExport write produced \(count) files")
+                            JpegSequenceWriter.clean()
+                            self.finish(.failed(.exportFailed("VideoExport write produced \(count) files")))
+                            return
                         }
                         JpegVideoAssembler.assemble(frameCount: count) { assembleResult in
                             Task { @MainActor in
@@ -74,7 +76,7 @@ final class VideoExport: ObservableObject {
                                        case .photosDenied = assemblerError {
                                         self.finish(.failed(.photosDenied))
                                     } else {
-                                        self.finish(.failed(.exportFailed))
+                                        self.finish(.failed(.exportFailed(Self.failureText(assembleError))))
                                     }
                                 }
                             }
@@ -92,6 +94,16 @@ final class VideoExport: ObservableObject {
         stop?.cancel()
         JpegVideoAssembler.cancel()
         finish(.cancelled)
+    }
+
+    private static func failureText(_ error: Error) -> String {
+        if let write = error as? JpegWriteError, case .failed(let message) = write {
+            return message
+        }
+        if error is JpegVideoAssembler.AssemblerError {
+            return "Export failed"
+        }
+        return error.localizedDescription
     }
 
     private func finish(_ next: Phase) {

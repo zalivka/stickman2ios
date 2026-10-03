@@ -15,11 +15,19 @@ enum JpegVideoAssembler {
 
     static func assemble(frameCount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
         if frameCount < 1 {
-            fatalError("JpegVideoAssembler frameCount \(frameCount)")
+            completion(.failure(AssemblerError.frameCount(frameCount)))
+            return
         }
-        let first = JpegSequenceWriter.fileURL(index: 0)
+        let first: URL
+        do {
+            first = try JpegSequenceWriter.fileURL(index: 0)
+        } catch {
+            completion(.failure(error))
+            return
+        }
         if !FileManager.default.fileExists(atPath: first.path) {
-            fatalError("JpegVideoAssembler missing \(first.path)")
+            completion(.failure(AssemblerError.missingFrame(first.path)))
+            return
         }
         let pattern = JpegSequenceWriter.directory()
             .appendingPathComponent("frame%04d.jpeg", isDirectory: false)
@@ -93,6 +101,8 @@ enum JpegVideoAssembler {
     }
 
     enum AssemblerError: Error {
+        case frameCount(Int)
+        case missingFrame(String)
         case ffmpegFailed(Int)
         case missingOutput
         case photosDenied

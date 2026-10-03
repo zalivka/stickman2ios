@@ -18,8 +18,18 @@ final class JpegWriteStop: @unchecked Sendable {
     }
 }
 
-enum JpegWriteError: Error {
+enum JpegWriteError: Error, CustomStringConvertible {
     case cancelled
+    case failed(String)
+
+    var description: String {
+        switch self {
+        case .cancelled:
+            return "Export cancelled"
+        case .failed(let message):
+            return message
+        }
+    }
 }
 
 enum JpegSequenceWriter {
@@ -30,15 +40,15 @@ enum JpegSequenceWriter {
         FileManager.default.temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
     }
 
-    static func fileName(index: Int) -> String {
+    static func fileName(index: Int) throws -> String {
         if index < 0 {
-            fatalError("JpegSequenceWriter index \(index)")
+            throw JpegWriteError.failed("JpegSequenceWriter index \(index)")
         }
         return String(format: "frame%04d.jpeg", index)
     }
 
-    static func fileURL(index: Int) -> URL {
-        directory().appendingPathComponent(fileName(index: index), isDirectory: false)
+    static func fileURL(index: Int) throws -> URL {
+        try directory().appendingPathComponent(fileName(index: index), isDirectory: false)
     }
 
     /// Removes the intermediate-frame directory if present. Cleanup failure
@@ -62,7 +72,10 @@ enum JpegSequenceWriter {
         completion: @escaping (Result<Int, Error>) -> Void
     ) {
         if scene.frames.count < 2 {
-            fatalError("JpegSequenceWriter needs at least 2 keyframes, got \(scene.frames.count)")
+            completion(.failure(JpegWriteError.failed(
+                "JpegSequenceWriter needs at least 2 keyframes, got \(scene.frames.count)"
+            )))
+            return
         }
         clean()
         MovieGenerator.generate(
@@ -79,18 +92,20 @@ enum JpegSequenceWriter {
                         }
                         return
                     }
-                    let count = writeJpegs(
-                        movie: movie,
-                        assets: assets,
-                        backgrounds: backgrounds,
-                        stop: stop,
-                        progress: progress
-                    )
-                    DispatchQueue.main.async {
-                        if let count {
+                    do {
+                        let count = try writeJpegs(
+                            movie: movie,
+                            assets: assets,
+                            backgrounds: backgrounds,
+                            stop: stop,
+                            progress: progress
+                        )
+                        DispatchQueue.main.async {
                             completion(.success(count))
-                        } else {
-                            completion(.failure(JpegWriteError.cancelled))
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            completion(.failure(error))
                         }
                     }
                 }
@@ -104,9 +119,9 @@ enum JpegSequenceWriter {
         backgrounds: BackgroundAssets,
         stop: JpegWriteStop,
         progress: @escaping (Int) -> Void
-    ) -> Int? {
+    ) throws -> Int {
         if movie.frames.isEmpty {
-            fatalError("JpegSequenceWriter movie has no frames")
+            throw JpegWriteError.failed("JpegSequenceWriter movie has no frames")
         }
         let dir = directory()
         let fm = FileManager.default
@@ -114,20 +129,20 @@ enum JpegSequenceWriter {
             do {
                 try fm.removeItem(at: dir)
             } catch {
-                fatalError("JpegSequenceWriter could not wipe \(dir.path): \(error)")
+                throw JpegWriteError.failed("JpegSequenceWriter could not wipe \(dir.path): \(error)")
             }
         }
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         } catch {
-            fatalError("JpegSequenceWriter could not create \(dir.path): \(error)")
+            throw JpegWriteError.failed("JpegSequenceWriter could not create \(dir.path): \(error)")
         }
         let total = movie.frames.count
         for index in movie.frames.indices {
             if stop.isCancelled {
-                return nil
+                throw JpegWriteError.cancelled
             }
-            autoreleasepool {
+            try autoreleasepool {
                 let cgImage = FrameRasterizer.render(
                     frame: movie.frames[index],
                     assets: assets,
@@ -137,20 +152,20 @@ enum JpegSequenceWriter {
                 )
                 let uiImage = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
                 guard let data = uiImage.jpegData(compressionQuality: 0.95), !data.isEmpty else {
-                    fatalError("JpegSequenceWriter frame \(index) JPEG encode failed")
+                    throw JpegWriteError.failed("JpegSequenceWriter frame \(index) JPEG encode failed")
                 }
-                let url = fileURL(index: index)
+                let url = try fileURL(index: index)
                 do {
                     try data.write(to: url, options: .atomic)
                 } catch {
-                    fatalError("JpegSequenceWriter write \(url.lastPathComponent): \(error)")
+                    throw JpegWriteError.failed("JpegSequenceWriter write \(url.lastPathComponent): \(error)")
                 }
                 if !fm.fileExists(atPath: url.path) {
-                    fatalError("JpegSequenceWriter missing \(url.lastPathComponent) after write")
+                    throw JpegWriteError.failed("JpegSequenceWriter missing \(url.lastPathComponent) after write")
                 }
             }
             if stop.isCancelled {
-                return nil
+                throw JpegWriteError.cancelled
             }
             let raster = 40 + ((index + 1) * 60 / total)
             DispatchQueue.main.async {

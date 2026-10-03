@@ -535,8 +535,8 @@ struct SceneEditorScreen: View {
                 case .photosDenied:
                     showingPhotosDenied = true
                     showExportToast(ExportToast(text: "Photos access denied — allow in Settings to save video", background: .red, foreground: .white))
-                case .exportFailed:
-                    showExportToast(ExportToast(text: "Export failed", background: .red, foreground: .white))
+                case .exportFailed(let message):
+                    showExportToast(ExportToast(text: message, background: .red, foreground: .white))
                 }
             case .idle:
                 break
