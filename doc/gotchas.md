@@ -59,7 +59,7 @@ An `.atp` is distribution only. Bump `meta.txt` `version` to publish a new pack.
 
 Insert queries one pack at a time (`Query(packName)`). Do not mix `common` or custom `@` into every pack the way Android `Query.setPacks` does.
 
-Android `PACK_CUSTOM_ITEMS` is `@`: not an `.atp`. `ReloadCustomPackTask` lists `*.ati` in the customs directory (skip `~`). The chooser tile is `~custom_agg` (“Custom items”, `angry_cat`). iOS registers `@` itself as that pack and lists those files. `itemZip` reads the `.ati` file; `UnitAssets.atiEntryName` for `@` is `name.ati`. Reload after `CustomsSeeder` and on `.customItemsDidChange`.
+Android `PACK_CUSTOM_ITEMS` is `@`: not an `.atp`. `ReloadCustomPackTask` lists `*.ati` in the customs directory (skip `~`). The chooser tile is `~custom_agg` (“Custom items”, `angry_cat`). iOS registers `@` itself as that pack and lists those files. `itemZip` reads the `.ati` file; `UnitAssets.atiEntryName` for `@` is `name.ati`. Reload on app start and on `.customItemsDidChange`.
 
 Missing `fullname=` is Android’s paid lock. iOS has no IAP: every manifest item with an `.ati` is usable (`fullname` is always `pack:sname`). Do not hide or refuse insert for a missing XML `fullname`. Android chooser also lists locked items; it only skips `readOnly`. `super.pack` is the pack that actually omits `fullname` (49 of 52). Other bundled packs already stamp `fullname` on every item. Extra `.ati` files not listed in `manifest.xml` (`vk.gr1` / `vk.gr2`) stay out, same as Android.
 

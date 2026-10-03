@@ -69,7 +69,7 @@ private struct ManifestBootView: View {
             BootLog.say("ManifestBootView.task start")
             AssetTemplates.prepare()
             DemoSeeder.copyIfNeeded()
-            CustomsSeeder.copyIfNeeded()
+            CustomsSeeder.removeSeeded()
             _ = await Manifest.shared.awaitBootReload()
             _ = await Manifest.shared.requestReloadCustomPack()
             BootLog.say("ManifestBootView.task done")

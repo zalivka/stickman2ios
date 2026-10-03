@@ -161,7 +161,7 @@ Via `devicectl` (Documents stays private, no Finder access):
   ```bash
   xcrun devicectl list devices
   xcrun devicectl device copy from --device <ID> \
-    --domain-type appDataContainer --domain-identifier zalivka.at-elements \
+    --domain-type appDataContainer --domain-identifier zalivka.animation \
     --source "Library/Application Support/BonePaperRecordings" --destination ./recordings
   ```
 
@@ -419,7 +419,7 @@ rsvg-convert -w 1280 -h 960 out/noir_city/drawing.svg -o out/noir_city/bg.png
 # thumb: scale = max(100/w, 100/h), centre-crop 100×100, then zip bg.png + thumb.png
 OWN=$(python3.12 -c 'import time; print(int(time.time()*1000))')
 xcrun devicectl device copy to --device <ID> \
-  --domain-type appDataContainer --domain-identifier zalivka.at-elements \
+  --domain-type appDataContainer --domain-identifier zalivka.animation \
   --source out/noir_city/${OWN}.zip \
   --destination "Library/Application Support/at_elements/bgs/${OWN}.zip"
 ```
@@ -467,7 +467,7 @@ Line boil is the hand-drawn look of cycling 3 re-traced copies of the same pictu
 
 - **Redrawing beats warping.** A noise warp of the finished bitmap (SwiftUI `distortionEffect`, or Core Image displacement) moves lines, fills and empty paper together, so straight edges ripple like heat haze. Re-tracing the strokes and recomputing the fills keeps each line independent and the fills tucked under them. That is what `boil.py` does for a `session.json`.
 - **A Metal shader was tried and removed.** The warp comparison was a stitchable shader, `BoilShader.metal`. Xcode 26 does not ship the Metal compiler; the first build that contains a `.metal` file asks to download the Metal Toolchain. The redrawn PNGs need no shader, so the file was deleted. Do not add a `.metal` file for this.
-- **Most items have no stroke log and no vectors.** Of 515 items in `at_elements/packs`, 38 ship SVG (`svg/v_<id>_state_<n>.svg` next to `bm_<id>_state_<n>.png`). The rest, including `testdata/aaa_sword.ati`, are one flat PNG per bone. The sword is 312×77, four colours: blade `#76C2FF` / navy `#003F68`, hilt `#D87DEC` / purple `#540052`, with almost no antialiasing.
+- **Most items have no stroke log and no vectors.** Of 515 items in `at_elements/packs`, 38 ship SVG (`svg/v_<id>_state_<n>.svg` next to `bm_<id>_state_<n>.png`). The rest are one flat PNG per bone.
 - **For a flat PNG, the workable boil is ink versus paint, not a warp.** Split dark pixels (OKLab lightness under about 0.45) from the fills, grow the paint about 1.5 px under the ink, and displace only the ink. The fills stay still and no gap opens. This was not built; the demo uses SVG items instead.
 - **Pack SVGs are filled shapes, not centre-line strokes.** Kurwa export: absolute `M`/`C`/`z`, `fill` and `stroke` usually the same colour, `stroke-width` about half the bitmap padding. The dog (`template.basic.atp`, `dog.ati`) is the clean case: one filled shape per part, one shared dark outline (`stroke:#111111; stroke-width:4.6`). The shark is not: many paths per part, fills and strokes at opacity 0, `command_scale="auto"`. It was rejected for the demo.
 - **SVG coordinates are already in the bone frame.** The start point is the origin and +x runs along the bone. `x_offset`/`y_offset` is the path's bounding box grown by about half the stroke. Dog part 68: path minimum (−26.1, −62.4), offset (−29.4, −65.7), PNG 219×168. Assembling with `SkeletonCanvas.drawBitmaps` (translate to the start point, rotate by the bone angle, `weight` order) reproduces `poster.png`.

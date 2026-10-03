@@ -14,7 +14,7 @@
 - [x] 2.2 Done: `ITSAppUsesNonExemptEncryption=false` in `Info.plist` (only exempt SHA-256 + HTTPS). Still answer No/exempt in Connect once.
 - [x] 2.3 Done: `UIFileSharingEnabled=false`, recordings moved to `Library/Application Support/BonePaperRecordings` (`BonePaperRecorder.swift`).
 - [ ] 2.4 Usage string is done in `Info.plist` and both `INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription` settings: "The app saves exported videos to your photo library." Still add privacy nutrition + privacy policy URL in Connect.
-- [ ] 2.5 Bump `MARKETING_VERSION / CURRENT_PROJECT_VERSION` (now 1.0 / 1). Confirm bundle id `zalivka.at-elements`, team `2X6F8N8723`.
+- [ ] 2.5 Bump `MARKETING_VERSION / CURRENT_PROJECT_VERSION` (now 1.0 / 1). Confirm bundle id `zalivka.animation`, team `2X6F8N8723`.
 
 ## 3. Permissions UX
 - [x] 3.1 Done: `VideoExport.Phase.failed(Failure)` carries `.photosDenied` vs `.exportFailed`; denied shows "allow in Settings" toast + Open Settings alert.
@@ -24,7 +24,7 @@
 ## 4. Files / UTIs / background
 - [ ] 4.1 Test open-in from Files/Mail for `ats/ati` (`CFBundleDocumentTypes`, `LSSupportsOpeningDocumentsInPlace=false`). Must import or show friendly error.
 - [x] 4.2 Done: background or leave mid-export cancels, Export is re-enabled, and "Export cancelled" is shown when the editor is visible again. No background task or notification.
-- [ ] 4.3 Check tmp cleanup: `export.mp4`, `frame%04d.jpeg` in tmp/cache don't grow unbounded.
+- [x] 4.3 Done: frames live in one `tmp/export_jpegs/` directory and are removed when an export ends and again at the start of the next one. `export.mp4` is a single file, replaced on the next export. Neither grows.
 
 ## 5. Export quality
 - [ ] 5.1 Confirm `mpeg4 + qscale 1, 60fps` (`JpegVideoAssembler.swift:38-49`) plays in Photos, sane size. The `+1s duration` tail freezes last frame — trim or justify.
@@ -34,8 +34,7 @@
 - [ ] 6.1 Small screens: `LandingScreen` rail 100pt, bias-positioned hex buttons — check SE width for clip/overlap.
 - [x] 6.2 Done: dropped `statusBarHidden` + `persistentSystemOverlays(.hidden)` — Home indicator and status bar stay visible.
 - [x] 6.3 Done: `UIRequiresFullScreen=true`. iPadOS 26 keeps a fixed scene size and scales the window instead of reflowing the editor. The key is deprecated and a future iPadOS will ignore it.
-- [ ] 6.4 Accessibility: custom `.plain` buttons need labels, min 44pt targets, contrast on `#3d3e4c` pane, Dynamic Type where text matters.
-- [ ] 6.5 Empty states + confirms: LOAD grid empty, delete background/scene confirm, unsaved-changes guard.
+- [ ] 6.5 Confirms: delete background or custom item asks first. Unsaved-changes guard is already in the editor (Save / Don’t Save / Cancel).
 - [ ] 6.6 App size: FFmpegKit xcframework is heavy — check final IPA size, slices stripped.
 
 ## 7. Metadata to prepare
