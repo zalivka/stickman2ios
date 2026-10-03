@@ -110,7 +110,7 @@ private struct ManifestBootView: View {
                     try IncomingScene.importURL(url)
                     showToast("Scene copied")
                 default:
-                    showToast("error")
+                    showToast("This file is not a scene (.ats) or an item (.ati).")
                 }
             } catch {
                 showToast(ItemLoadError.text(error))

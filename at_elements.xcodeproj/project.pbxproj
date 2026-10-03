@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
+		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
 		74FF001174FF0001000CC4A9 /* ffmpegkit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000174FF0001000CC4A9 /* ffmpegkit.xcframework */; };
 		74FF001274FF0001000CC4A9 /* libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000274FF0001000CC4A9 /* libavcodec.xcframework */; };
 		74FF001374FF0001000CC4A9 /* libavdevice.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000374FF0001000CC4A9 /* libavdevice.xcframework */; };
@@ -23,10 +25,29 @@
 		74FF002674FF0001000CC4A9 /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000674FF0001000CC4A9 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002774FF0001000CC4A9 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000774FF0001000CC4A9 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000874FF0001000CC4A9 /* libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
-		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
 		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		74FF004074FF0001000CC4A9 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				74FF002174FF0001000CC4A9 /* ffmpegkit.xcframework in Embed Frameworks */,
+				74FF002274FF0001000CC4A9 /* libavcodec.xcframework in Embed Frameworks */,
+				74FF002374FF0001000CC4A9 /* libavdevice.xcframework in Embed Frameworks */,
+				74FF002474FF0001000CC4A9 /* libavfilter.xcframework in Embed Frameworks */,
+				74FF002574FF0001000CC4A9 /* libavformat.xcframework in Embed Frameworks */,
+				74FF002674FF0001000CC4A9 /* libavutil.xcframework in Embed Frameworks */,
+				74FF002774FF0001000CC4A9 /* libswresample.xcframework in Embed Frameworks */,
+				74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		743A529F3054CBF6000CC4A9 /* at_elements.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = at_elements.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -71,27 +92,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		74FF004074FF0001000CC4A9 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				74FF002174FF0001000CC4A9 /* ffmpegkit.xcframework in Embed Frameworks */,
-				74FF002274FF0001000CC4A9 /* libavcodec.xcframework in Embed Frameworks */,
-				74FF002374FF0001000CC4A9 /* libavdevice.xcframework in Embed Frameworks */,
-				74FF002474FF0001000CC4A9 /* libavfilter.xcframework in Embed Frameworks */,
-				74FF002574FF0001000CC4A9 /* libavformat.xcframework in Embed Frameworks */,
-				74FF002674FF0001000CC4A9 /* libavutil.xcframework in Embed Frameworks */,
-				74FF002774FF0001000CC4A9 /* libswresample.xcframework in Embed Frameworks */,
-				74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		743A529C3054CBF6000CC4A9 /* Frameworks */ = {
@@ -371,7 +371,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = at_elements/Info.plist;
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Stickman saves exported videos to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The app saves exported videos to your photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -406,7 +406,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = at_elements/Info.plist;
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Stickman saves exported videos to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The app saves exported videos to your photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

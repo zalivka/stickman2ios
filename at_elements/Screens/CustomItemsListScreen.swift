@@ -150,8 +150,10 @@ struct CustomItemsListScreen: View {
             copyError = "Illegal symbols"
         } catch CustomItems.CopyError.exists {
             copyError = "Already exists"
+        } catch CustomItems.CopyError.failed(let message) {
+            copyError = message
         } catch {
-            copyError = "error"
+            copyError = "Could not copy the item: \(error.localizedDescription)"
         }
     }
 }

@@ -131,7 +131,7 @@ nonisolated enum CustomItems {
         do {
             try fm.copyItem(at: item.url, to: dest)
         } catch {
-            fatalError("CustomItems copy \(item.url.lastPathComponent): \(error)")
+            throw CopyError.failed("Could not copy the item: \(error.localizedDescription)")
         }
         // See delete: the cached `@` pack must be reloaded after every change.
         NotificationCenter.default.post(name: .customItemsDidChange, object: nil)
@@ -140,6 +140,7 @@ nonisolated enum CustomItems {
     enum CopyError: Error {
         case illegalName
         case exists
+        case failed(String)
     }
 
     private static func displayName(zip: Data, fileName: String) -> String {

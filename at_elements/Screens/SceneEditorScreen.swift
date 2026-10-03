@@ -1260,7 +1260,7 @@ struct SceneEditorScreen: View {
         } catch {
             showingSave = false
             dismissAfterSave = false
-            showToast("error")
+            showToast("Could not save the project: \(error.localizedDescription)")
         }
     }
 

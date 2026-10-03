@@ -6,10 +6,21 @@ extension Notification.Name {
 }
 
 enum IncomingScene {
-    enum Failure: Error {
+    enum Failure: Error, CustomStringConvertible {
         case notAScene
         case readFailed(Error)
         case writeFailed(Error)
+
+        var description: String {
+            switch self {
+            case .notAScene:
+                return "This file is not a scene. It has no model.xml."
+            case .readFailed(let error):
+                return "Could not read the scene: \(error.localizedDescription)"
+            case .writeFailed(let error):
+                return "Could not save the scene: \(error.localizedDescription)"
+            }
+        }
     }
 
     static func importURL(_ url: URL) throws {
@@ -25,7 +36,13 @@ enum IncomingScene {
         } catch {
             throw Failure.readFailed(error)
         }
-        if !ZipStore.contains("model.xml", in: zip) {
+        let names: [String]
+        do {
+            names = try ZipStore.namesThrowing(in: zip)
+        } catch {
+            throw Failure.notAScene
+        }
+        if !names.contains("model.xml") {
             throw Failure.notAScene
         }
         let name = SceneSaver.incomingName(from: zip)
