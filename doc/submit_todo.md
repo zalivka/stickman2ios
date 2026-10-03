@@ -23,7 +23,7 @@
 
 ## 4. Files / UTIs / background
 - [ ] 4.1 Test open-in from Files/Mail for `ats/ati` (`CFBundleDocumentTypes`, `LSSupportsOpeningDocumentsInPlace=false`). Must import or show friendly error.
-- [ ] 4.2 Verify background/leave mid-export cancels cleanly (no hang, "Export cancelled" toast, Export re-enabled). No background task or notification anymore.
+- [x] 4.2 Done: background or leave mid-export cancels, Export is re-enabled, and "Export cancelled" is shown when the editor is visible again. No background task or notification.
 - [ ] 4.3 Check tmp cleanup: `export.mp4`, `frame%04d.jpeg` in tmp/cache don't grow unbounded.
 
 ## 5. Export quality

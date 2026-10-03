@@ -52,6 +52,8 @@ struct SceneEditorScreen: View {
     @State private var lastSavedName: String?
     @State private var saveToast = ""
     @State private var exportToast: ExportToast?
+    /// Background cancel happens off-screen. Show the toast once the editor is visible again.
+    @State private var announceCancelOnActive = false
     @State private var showingPhotosDenied = false
     @State private var showingFBF = false
     @State private var showingAdvanced = false
@@ -529,7 +531,11 @@ struct SceneEditorScreen: View {
                     foreground: .white
                 ))
             case .cancelled:
-                showExportToast(ExportToast(text: "Export cancelled", background: Color.black.opacity(0.78), foreground: .white))
+                if scenePhase == .active {
+                    showCancelledExportToast()
+                } else {
+                    announceCancelOnActive = true
+                }
             case .failed(let failure):
                 switch failure {
                 case .photosDenied:
@@ -561,7 +567,10 @@ struct SceneEditorScreen: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .background, videoExport.phase == .saving {
                 videoExport.cancel()
-                ToastCenter.show("Export cancelled")
+            }
+            if phase == .active, announceCancelOnActive {
+                announceCancelOnActive = false
+                showCancelledExportToast()
             }
         }
     }
@@ -1269,6 +1278,10 @@ struct SceneEditorScreen: View {
         let text: String
         let background: Color
         let foreground: Color
+    }
+
+    private func showCancelledExportToast() {
+        showExportToast(ExportToast(text: "Export cancelled", background: Color.black.opacity(0.78), foreground: .white))
     }
 
     private func showExportToast(_ toast: ExportToast) {
