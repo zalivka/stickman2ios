@@ -25,6 +25,7 @@
 		74FF002674FF0001000CC4A9 /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000674FF0001000CC4A9 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002774FF0001000CC4A9 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000774FF0001000CC4A9 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000874FF0001000CC4A9 /* libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		74AM00033054D000000CC4A9 /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 74AM00023054D000000CC4A9 /* AmplitudeSwift */; };
 		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
 /* End PBXBuildFile section */
 
@@ -106,6 +107,7 @@
 				74FF001674FF0001000CC4A9 /* libavutil.xcframework in Frameworks */,
 				74FF001774FF0001000CC4A9 /* libswresample.xcframework in Frameworks */,
 				74FF001874FF0001000CC4A9 /* libswscale.xcframework in Frameworks */,
+				74AM00033054D000000CC4A9 /* AmplitudeSwift in Frameworks */,
 				74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */,
 				74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */,
 				74BP00033054D200000CC4A9 /* BonePaper in Frameworks */,
@@ -171,6 +173,7 @@
 			);
 			name = at_elements;
 			packageProductDependencies = (
+				74AM00023054D000000CC4A9 /* AmplitudeSwift */,
 				74KF00023054D000000CC4A9 /* Kingfisher */,
 				74FC00023054D100000CC4A9 /* FlexColorPicker */,
 				74BP00023054D200000CC4A9 /* BonePaper */,
@@ -204,6 +207,7 @@
 			mainGroup = 743A52963054CBF6000CC4A9;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				74AM00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */,
 				74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */,
 				74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */,
@@ -465,6 +469,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		74AM00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/amplitude/Amplitude-Swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.19.2;
+			};
+		};
 		74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
@@ -485,6 +497,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */;
 			productName = FlexColorPicker;
+		};
+		74AM00023054D000000CC4A9 /* AmplitudeSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74AM00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */;
+			productName = AmplitudeSwift;
 		};
 		74KF00023054D000000CC4A9 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;

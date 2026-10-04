@@ -1,6 +1,33 @@
 {
-  "originHash" : "5c5e4f307699c052e80a6965c23919a480976fdf40c9db246186a0ac72d04a9a",
+  "originHash" : "6d41002815ea23cf771eb0efc7170255249d2c85214b043fb601fa9b309bf12b",
   "pins" : [
+    {
+      "identity" : "amplitude-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/amplitude/Amplitude-Swift.git",
+      "state" : {
+        "revision" : "1707b47e26f0f5856316299efa4404597e676a03",
+        "version" : "1.19.2"
+      }
+    },
+    {
+      "identity" : "amplitudecore-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/amplitude/AmplitudeCore-Swift.git",
+      "state" : {
+        "revision" : "78083c4fbd276735821025aec8601f06ace01bd1",
+        "version" : "1.5.4"
+      }
+    },
+    {
+      "identity" : "analytics-connector-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/amplitude/analytics-connector-ios.git",
+      "state" : {
+        "revision" : "6d1a5b9666192861342b70ea0b2274180a5e1d4f",
+        "version" : "1.3.3"
+      }
+    },
     {
       "identity" : "kingfisher",
       "kind" : "remoteSourceControl",

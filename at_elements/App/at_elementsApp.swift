@@ -20,6 +20,7 @@ enum ToastCenter {
 @main
 struct at_elementsApp: App {
     init() {
+        Analytics.boot()
         AppSettings.boot()
         BootLog.say("App.init")
         StickmanFonts.boot()
@@ -105,9 +106,11 @@ private struct ManifestBootView: View {
                 switch url.pathExtension.lowercased() {
                 case CustomItems.ext:
                     try await IncomingItem.importURL(url)
+                    Analytics.event("entry_item")
                     showToast("Item copied")
                 case SceneSaver.ext:
                     try IncomingScene.importURL(url)
+                    Analytics.event("entry_saved")
                     showToast("Scene copied")
                 default:
                     showToast("This file is not a scene (.ats) or an item (.ati).")

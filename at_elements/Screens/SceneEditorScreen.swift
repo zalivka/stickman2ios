@@ -584,6 +584,7 @@ struct SceneEditorScreen: View {
         if tutorialStep == .play {
             tutorialStep = nil
             UserDefaults.standard.set(true, forKey: Self.tutorialDoneKey)
+            Analytics.event("simple_tutorial_finished")
         }
         showingPreview = true
     }
@@ -591,6 +592,7 @@ struct SceneEditorScreen: View {
     /// Android `OBInterpolation` Skip — leave without the save prompt.
     private func skipTutorial() {
         UserDefaults.standard.set(true, forKey: Self.tutorialDoneKey)
+        Analytics.event("simple_tutorial_skipped")
         dismiss()
     }
 
@@ -1259,6 +1261,7 @@ struct SceneEditorScreen: View {
             )
             lastSavedName = saved
             savedDocument = SceneSaver.documentBytes(scene: scene)
+            Analytics.event("scene_saved")
             showingSave = false
             if dismissAfterSave {
                 dismissAfterSave = false
@@ -1300,6 +1303,7 @@ struct SceneEditorScreen: View {
             return
         }
         let snapshot = scene
+        Analytics.event("requested_video", ["frames_number": snapshot.frames.count])
         videoExport.start(scene: snapshot, assets: assets, backgrounds: backgrounds)
     }
 
