@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// App settings. Chrome matches `EditPointDialog` (`doc/good_dialog.md`).
 struct AppSettingsSheet: View {
@@ -80,6 +81,7 @@ struct AppSettingsSheet: View {
                     .foregroundStyle(SkeletonChrome.toolLabel)
                     .textCase(.uppercase)
                 antialiasingCard
+                privacyCard
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)
@@ -120,6 +122,36 @@ struct AppSettingsSheet: View {
         .accessibilityLabel("Antialiasing")
         .accessibilityAddTraits(antialiasing ? [.isSelected] : [])
     }
+
+    private var privacyCard: some View {
+        Button {
+            UIApplication.shared.open(Self.privacyPolicyURL)
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Circle()
+                    .fill(Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255))
+                    .frame(width: 18, height: 18)
+                Text("Privacy Policy")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Privacy Policy")
+    }
+
+    private static let privacyPolicyURL = URL(string: "https://dc2.app/privacy.html")!
 
     private static let applyGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
 }
