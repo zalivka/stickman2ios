@@ -34,6 +34,7 @@ struct SpeedEffectsScreen: View {
                                 .frame(maxHeight: .infinity)
                                 .padding(16)
                         }
+                        .paddingTrailingIsland()
                     }
                 } else {
                     SkeletonCanvas.previewBackdrop
@@ -47,6 +48,7 @@ struct SpeedEffectsScreen: View {
                         onChange: applyCurve
                     )
                     .padding(.trailing, PreviewSeekBar.width + 16)
+                    .paddingTrailingIsland()
                     .allowsHitTesting(phase != .playing)
                 }
                 if phase == .generating {

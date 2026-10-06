@@ -41,6 +41,7 @@ struct DualNavigationChrome: View {
                 .frame(maxHeight: .infinity)
             }
         }
+        .paddingTrailingIsland()
         .onChange(of: nextPressToken) { _, _ in
             next()
         }
@@ -147,6 +148,73 @@ private struct FrameNavButton: View {
     }
 
     static let artwork = SeekFramesBar.barWidth / 1.5
+}
+
+/// Landscape Dynamic Island is a side inset. Callers ignore the horizontal safe area, so pad from the window inset.
+extension View {
+    func paddingTrailingIsland() -> some View {
+        modifier(TrailingIslandPad())
+    }
+}
+
+private struct TrailingIslandPad: ViewModifier {
+    @State private var trailingInset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.trailing, trailingInset)
+            .background {
+                WindowTrailingInsetProbe { inset in
+                    if inset != trailingInset {
+                        trailingInset = inset
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+    }
+}
+
+/// Window trailing inset. A SwiftUI safe-area read is 0 once an ancestor ignores the horizontal edges.
+private struct WindowTrailingInsetProbe: UIViewRepresentable {
+    var onChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> Probe {
+        let view = Probe()
+        view.isUserInteractionEnabled = false
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ uiView: Probe, context: Context) {
+        uiView.onChange = onChange
+        uiView.report()
+    }
+
+    final class Probe: UIView {
+        var onChange: ((CGFloat) -> Void)?
+        private var last: CGFloat?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            report()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            report()
+        }
+
+        func report() {
+            guard let window else { return }
+            let ltr = UIView.userInterfaceLayoutDirection(for: semanticContentAttribute) == .leftToRight
+            let trailing = ltr ? window.safeAreaInsets.right : window.safeAreaInsets.left
+            guard trailing != last else { return }
+            last = trailing
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange?(trailing)
+            }
+        }
+    }
 }
 
 /// Android `ImageButton` next/prev: click and long-click must not share a SwiftUI gesture.

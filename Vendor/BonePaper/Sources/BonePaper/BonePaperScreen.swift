@@ -178,7 +178,7 @@ public struct BonePaperScreen: View {
                         }
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.trailing, safe.trailing + BonePaperChrome.pad)
+                    .padding(.trailing, BonePaperChrome.pad)
                     .padding(.top, safe.top + BonePaperChrome.pad)
                     .opacity(chromeOpacity)
                 }
@@ -196,6 +196,7 @@ public struct BonePaperScreen: View {
                         onSeeking: { showingStrokePreview = $0 }
                     )
                     .padding(.bottom, safe.bottom)
+                    .offset(x: -safe.leading)
                     .opacity(chromeOpacity)
                 }
                 .overlay {

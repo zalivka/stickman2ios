@@ -39,6 +39,7 @@ struct FullscreenPreviewScreen: View {
                             .frame(maxHeight: .infinity)
                             .padding(16)
                     }
+                    .paddingTrailingIsland()
                 }
             } else {
                 SkeletonCanvas.previewBackdrop

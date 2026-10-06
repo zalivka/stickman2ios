@@ -164,6 +164,7 @@ struct SkeletonScreen: View {
                     onAttach: attachBone,
                     onEdit: editGalleryBone
                 )
+                .paddingTrailingIsland()
             }
         }
         .overlay(alignment: .topTrailing) {
