@@ -875,7 +875,15 @@ struct BonePaperColorStrip: View {
             .frame(width: Self.swatch, height: Self.swatch)
             .overlay {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(selected ? Color.white : Color(white: 0.25), lineWidth: selected ? 3 : 1)
+                    .stroke(Color(white: 0.25), lineWidth: 1)
+            }
+            .overlay {
+                if selected {
+                    Circle()
+                        .strokeBorder(Color.black, lineWidth: 1)
+                        .background(Circle().fill(Color.white))
+                        .frame(width: 10, height: 10)
+                }
             }
             .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .onTapGesture {
@@ -965,7 +973,15 @@ public struct BonePaperColorRow: View {
             .frame(width: 36, height: 36)
             .overlay {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(selected ? Color.white : Color(white: 0.25), lineWidth: selected ? 3 : 1)
+                    .stroke(Color(white: 0.25), lineWidth: 1)
+            }
+            .overlay {
+                if selected {
+                    Circle()
+                        .strokeBorder(Color.black, lineWidth: 1)
+                        .background(Circle().fill(Color.white))
+                        .frame(width: 10, height: 10)
+                }
             }
             .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .onTapGesture {
