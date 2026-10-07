@@ -13,6 +13,7 @@ final class BonePaperRecorder {
         var t1: Double?
         var input: String?
         var erase: Bool?
+        var clear: Bool?
         var color: String?
         var size: Double?
         var opacity: Double?
@@ -169,16 +170,30 @@ final class BonePaperRecorder {
         close("cancel")
     }
 
-    func fill(at point: CGPoint, color: UIColor, opacity: CGFloat) {
+    func fill(at point: CGPoint, fill: BonePaperFill) {
         if open != nil {
             fatalError("BonePaperRecorder fill with an open stroke")
+        }
+        let clear: Bool?
+        let color: String?
+        let opacity: Double?
+        switch fill {
+        case .color(let value, let valueOpacity):
+            clear = nil
+            color = BonePaperColorStore.hex(from: value)
+            opacity = Self.round(valueOpacity, 1000)
+        case .clear:
+            clear = true
+            color = nil
+            opacity = nil
         }
         ops.append(Op(
             op: "fill",
             t: now(),
             input: pendingInput,
-            color: BonePaperColorStore.hex(from: color),
-            opacity: Self.round(opacity, 1000),
+            clear: clear,
+            color: color,
+            opacity: opacity,
             zoom: Self.round(zoom, 1000),
             at: [Self.round(point.x, 100), Self.round(point.y, 100)],
             raw: pendingRaw

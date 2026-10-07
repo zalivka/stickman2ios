@@ -8,6 +8,11 @@ enum BonePaperTool {
     case fill
 }
 
+enum BonePaperFill {
+    case color(UIColor, opacity: CGFloat)
+    case clear
+}
+
 public struct BonePaperExport {
     public let image: CGImage
     /// Full-resolution (`sample` times document) paint buffer for lossless reopen, when the session started from one.
@@ -91,8 +96,8 @@ public final class BonePaperDocument: ObservableObject {
     private var strokeOpacity: CGFloat = 1
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
-    /// Last paint-bucket colour+opacity. Nil after a stroke, undo, or redo so the next tap starts at skip 0.20.
-    private var lastFillPaint: FillPaint?
+    /// Last paint-bucket operation. Nil after a stroke, undo, or redo so the next tap starts at skip 0.20.
+    private var lastFillOperation: FillOperation?
     private var fillStreak = 0
     /// Serial so a fill never overlaps another write to `context`.
     private let fillQueue = DispatchQueue(label: "bonepaper.fill", qos: .userInitiated)
@@ -190,7 +195,7 @@ public final class BonePaperDocument: ObservableObject {
     func beginStroke(erase: Bool, opacity: CGFloat) {
         if filling { return }
         recorder.begin(erase: erase, opacity: opacity)
-        lastFillPaint = nil
+        lastFillOperation = nil
         pushUndo()
         redoStack.removeAll()
         if erase {
@@ -260,8 +265,8 @@ public final class BonePaperDocument: ObservableObject {
         }
     }
 
-    /// Paint-bucket tap. Same colour+opacity in a row loosens skip/neighbour/ink; a different colour, stroke, undo or redo resets.
-    func fillWorld(at world: CGPoint, color: UIColor, opacity: CGFloat) {
+    /// Paint-bucket tap. The same operation in a row loosens skip/neighbour/ink; a different operation, stroke, undo or redo resets.
+    func fillWorld(at world: CGPoint, fill: BonePaperFill) {
         if filling { return }
         if strokeLive {
             endStroke()
@@ -271,7 +276,6 @@ public final class BonePaperDocument: ObservableObject {
         if px < 0 || py < 0 || px >= pixelWidth || py >= pixelHeight {
             return
         }
-        recorder.fill(at: world, color: color, opacity: opacity)
         guard let data = context.data else {
             fatalError("BonePaperDocument fill has no pixel data")
         }
@@ -280,10 +284,20 @@ public final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument fill stride \(stride) width \(pixelWidth)")
         }
         let pixels = data.assumingMemoryBound(to: UInt8.self)
-        let paint = Self.fillPaint(color: color, opacity: opacity)
-        fillStreak = lastFillPaint == paint ? fillStreak + 1 : 0
-        lastFillPaint = paint
-        let recolor = pixels[py * stride + px * 4 + 3] >= Self.fillRecolorAlpha
+        let operation: FillOperation
+        switch fill {
+        case .color(let color, let opacity):
+            operation = .color(Self.fillPaint(color: color, opacity: opacity))
+        case .clear:
+            operation = .clear
+        }
+        let seedPainted = pixels[py * stride + px * 4 + 3] >= Self.fillRecolorAlpha
+        if operation == .clear, !seedPainted {
+            return
+        }
+        fillStreak = lastFillOperation == operation ? fillStreak + 1 : 0
+        lastFillOperation = operation
+        recorder.fill(at: world, fill: fill)
         let limits = FillLimits(streak: fillStreak)
         let width = pixelWidth
         let height = pixelHeight
@@ -299,10 +313,13 @@ public final class BonePaperDocument: ObservableObject {
                 stride: stride,
                 seedX: px,
                 seedY: py,
-                recolor: recolor,
+                recolor: seedPainted,
                 limits: limits
             )
-            if recolor {
+            switch operation {
+            case .clear:
+                Self.clearRegion(pixels: pixels, mask: mask, width: width, stride: stride)
+            case .color(let paint) where seedPainted:
                 BonePaperRecolor.apply(
                     pixels: pixels,
                     mask: mask,
@@ -312,7 +329,7 @@ public final class BonePaperDocument: ObservableObject {
                     seed: py * width + px,
                     paint: paint
                 )
-            } else {
+            case .color(let paint):
                 if BonePaperFlags.antialiasing {
                     Self.growRing(pixels: pixels, mask: &mask, width: width, height: height, stride: stride)
                 }
@@ -357,7 +374,7 @@ public final class BonePaperDocument: ObservableObject {
         }
         guard let previous = undoStack.popLast() else { return }
         recorder.undo()
-        lastFillPaint = nil
+        lastFillOperation = nil
         redoStack.append(capture())
         restore(previous)
         publishStacks()
@@ -370,7 +387,7 @@ public final class BonePaperDocument: ObservableObject {
         }
         guard let next = redoStack.popLast() else { return }
         recorder.redo()
-        lastFillPaint = nil
+        lastFillOperation = nil
         undoStack.append(capture())
         restore(next)
         publishStacks()
@@ -919,6 +936,21 @@ public final class BonePaperDocument: ObservableObject {
         }
     }
 
+    private static func clearRegion(
+        pixels: UnsafeMutablePointer<UInt8>,
+        mask: [UInt8],
+        width: Int,
+        stride: Int
+    ) {
+        for m in mask.indices where mask[m] == 1 {
+            let i = (m / width) * stride + (m % width) * 4
+            pixels[i] = 0
+            pixels[i + 1] = 0
+            pixels[i + 2] = 0
+            pixels[i + 3] = 0
+        }
+    }
+
     /// Streak 0 is the first tap. Each later same-colour tap widens neighbour ×(1 + step) and skip/ink additively.
     private struct FillLimits {
         var neighbour: Float
@@ -939,6 +971,11 @@ public final class BonePaperDocument: ObservableObject {
         var g: Int
         var b: Int
         var a: Int
+    }
+
+    private enum FillOperation: Equatable {
+        case color(FillPaint)
+        case clear
     }
 
     /// OKLab + straight alpha. `ink` is how much the pixel reads as a dark contour.

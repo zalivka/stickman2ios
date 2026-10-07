@@ -155,14 +155,14 @@ final class BonePaperPlayer: ObservableObject {
 
     private enum Step {
         case stroke(Stroke)
-        case fill(at: CGPoint, time: Double, color: UIColor, opacity: CGFloat)
+        case fill(at: CGPoint, time: Double, fill: BonePaperFill)
         case undo(time: Double)
         case redo(time: Double)
 
         var start: Double {
             switch self {
             case .stroke(let s): s.times[0]
-            case .fill(_, let time, _, _): time
+            case .fill(_, let time, _): time
             case .undo(let time), .redo(let time): time
             }
         }
@@ -171,7 +171,7 @@ final class BonePaperPlayer: ObservableObject {
         var point: CGPoint? {
             switch self {
             case .stroke(let s): s.points[0]
-            case .fill(let at, _, _, _): at
+            case .fill(let at, _, _): at
             case .undo, .redo: nil
             }
         }
@@ -331,9 +331,9 @@ final class BonePaperPlayer: ObservableObject {
                 lifted = (s.points[s.points.count - 1], s.times[s.times.count - 1], false)
                 stamped = 0
                 cursor += 1
-            case .fill(let at, let time, let color, let opacity):
+            case .fill(let at, let time, let fill):
                 if clock < time { return }
-                document.fillWorld(at: at, color: color, opacity: opacity)
+                document.fillWorld(at: at, fill: fill)
                 ripple = Ripple(at: at, born: CACurrentMediaTime(), progress: 0)
                 lifted = (at, time + Self.tap, true)
                 cursor += 1
@@ -468,14 +468,25 @@ final class BonePaperPlayer: ObservableObject {
                     cancel: op.end == "cancel"
                 )))
             case "fill":
-                guard let at = op.at, at.count == 2, let hex = op.color, let opacity = op.opacity else {
-                    fatalError("BonePaperPlayer fill at \(op.t) without point, colour or opacity")
+                guard let at = op.at, at.count == 2 else {
+                    fatalError("BonePaperPlayer fill at \(op.t) without point")
+                }
+                let fill: BonePaperFill
+                if op.clear == true {
+                    fill = .clear
+                } else {
+                    guard let hex = op.color, let opacity = op.opacity else {
+                        fatalError("BonePaperPlayer fill at \(op.t) without colour or opacity")
+                    }
+                    fill = .color(
+                        UIColor(BonePaperColorStore.color(from: hex)),
+                        opacity: CGFloat(opacity)
+                    )
                 }
                 steps.append(.fill(
                     at: CGPoint(x: at[0] + offset.x, y: at[1] + offset.y),
                     time: playedStart,
-                    color: UIColor(BonePaperColorStore.color(from: hex)),
-                    opacity: CGFloat(opacity)
+                    fill: fill
                 ))
             case "undo":
                 steps.append(.undo(time: playedStart))
@@ -519,6 +530,7 @@ struct BonePaperSessionFile: Decodable {
         var op: String
         var t: Double
         var erase: Bool?
+        var clear: Bool?
         var color: String?
         var size: Double?
         var opacity: Double?
