@@ -318,7 +318,14 @@ public final class BonePaperDocument: ObservableObject {
             )
             switch operation {
             case .clear:
-                Self.clearRegion(pixels: pixels, mask: mask, width: width, stride: stride)
+                BonePaperRecolor.clear(
+                    pixels: pixels,
+                    mask: mask,
+                    width: width,
+                    height: height,
+                    stride: stride,
+                    seed: py * width + px
+                )
             case .color(let paint) where seedPainted:
                 BonePaperRecolor.apply(
                     pixels: pixels,
@@ -933,21 +940,6 @@ public final class BonePaperDocument: ObservableObject {
             pixels[i + 1] = UInt8(clamping: Int(pixels[i + 1]) + (g * keep + 32512) / 65025)
             pixels[i + 2] = UInt8(clamping: Int(pixels[i + 2]) + (b * keep + 32512) / 65025)
             pixels[i + 3] = UInt8(clamping: Int(pixels[i + 3]) + (a * keep + 32512) / 65025)
-        }
-    }
-
-    private static func clearRegion(
-        pixels: UnsafeMutablePointer<UInt8>,
-        mask: [UInt8],
-        width: Int,
-        stride: Int
-    ) {
-        for m in mask.indices where mask[m] == 1 {
-            let i = (m / width) * stride + (m % width) * 4
-            pixels[i] = 0
-            pixels[i + 1] = 0
-            pixels[i + 2] = 0
-            pixels[i + 3] = 0
         }
     }
 

@@ -26,6 +26,29 @@ enum BonePaperRecolor {
         }
     }
 
+    static func clear(
+        pixels: UnsafeMutablePointer<UInt8>,
+        mask: [UInt8],
+        width: Int,
+        height: Int,
+        stride: Int,
+        seed: Int
+    ) {
+        let edge = BonePaperFlags.antialiasing
+            ? edgeShares(pixels: pixels, mask: mask, width: width, height: height, stride: stride, seed: seed)
+            : nil
+        for m in mask.indices where mask[m] == 1 {
+            let i = (m / width) * stride + (m % width) * 4
+            pixels[i] = 0
+            pixels[i + 1] = 0
+            pixels[i + 2] = 0
+            pixels[i + 3] = 0
+        }
+        if let edge {
+            clearEdge(edge, pixels: pixels, width: width, stride: stride)
+        }
+    }
+
     /// The old island colour and, for each band pixel, how much of it is that colour (0...1).
     private struct Edge {
         var island: SIMD3<Float>
@@ -137,6 +160,33 @@ enum BonePaperRecolor {
             for c in 0..<3 {
                 pixels[i + c] = UInt8((min(max(color[c], 0), 255) * alpha / 255).rounded())
             }
+        }
+    }
+
+    private static func clearEdge(
+        _ edge: Edge,
+        pixels: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        stride: Int
+    ) {
+        for (n, islandShare) in edge.shares {
+            let lineShare = 1 - islandShare
+            let i = (Int(n) / width) * stride + (Int(n) % width) * 4
+            let oldAlpha = Float(pixels[i + 3])
+            if lineShare <= 0 || oldAlpha <= 0 {
+                pixels[i] = 0
+                pixels[i + 1] = 0
+                pixels[i + 2] = 0
+                pixels[i + 3] = 0
+                continue
+            }
+            let mixed = straightColor(pixels, i)
+            let line = (mixed - edge.island * islandShare) / lineShare
+            let newAlpha = oldAlpha * lineShare
+            for c in 0..<3 {
+                pixels[i + c] = UInt8((min(max(line[c], 0), 255) * newAlpha / 255).rounded())
+            }
+            pixels[i + 3] = UInt8(min(max(newAlpha, 0), 255).rounded())
         }
     }
 
