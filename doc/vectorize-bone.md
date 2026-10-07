@@ -1,6 +1,6 @@
 # Vectorize a bone bitmap, then redraw it with the sloppy brush
 
-The intro man (`AT_Man.ati` inside `tutorial/intro.ats`) was turned into the custom item `@:bluehairsvg` by tracing each bone PNG to outlines and stroking those outlines with the BonePaper hand. The script is `tools/bonepaper_gen/out/bluehairsvg/build.py`.
+The intro man (`AT_Man.ati` inside `demo/intro_scene.ats`) was turned into the custom item `@:bluehairsvg` by tracing each bone PNG to outlines and stroking those outlines with the BonePaper hand. The script is `tools/bonepaper_gen/out/bluehairsvg/build.py`.
 
 Slopmaxing an item or a scene uses this tracer, then packs a 4× `.ati` and divides the scene scale by 4. The white-paint sentinel, the ring keep, and the scene rewrite are in [slopmax.md](slopmax.md). The slopmaxing script is `tools/bonepaper_gen/out/camera/build.py`.
 

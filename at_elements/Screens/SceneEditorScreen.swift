@@ -178,7 +178,11 @@ struct SceneEditorScreen: View {
                 .background(SkeletonCanvas.pane)
             }
             if showingInsert {
-                ItemChooserPanel(onPick: insert, onClose: { showingInsert = false })
+                ItemChooserPanel(
+                    onPick: insert,
+                    onClose: { showingInsert = false },
+                    onCreateItems: { showingCreateItems = true }
+                )
                     .padding(.leading, MainPanel.width)
             }
             if showingEditFrame {

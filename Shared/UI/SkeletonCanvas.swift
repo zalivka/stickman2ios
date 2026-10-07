@@ -15,7 +15,15 @@ struct SkeletonLayout {
         let pad: CGFloat = 24
         let availW = max(size.width - pad * 2, 1)
         let availH = max(size.height - pad * 2, 1)
-        let scale = min(availW / sceneWidth, availH / sceneHeight)
+        let containScale = min(availW / sceneWidth, availH / sceneHeight)
+        let scale: CGFloat
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let baselineScale = availH / 640
+            let floorScale = 460 / min(sceneWidth, sceneHeight)
+            scale = min(containScale, max(baselineScale, floorScale))
+        } else {
+            scale = containScale
+        }
         if scale <= 0 {
             fatalError("SkeletonLayout scale is \(scale)")
         }

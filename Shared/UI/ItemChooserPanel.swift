@@ -9,6 +9,7 @@ struct ItemChooserPanel: View {
 
     var onPick: (Item) -> Void
     var onClose: () -> Void
+    var onCreateItems: () -> Void
 
     @State private var level: Level = .packs
     @State private var packs: [Pack] = []
@@ -85,8 +86,12 @@ struct ItemChooserPanel: View {
             }
             return visible.filter { $0.setName.isEmpty }.sorted { $0.systemName < $1.systemName }
         }()
+        let showsCreate = pack.name == Pack.customName && dir == nil
         return ScrollView {
             LazyVStack(spacing: 0) {
+                if showsCreate {
+                    createItemsRow
+                }
                 ForEach(dirs, id: \.self) { name in
                     Button {
                         level = .items(pack: pack, dir: name)
@@ -134,6 +139,24 @@ struct ItemChooserPanel: View {
         }
     }
 
+    /// Android `in_list_offer`: blue row, `magic_wand2`, "Create items".
+    /// Shown only at the root of the custom pack, above its folders and items.
+    private var createItemsRow: some View {
+        Button(action: onCreateItems) {
+            HStack(spacing: 10) {
+                Image(decorative: Self.wandIcon, scale: 2)
+                Text("Create items")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 10)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(CreateItemsButtonStyle())
+    }
+
     /// Clears the pinned Back control. 8 top inset + 44 circle + 8 gap.
     private static let listTop: CGFloat = 60
 
@@ -151,6 +174,19 @@ struct ItemChooserPanel: View {
     private func backButton(action: @escaping () -> Void) -> some View {
         BackCircleButton(showsCaption: true, action: action)
     }
+
+    private static let wandIcon: CGImage = {
+        guard let url = Bundle.main.url(forResource: "magic_wand2", withExtension: "png", subdirectory: "chrome")
+            ?? Bundle.main.url(forResource: "magic_wand2", withExtension: "png")
+        else {
+            fatalError("ItemChooserPanel missing chrome/magic_wand2.png")
+        }
+        do {
+            return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/magic_wand2.png")
+        } catch {
+            fatalError("ItemChooserPanel could not read \(url.path): \(error)")
+        }
+    }()
 
     private static let folderIcon: CGImage = {
         guard let url = Bundle.main.url(forResource: "dir2", withExtension: "png", subdirectory: "chrome")
@@ -207,4 +243,15 @@ struct ItemChooserPanel: View {
         case packs
         case items(pack: Pack, dir: String?)
     }
+}
+
+/// Android `items_editor_ad`: `#23aae2`, pressed `#2599c8`.
+private struct CreateItemsButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Self.pressed : Self.normal)
+    }
+
+    private static let normal = Color(red: 0x23 / 255, green: 0xaa / 255, blue: 0xe2 / 255)
+    private static let pressed = Color(red: 0x25 / 255, green: 0x99 / 255, blue: 0xc8 / 255)
 }

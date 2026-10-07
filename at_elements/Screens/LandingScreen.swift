@@ -120,9 +120,7 @@ private struct MakePane: View {
                     Button("DEBUG: ship") { openShip = true }
                     Button("DEBUG: JUST DRAW") { openDraw = true }
                     Button("DEBUG: tutorial") {
-                        opener.open("tutorial", tutorial: true) {
-                            try SceneLoader.load(resource: "intro", subdirectory: "tutorial")
-                        }
+                        openTutorial()
                     }
                 }
                 .font(.system(size: 13, weight: .semibold))
@@ -140,9 +138,7 @@ private struct MakePane: View {
                     if UserDefaults.standard.bool(forKey: SceneEditorScreen.tutorialDoneKey) {
                         openCartoon = true
                     } else {
-                        opener.open("tutorial", tutorial: true) {
-                            try SceneLoader.load(resource: "intro", subdirectory: "tutorial")
-                        }
+                        openTutorial()
                     }
                 } label: {
                     Text("New\nCartoon")
@@ -239,6 +235,12 @@ private struct MakePane: View {
             if Self.cartoonIdle == nil || Self.cartoonPressed == nil || Self.itemsIdle == nil || Self.itemsPressed == nil {
                 ToastCenter.show("Landing art is missing")
             }
+        }
+    }
+
+    private func openTutorial() {
+        opener.open("intro_scene", tutorial: true) {
+            try SceneLoader.load(resource: "intro_scene", subdirectory: "demo")
         }
     }
 
