@@ -7,12 +7,8 @@ struct SceneLoadError: Error, CustomStringConvertible {
 }
 
 enum HexRGB {
-    static func parse(_ text: String) -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
-        do {
-            return try parseThrowing(text)
-        } catch {
-            fatalError("\(error)")
-        }
+    static func parse(_ text: String) -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat)? {
+        try? parseThrowing(text)
     }
 
     static func parseThrowing(_ text: String) throws -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {

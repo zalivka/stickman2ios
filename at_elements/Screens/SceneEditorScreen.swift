@@ -87,31 +87,43 @@ struct SceneEditorScreen: View {
         backgrounds: BackgroundAssets = BackgroundAssets(),
         tutorial: Bool = false
     ) {
-        if scene.frames.isEmpty {
-            fatalError("SceneEditorScreen has no frames")
-        }
         _scene = State(initialValue: scene)
         _assets = State(initialValue: assets)
         _backgrounds = State(initialValue: backgrounds)
-        _range = State(
-            initialValue: DualNavigation.defaultRange(
-                current: scene.currentIndex,
-                frameCount: scene.frames.count
+        if scene.frames.isEmpty {
+            _range = State(initialValue: 0...0)
+            _tweenDraftRange = State(initialValue: 0...0)
+        } else {
+            _range = State(
+                initialValue: DualNavigation.defaultRange(
+                    current: scene.currentIndex,
+                    frameCount: scene.frames.count
+                )
             )
-        )
-        _tweenDraftRange = State(
-            initialValue: RangePicker.suggestedTweenRange(
-                current: scene.currentIndex,
-                frameCount: scene.frames.count
+            _tweenDraftRange = State(
+                initialValue: RangePicker.suggestedTweenRange(
+                    current: scene.currentIndex,
+                    frameCount: scene.frames.count
+                )
             )
-        )
+        }
         _selectedUnitName = State(initialValue: nil)
-        _savedDocument = State(initialValue: SceneSaver.documentBytes(scene: scene))
+        _savedDocument = State(
+            initialValue: scene.frames.isEmpty ? Data() : SceneSaver.documentBytes(scene: scene)
+        )
         _tutorialStep = State(initialValue: tutorial ? .move : nil)
     }
 
     var body: some View {
-        editorReady
+        if scene.frames.isEmpty {
+            Color.clear
+                .onAppear {
+                    ToastCenter.show("Scene has no frames")
+                    dismiss()
+                }
+        } else {
+            editorReady
+        }
     }
 
     /// Split out of `body` so the type checker does not solve one expression for the whole screen.
@@ -274,8 +286,15 @@ struct SceneEditorScreen: View {
                 undo.commitEnteringRange(from: scene, indices: Array(range))
             }
         }
-        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .ignoresSafeArea(edges: .horizontal)
         .modifier(StatusBarClearance())
+        .background {
+            HStack(spacing: 0) {
+                MainPanel.pane.frame(width: MainPanel.width)
+                SkeletonCanvas.pane.frame(maxWidth: .infinity)
+            }
+            .ignoresSafeArea(edges: [.horizontal, .bottom])
+        }
         .overlay(alignment: .top) {
             if tutorialStep == .move {
                 Text("Move me to start animating")
@@ -320,6 +339,7 @@ struct SceneEditorScreen: View {
                     extraLeading: backExtraLeading,
                     action: screenBack
                 )
+                .offsetLeadingIsland()
             }
         }
         .overlayPreferenceValue(TutorialHoleKey.self) { anchor in
@@ -1778,8 +1798,8 @@ struct DemoSceneScreen: View {
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white)
-                    .ignoresSafeArea(edges: [.horizontal, .bottom])
+                    .background(Color.white.ignoresSafeArea(edges: [.horizontal, .bottom]))
+                    .ignoresSafeArea(edges: .horizontal)
                     .modifier(StatusBarClearance())
                     .overlay(alignment: .topLeading) {
                         FullscreenBackButton()

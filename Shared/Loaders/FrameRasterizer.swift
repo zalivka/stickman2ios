@@ -86,7 +86,11 @@ enum FrameRasterizer {
             return
         }
         if name.hasPrefix("#") {
-            let rgba = HexRGB.parse(name)
+            guard let rgba = HexRGB.parse(name) else {
+                sceneFill.setFill()
+                context.fill(rect)
+                return
+            }
             context.setFillColor(UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a).cgColor)
             context.fill(rect)
             return

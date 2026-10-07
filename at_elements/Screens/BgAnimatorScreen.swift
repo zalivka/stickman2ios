@@ -128,6 +128,7 @@ struct BgAnimatorScreen: View {
             FullscreenBackButton(
                 extraLeading: BackgroundStrip.width(pictureMode: pictureStrip)
             )
+            .offsetLeadingIsland()
         }
         .overlay {
             if let bgName = pendingRangeBg {
@@ -471,7 +472,9 @@ struct BgAnimatorScreen: View {
         guard let name = scene.currentFrame.bgName, name.hasPrefix("#") else {
             return UIColor.white
         }
-        let rgba = HexRGB.parse(name)
+        guard let rgba = HexRGB.parse(name) else {
+            return UIColor.white
+        }
         return UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a)
     }
 
@@ -502,7 +505,9 @@ struct BgAnimatorScreen: View {
             if !hex.hasPrefix("#") {
                 return
             }
-            _ = HexRGB.parse(hex)
+            guard HexRGB.parse(hex) != nil else {
+                return
+            }
             let key = hex.uppercased()
             if seen.contains(key) {
                 return
@@ -526,7 +531,9 @@ struct BgAnimatorScreen: View {
             guard let name = frame.bgName, name.hasPrefix("#") else {
                 continue
             }
-            _ = HexRGB.parse(name)
+            guard HexRGB.parse(name) != nil else {
+                continue
+            }
             let key = name.uppercased()
             if seen.contains(key) {
                 continue
@@ -541,7 +548,9 @@ struct BgAnimatorScreen: View {
     }
 
     private func rememberColor(_ hex: String) {
-        _ = HexRGB.parse(hex)
+        guard HexRGB.parse(hex) != nil else {
+            return
+        }
         let key = hex.uppercased()
         if SolidBackgrounds.presets.contains(where: { $0.uppercased() == key }) {
             return
@@ -755,9 +764,10 @@ private struct BackgroundStrip: View {
 
     @ViewBuilder
     private func swatch(_ name: String) -> some View {
-        if name.hasPrefix("#") {
-            let rgba = HexRGB.parse(name)
+        if name.hasPrefix("#"), let rgba = HexRGB.parse(name) {
             Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a)
+        } else if name.hasPrefix("#") {
+            Color.white
         } else {
             Image(decorative: backgrounds.image(for: name), scale: 1)
                 .resizable()
@@ -772,8 +782,9 @@ private struct BackgroundStrip: View {
         if !name.hasPrefix("#") || !selected.hasPrefix("#") {
             return name == selected
         }
-        let a = HexRGB.parse(name)
-        let b = HexRGB.parse(selected)
+        guard let a = HexRGB.parse(name), let b = HexRGB.parse(selected) else {
+            return name == selected
+        }
         return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a
     }
 }

@@ -9,7 +9,10 @@ struct BubbleMeta: Equatable {
     var oneLiner: Bool
 
     var rgba: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
-        HexRGB.parse(color)
+        if let parsed = HexRGB.parse(color) {
+            return parsed
+        }
+        return HexRGB.parse(Self.defaults.color) ?? (r: 0, g: 0, b: 0, a: 1)
     }
 
     var fontSize: CGFloat {
@@ -72,7 +75,6 @@ struct BubbleMeta: Equatable {
         if scale <= 0 {
             fatalError("SceneXML unit '\(unitName)' bubble scale is \(scale)")
         }
-        _ = HexRGB.parse(color)
         let payload = Payload(text: text, color: color, font: font, scale: scale, oneLiner: oneLiner)
         let json: Data
         do {

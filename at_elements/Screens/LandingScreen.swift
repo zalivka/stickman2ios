@@ -235,6 +235,11 @@ private struct MakePane: View {
             }
             #endif
         }
+        .onAppear {
+            if Self.cartoonIdle == nil || Self.cartoonPressed == nil || Self.itemsIdle == nil || Self.itemsPressed == nil {
+                ToastCenter.show("Landing art is missing")
+            }
+        }
     }
 
     #if DEBUG
@@ -285,32 +290,32 @@ private struct MakePane: View {
     private static let itemsPressed = chromeImage("landing_hex_items_pressed")
 
     /// xxxhdpi raster — 4px per pt, matching Android density.
-    private static func chromeImage(_ name: String) -> CGImage {
+    private static func chromeImage(_ name: String) -> CGImage? {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: name, withExtension: "png")
         else {
-            fatalError("LandingScreen missing chrome/\(name).png")
+            return nil
         }
-        do {
-            let data = try Data(contentsOf: url)
-            return PNGImage.cgImage(from: data, name: "chrome/\(name).png")
-        } catch {
-            fatalError("LandingScreen could not read \(url.path): \(error)")
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
         }
+        return try? PNGImage.loaded(from: data, name: "chrome/\(name).png")
     }
 }
 
 /// Android `drawableTop` hex + label; `state_pressed` swaps the bitmap only.
 private struct LandingHexButtonStyle: ButtonStyle {
-    let idle: CGImage
-    let pressed: CGImage
+    let idle: CGImage?
+    let pressed: CGImage?
     let color: Color
     let fontSize: CGFloat
 
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 4) {
-            Image(decorative: configuration.isPressed ? pressed : idle, scale: 4)
-                .interpolation(.high)
+            if let image = configuration.isPressed ? pressed : idle {
+                Image(decorative: image, scale: 4)
+                    .interpolation(.high)
+            }
             configuration.label
                 .font(.system(size: fontSize))
                 .foregroundStyle(color)

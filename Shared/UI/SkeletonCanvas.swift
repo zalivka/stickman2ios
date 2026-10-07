@@ -842,8 +842,7 @@ struct SkeletonCanvas: View {
             }
             return
         }
-        if let name = bgName {
-            let rgba = HexRGB.parse(name)
+        if let name = bgName, let rgba = HexRGB.parse(name) {
             context.fill(
                 Path(rect),
                 with: .color(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
@@ -900,8 +899,7 @@ struct SkeletonCanvas: View {
             )
             return
         }
-        if let name = bgName {
-            let rgba = HexRGB.parse(name)
+        if let name = bgName, let rgba = HexRGB.parse(name) {
             context.fill(
                 Path(rect),
                 with: .color(Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a))
