@@ -161,6 +161,7 @@ public struct BonePaperScreen: View {
                 .overlay(alignment: .topLeading) {
                     BonePaperBackButton(onBack: { leave() })
                         .padding(.top, safe.top)
+                        .offset(x: -safe.leading)
                         .opacity(chromeOpacity)
                 }
                 .overlay(alignment: .topTrailing) {
