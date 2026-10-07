@@ -41,9 +41,9 @@ enum BonePaperChrome {
         }
     }
 
-    static func fitInsets(safe: EdgeInsets) -> UIEdgeInsets {
+    static func fitInsets(safe: EdgeInsets, topClearance: CGFloat) -> UIEdgeInsets {
         UIEdgeInsets(
-            top: safe.top + pad,
+            top: topClearance + pad,
             left: pad,
             bottom: safe.bottom + pad,
             right: safe.trailing + pad + rightRail

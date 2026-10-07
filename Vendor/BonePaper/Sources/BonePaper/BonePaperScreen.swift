@@ -16,6 +16,7 @@ public struct BonePaperScreen: View {
     @State private var hoverColor: Color?
     @State private var chromeOpacity: Double
     @State private var leaving = false
+    @State private var showFillWait = false
 
     private let boneStart: CGPoint?
     private let boneTip: CGPoint?
@@ -118,6 +119,7 @@ public struct BonePaperScreen: View {
     public var body: some View {
         GeometryReader { geo in
             let safe = geo.safeAreaInsets
+            let topClearance: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 0 : safe.top
             ZStack {
                 Color(white: 0.78).ignoresSafeArea()
                     .opacity(chromeOpacity)
@@ -139,7 +141,7 @@ public struct BonePaperScreen: View {
                         placement: placement,
                         stage: stage,
                         zoom: $zoom,
-                        fitInsets: BonePaperChrome.fitInsets(safe: safe)
+                        fitInsets: BonePaperChrome.fitInsets(safe: safe, topClearance: topClearance)
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -154,13 +156,13 @@ public struct BonePaperScreen: View {
                             label: tool == .eraser ? "Eraser" : "Brush",
                             showsOpacity: tool != .eraser
                         )
-                        .padding(.top, safe.top + BonePaperChrome.pad)
+                        .padding(.top, topClearance + BonePaperChrome.pad)
                         .allowsHitTesting(false)
                     }
                 }
                 .overlay(alignment: .topLeading) {
                     BonePaperBackButton(onBack: { leave() })
-                        .padding(.top, safe.top)
+                        .padding(.top, topClearance)
                         .offset(x: -safe.leading)
                         .opacity(chromeOpacity)
                 }
@@ -188,7 +190,7 @@ public struct BonePaperScreen: View {
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.trailing, BonePaperChrome.pad)
-                    .padding(.top, safe.top + BonePaperChrome.pad)
+                    .padding(.top, topClearance + BonePaperChrome.pad)
                     .opacity(chromeOpacity)
                 }
                 .overlay(alignment: .bottomLeading) {
@@ -209,7 +211,7 @@ public struct BonePaperScreen: View {
                     .opacity(chromeOpacity)
                 }
                 .overlay {
-                    if document.filling {
+                    if showFillWait {
                         ZStack {
                             Color.black.opacity(0.35).ignoresSafeArea()
                             VStack(spacing: 12) {
@@ -228,6 +230,15 @@ public struct BonePaperScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: document.filling) {
+            guard document.filling else {
+                showFillWait = false
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, document.filling else { return }
+            showFillWait = true
+        }
         .onAppear {
             if placement != nil {
                 withAnimation(.easeInOut(duration: BonePaperStageView.transitionDuration)) {
