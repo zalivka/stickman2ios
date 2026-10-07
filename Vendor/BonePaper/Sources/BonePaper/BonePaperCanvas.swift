@@ -591,6 +591,9 @@ final class BonePaperDrawView: UIView {
             if hypot(dx, dy) < slop {
                 return
             }
+            if tool == .pen, color.cgColor.alpha == 0 {
+                return
+            }
             document.beginStroke(erase: tool == .eraser, opacity: opacity)
             stroking = true
             document.stampDotWorld(at: startWorld, color: color, size: brushSize, erase: tool == .eraser)
@@ -635,7 +638,10 @@ final class BonePaperDrawView: UIView {
         }
         if tool == .fill {
             if let point = lastWorld {
-                document?.fillWorld(at: point, color: color, opacity: opacity)
+                let fill: BonePaperFill = color.cgColor.alpha == 0
+                    ? .clear
+                    : .color(color, opacity: opacity)
+                document?.fillWorld(at: point, fill: fill)
             }
         } else if stroking {
             document?.endStroke()

@@ -779,6 +779,34 @@ private struct BonePaperPipetteButton: View {
     }
 }
 
+private enum BonePaperPaletteEntry: Hashable {
+    case transparent
+    case color(String)
+}
+
+private struct BonePaperTransparentSwatch: View {
+    var body: some View {
+        Canvas { context, size in
+            let cell = size.width / 4
+            for row in 0..<4 {
+                for column in 0..<4 {
+                    let rect = CGRect(
+                        x: CGFloat(column) * cell,
+                        y: CGFloat(row) * cell,
+                        width: cell,
+                        height: cell
+                    )
+                    let shade = (row + column).isMultiple(of: 2)
+                        ? Color(white: 0.92)
+                        : Color(white: 0.62)
+                    context.fill(Path(rect), with: .color(shade))
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+}
+
 struct BonePaperColorStrip: View {
     @Binding var color: Color
     @Binding var hover: Color?
@@ -802,8 +830,8 @@ struct BonePaperColorStrip: View {
                 VStack(spacing: Self.gap) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                         HStack(spacing: Self.gap) {
-                            ForEach(row, id: \.self) { hex in
-                                swatchButton(hex)
+                            ForEach(row, id: \.self) { entry in
+                                swatchButton(entry)
                             }
                             if row.count == 1 {
                                 Color.clear.frame(width: Self.swatch, height: Self.swatch)
@@ -857,21 +885,29 @@ struct BonePaperColorStrip: View {
         .accessibilityLabel("Color picker")
     }
 
-    private var swatches: [String] {
-        extras + BonePaperColorStore.presets
+    private var swatches: [BonePaperPaletteEntry] {
+        [.transparent] + (extras + BonePaperColorStore.presets).map(BonePaperPaletteEntry.color)
     }
 
-    private var rows: [[String]] {
+    private var rows: [[BonePaperPaletteEntry]] {
         stride(from: 0, to: swatches.count, by: 2).map { index in
             Array(swatches[index..<min(index + 2, swatches.count)])
         }
     }
 
-    private func swatchButton(_ hex: String) -> some View {
-        let swatch = BonePaperColorStore.color(from: hex)
-        let selected = BonePaperColorStore.hex(from: UIColor(color)) == hex
-        return RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(swatch)
+    private func swatchButton(_ entry: BonePaperPaletteEntry) -> some View {
+        let isTransparent = UIColor(color).cgColor.alpha == 0
+        let selected: Bool
+        let label: String
+        switch entry {
+        case .transparent:
+            selected = isTransparent
+            label = "Transparent"
+        case .color(let hex):
+            selected = !isTransparent && BonePaperColorStore.hex(from: UIColor(color)) == hex
+            label = hex
+        }
+        return swatch(entry)
             .frame(width: Self.swatch, height: Self.swatch)
             .overlay {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -887,14 +923,35 @@ struct BonePaperColorStrip: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .onTapGesture {
-                color = swatch
-                onPick()
+                switch entry {
+                case .transparent:
+                    color = .clear
+                case .color(let hex):
+                    color = BonePaperColorStore.color(from: hex)
+                    onPick()
+                }
             }
             .onLongPressGesture(minimumDuration: 0.45) {
-                BonePaperHexToast.show(hex)
+                switch entry {
+                case .transparent:
+                    BonePaperHexToast.showMessage("Transparent")
+                case .color(let hex):
+                    BonePaperHexToast.show(hex)
+                }
             }
-            .accessibilityLabel(hex)
+            .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
+    }
+
+    @ViewBuilder
+    private func swatch(_ entry: BonePaperPaletteEntry) -> some View {
+        switch entry {
+        case .transparent:
+            BonePaperTransparentSwatch()
+        case .color(let hex):
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(BonePaperColorStore.color(from: hex))
+        }
     }
 
     private func remember(_ hex: String) {
