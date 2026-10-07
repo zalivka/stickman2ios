@@ -190,6 +190,10 @@ struct BonePaperStrokeControls: View {
 
     @State private var activeSetting: BonePaperStrokeSetting?
 
+    private var brushAndOpacityEnabled: Bool {
+        UIColor(color).cgColor.alpha > 0
+    }
+
     var body: some View {
         GeometryReader { geo in
             ScrollView(.vertical, showsIndicators: false) {
@@ -220,6 +224,7 @@ struct BonePaperStrokeControls: View {
                         range: BonePaperBrush.sizeRange,
                         color: color,
                         selected: tool == .pen,
+                        enabled: brushAndOpacityEnabled,
                         activeSetting: $activeSetting,
                         onActivate: { tool = .pen },
                         onSeeking: onSeeking
@@ -230,6 +235,7 @@ struct BonePaperStrokeControls: View {
                         range: BonePaperBrush.opacityRange,
                         color: color,
                         selected: false,
+                        enabled: brushAndOpacityEnabled,
                         activeSetting: $activeSetting,
                         onActivate: { if tool != .fill { tool = .pen } },
                         onSeeking: onSeeking
@@ -240,6 +246,7 @@ struct BonePaperStrokeControls: View {
                         range: BonePaperBrush.sizeRange,
                         color: color,
                         selected: tool == .eraser,
+                        enabled: true,
                         activeSetting: $activeSetting,
                         onActivate: { tool = .eraser },
                         onSeeking: onSeeking
@@ -351,6 +358,7 @@ private struct BonePaperDragControl: View {
     var range: ClosedRange<CGFloat>
     var color: Color
     var selected: Bool
+    var enabled: Bool
     @Binding var activeSetting: BonePaperStrokeSetting?
     var onActivate: () -> Void
     var onSeeking: (Bool) -> Void
@@ -368,7 +376,7 @@ private struct BonePaperDragControl: View {
     @State private var swallowNextTap = false
 
     private var isActive: Bool {
-        pinned || activeSetting == setting
+        enabled && (pinned || activeSetting == setting)
     }
 
     private var ratio: CGFloat {
@@ -422,12 +430,26 @@ private struct BonePaperDragControl: View {
                     swallowNextTap = false
                 }
             }
+            .onChange(of: enabled) { _, next in
+                if !next {
+                    dragStartValue = nil
+                    pinned = false
+                    swallowNextTap = false
+                    if activeSetting == setting {
+                        activeSetting = nil
+                        onSeeking(false)
+                    }
+                }
+            }
             Text(setting.label)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(selected || isActive ? BonePaperChrome.selected : Color.white)
                 .frame(width: Self.side)
         }
         .animation(.easeOut(duration: 0.12), value: isActive)
+        .animation(.easeOut(duration: 0.12), value: enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .disabled(!enabled)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(setting.label)
         .accessibilityValue(readout)
@@ -505,6 +527,7 @@ private struct BonePaperDragControl: View {
     private var drag: some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .named(Self.space))
             .onChanged { drag in
+                if !enabled { return }
                 if dragStartValue == nil {
                     dragStartValue = value
                     onActivate()
@@ -528,6 +551,7 @@ private struct BonePaperDragControl: View {
                 value = range.lowerBound + t * span
             }
             .onEnded { _ in
+                if !enabled { return }
                 dragStartValue = nil
                 onSeeking(false)
                 if !pinned {
@@ -537,6 +561,7 @@ private struct BonePaperDragControl: View {
     }
 
     private func pinSeekBar() {
+        if !enabled { return }
         pinned = true
         activeSetting = setting
         swallowNextTap = true
@@ -544,6 +569,7 @@ private struct BonePaperDragControl: View {
     }
 
     private func handleTap() {
+        if !enabled { return }
         onActivate()
         if swallowNextTap {
             swallowNextTap = false
@@ -812,6 +838,7 @@ struct BonePaperColorStrip: View {
     @Binding var hover: Color?
     var stage: BonePaperStage
     var onPick: () -> Void
+    var onPickTransparent: () -> Void
 
     private static let swatch: CGFloat = 36
     private static let gap: CGFloat = 4
@@ -926,6 +953,7 @@ struct BonePaperColorStrip: View {
                 switch entry {
                 case .transparent:
                     color = .clear
+                    onPickTransparent()
                 case .color(let hex):
                     color = BonePaperColorStore.color(from: hex)
                     onPick()

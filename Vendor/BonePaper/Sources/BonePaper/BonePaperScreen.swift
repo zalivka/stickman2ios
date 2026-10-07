@@ -171,11 +171,19 @@ public struct BonePaperScreen: View {
                                 BonePaperPipettePreview(color: hoverColor)
                             }
                         }
-                        BonePaperColorStrip(color: $color, hover: $hoverColor, stage: stage) {
-                            if tool != .fill {
-                                tool = .pen
+                        BonePaperColorStrip(
+                            color: $color,
+                            hover: $hoverColor,
+                            stage: stage,
+                            onPick: {
+                                if tool != .fill {
+                                    tool = .pen
+                                }
+                            },
+                            onPickTransparent: {
+                                tool = .fill
                             }
-                        }
+                        )
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.trailing, BonePaperChrome.pad)
