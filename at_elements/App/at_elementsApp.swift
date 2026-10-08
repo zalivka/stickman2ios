@@ -5,6 +5,7 @@
 //  Created by Evgeny on 9/12/26.
 //
 
+import Bugsnag
 import SwiftUI
 
 extension Notification.Name {
@@ -20,6 +21,7 @@ enum ToastCenter {
 @main
 struct at_elementsApp: App {
     init() {
+        Bugsnag.start(withApiKey: "dccd548d484444458d79bcaf1857e20f")
         Analytics.boot()
         AppSettings.boot()
         BootLog.say("App.init")

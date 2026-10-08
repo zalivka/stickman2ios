@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		74AM00033054D000000CC4A9 /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 74AM00023054D000000CC4A9 /* AmplitudeSwift */; };
 		74BP00033054D200000CC4A9 /* BonePaper in Frameworks */ = {isa = PBXBuildFile; productRef = 74BP00023054D200000CC4A9 /* BonePaper */; };
+		74BS00033054D000000CC4A9 /* Bugsnag in Frameworks */ = {isa = PBXBuildFile; productRef = 74BS00023054D000000CC4A9 /* Bugsnag */; };
 		74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 74FC00023054D100000CC4A9 /* FlexColorPicker */; };
 		74FF001174FF0001000CC4A9 /* ffmpegkit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000174FF0001000CC4A9 /* ffmpegkit.xcframework */; };
 		74FF001274FF0001000CC4A9 /* libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000274FF0001000CC4A9 /* libavcodec.xcframework */; };
@@ -25,7 +27,6 @@
 		74FF002674FF0001000CC4A9 /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000674FF0001000CC4A9 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002774FF0001000CC4A9 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000774FF0001000CC4A9 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		74FF002874FF0001000CC4A9 /* libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 74FF000874FF0001000CC4A9 /* libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		74AM00033054D000000CC4A9 /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 74AM00023054D000000CC4A9 /* AmplitudeSwift */; };
 		74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 74KF00023054D000000CC4A9 /* Kingfisher */; };
 /* End PBXBuildFile section */
 
@@ -107,6 +108,7 @@
 				74FF001774FF0001000CC4A9 /* libswresample.xcframework in Frameworks */,
 				74FF001874FF0001000CC4A9 /* libswscale.xcframework in Frameworks */,
 				74AM00033054D000000CC4A9 /* AmplitudeSwift in Frameworks */,
+				74BS00033054D000000CC4A9 /* Bugsnag in Frameworks */,
 				74KF00033054D000000CC4A9 /* Kingfisher in Frameworks */,
 				74FC00033054D100000CC4A9 /* FlexColorPicker in Frameworks */,
 				74BP00033054D200000CC4A9 /* BonePaper in Frameworks */,
@@ -173,6 +175,7 @@
 			name = at_elements;
 			packageProductDependencies = (
 				74AM00023054D000000CC4A9 /* AmplitudeSwift */,
+				74BS00023054D000000CC4A9 /* Bugsnag */,
 				74KF00023054D000000CC4A9 /* Kingfisher */,
 				74FC00023054D100000CC4A9 /* FlexColorPicker */,
 				74BP00023054D200000CC4A9 /* BonePaper */,
@@ -207,6 +210,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				74AM00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */,
+				74BS00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "bugsnag-cocoa" */,
 				74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */,
 				74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */,
@@ -295,7 +299,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -353,7 +357,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -369,11 +373,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 2X6F8N8723;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = at_elements/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Drawing Cartoons PRO";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Drawing Cartoons PRO does not use the camera. A linked video library references the camera API.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Drawing Cartoons PRO does not use the microphone. A linked video library references the microphone API.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The app saves exported videos to your photo library.";
@@ -387,8 +392,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "zalivka.animation";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = zalivka.animation;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -406,11 +411,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 2X6F8N8723;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = at_elements/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Drawing Cartoons PRO";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Drawing Cartoons PRO does not use the camera. A linked video library references the camera API.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Drawing Cartoons PRO does not use the microphone. A linked video library references the microphone API.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The app saves exported videos to your photo library.";
@@ -424,8 +430,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "zalivka.animation";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = zalivka.animation;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -480,6 +486,14 @@
 				minimumVersion = 1.19.2;
 			};
 		};
+		74BS00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "bugsnag-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/bugsnag/bugsnag-cocoa.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.38.0;
+			};
+		};
 		74KF00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
@@ -491,20 +505,25 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		74AM00023054D000000CC4A9 /* AmplitudeSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74AM00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */;
+			productName = AmplitudeSwift;
+		};
 		74BP00023054D200000CC4A9 /* BonePaper */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 74BP00013054D200000CC4A9 /* XCLocalSwiftPackageReference "Vendor/BonePaper" */;
 			productName = BonePaper;
 		};
+		74BS00023054D000000CC4A9 /* Bugsnag */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BS00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "bugsnag-cocoa" */;
+			productName = Bugsnag;
+		};
 		74FC00023054D100000CC4A9 /* FlexColorPicker */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 74FC00013054D100000CC4A9 /* XCLocalSwiftPackageReference "Vendor/FlexColorPicker" */;
 			productName = FlexColorPicker;
-		};
-		74AM00023054D000000CC4A9 /* AmplitudeSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 74AM00013054D000000CC4A9 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */;
-			productName = AmplitudeSwift;
 		};
 		74KF00023054D000000CC4A9 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
