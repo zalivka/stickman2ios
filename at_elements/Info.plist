@@ -31,6 +31,10 @@
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>The app saves exported videos to your photo library.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Drawing Cartoons PRO does not use the camera. A linked video library references the camera API.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Drawing Cartoons PRO does not use the microphone. A linked video library references the microphone API.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
