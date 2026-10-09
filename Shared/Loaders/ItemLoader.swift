@@ -490,14 +490,14 @@ enum ModelXML {
     }
 
     /// Writes the item format: base point at the origin, in native unscaled item units.
-    static func serialize(_ unit: StickmanUnit, fullName: String) -> Data {
+    static func serialize(_ unit: StickmanUnit, fullName: String) throws -> Data {
         if fullName.isEmpty {
             fatalError("ModelXML serialize has empty unit name")
         }
         if unit.scale <= 0 {
             fatalError("ModelXML serialize unit '\(unit.name)' scale is \(unit.scale)")
         }
-        let base = unit.basePoint()
+        let base = try unit.basePoint()
         var xml = XMLWrite.header
         xml += "<unit"
         xml += XMLWrite.attr("name", fullName)

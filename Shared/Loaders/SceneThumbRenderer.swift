@@ -13,8 +13,8 @@ enum SceneThumbRenderer {
         scene: StickmanScene,
         assets: UnitAssets,
         backgrounds: BackgroundAssets
-    ) -> (small: Data, big: Data) {
-        let shot = screenshot(scene: scene, assets: assets, backgrounds: backgrounds)
+    ) throws -> (small: Data, big: Data) {
+        let shot = try screenshot(scene: scene, assets: assets, backgrounds: backgrounds)
         return (png(cover(shot, size: smallSize)), png(cover(shot, size: bigSize)))
     }
 
@@ -87,11 +87,11 @@ enum SceneThumbRenderer {
         scene: StickmanScene,
         assets: UnitAssets,
         backgrounds: BackgroundAssets
-    ) -> UIImage {
+    ) throws -> UIImage {
         if scene.frames.isEmpty {
             fatalError("SceneThumbRenderer scene has no frames")
         }
-        let frame = scene.currentFrame
+        let frame = try scene.currentFrame()
         let size = CGSize(width: scene.width, height: scene.height)
         if size.width < 1 || size.height < 1 {
             fatalError("SceneThumbRenderer scene size \(size.width)x\(size.height)")

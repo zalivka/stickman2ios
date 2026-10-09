@@ -10,17 +10,17 @@ enum UnitInbetweener {
         easing: TweenEasing,
         strength: Float,
         shakeFrequency: Float
-    ) -> Bool {
+    ) throws -> Bool {
         if from < 0 || to >= scene.frames.count || from >= to {
-            fatalError("UnitInbetweener range \(from)..\(to) out of \(scene.frames.count)")
+            throw SceneLoadError(message: "UnitInbetweener range \(from)..\(to) out of \(scene.frames.count)")
         }
         guard let startRoot = scene.frames[from].units.first(where: { $0.name == rootName }) else {
-            fatalError("UnitInbetweener missing '\(rootName)' on frame \(from)")
+            throw SceneLoadError(message: "UnitInbetweener missing '\(rootName)' on frame \(from)")
         }
         if SlavesRegistry.isEnslaved(startRoot) {
-            fatalError("UnitInbetweener enslaved '\(rootName)'")
+            throw SceneLoadError(message: "UnitInbetweener enslaved '\(rootName)'")
         }
-        let conflicts = scene.ensureStructureOnRange(
+        let conflicts = try scene.ensureStructureOnRange(
             root: startRoot,
             in: scene.frames[from].units,
             range: from...to
@@ -31,28 +31,29 @@ enum UnitInbetweener {
         guard let startUnit = scene.frames[from].units.first(where: { $0.name == rootName }),
               let endUnit = scene.frames[to].units.first(where: { $0.name == rootName })
         else {
-            fatalError("UnitInbetweener missing '\(rootName)' after ensure")
+            throw SceneLoadError(message: "UnitInbetweener missing '\(rootName)' after ensure")
         }
-        if !mismatchedFrames(scene: scene, reference: startUnit, from: from, to: to).isEmpty {
+        let mismatched = try mismatchedFrames(scene: scene, reference: startUnit, from: from, to: to)
+        if !mismatched.isEmpty {
             return false
         }
 
-        _ = bake(scene: &scene, start: startUnit, end: endUnit, from: from, to: to,
+        _ = try bake(scene: &scene, start: startUnit, end: endUnit, from: from, to: to,
                  easing: easing, strength: strength, shakeFrequency: shakeFrequency)
 
-        let slaves = attachedSlaves(of: startUnit, in: scene.frames[from].units)
+        let slaves = try attachedSlaves(of: startUnit, in: scene.frames[from].units)
         for slave in slaves.sorted(by: { $0.name < $1.name }) {
             guard let startSlave = scene.frames[from].units.first(where: { $0.name == slave.name }),
                   let endSlave = scene.frames[to].units.first(where: { $0.name == slave.name })
             else {
-                fatalError("UnitInbetweener missing slave '\(slave.name)'")
+                throw SceneLoadError(message: "UnitInbetweener missing slave '\(slave.name)'")
             }
-            _ = bake(scene: &scene, start: startSlave, end: endSlave, from: from, to: to,
+            _ = try bake(scene: &scene, start: startSlave, end: endSlave, from: from, to: to,
                      easing: easing, strength: strength, shakeFrequency: shakeFrequency)
         }
 
         for index in from...to {
-            let connected = SlavesRegistry.allConnected(
+            let connected = try SlavesRegistry.allConnected(
                 of: scene.frames[index].unit(named: rootName),
                 in: scene.frames[index].units
             )
@@ -60,9 +61,9 @@ enum UnitInbetweener {
                 SlavesRegistry.slaveDepth($0, in: scene.frames[index].units)
                     < SlavesRegistry.slaveDepth($1, in: scene.frames[index].units)
             }) where SlavesRegistry.isEnslaved(unit) {
-                scene.frames[index].moveUnitToMaster(named: unit.name)
+                try scene.frames[index].moveUnitToMaster(named: unit.name)
             }
-            scene.frames[index].refreshAttachments()
+            try scene.frames[index].refreshAttachments()
         }
 
         scene.unitTweens.register(
@@ -96,12 +97,12 @@ enum UnitInbetweener {
         easing: TweenEasing,
         strength: Float,
         shakeFrequency: Float
-    ) -> StickmanUnit {
+    ) throws -> StickmanUnit {
         if framesCount <= 0 {
-            fatalError("UnitInbetweener framesCount \(framesCount)")
+            throw SceneLoadError(message: "UnitInbetweener framesCount \(framesCount)")
         }
         if step < 0 || step >= framesCount {
-            fatalError("UnitInbetweener step \(step) out of \(framesCount)")
+            throw SceneLoadError(message: "UnitInbetweener step \(step) out of \(framesCount)")
         }
         if step == 0 {
             return start
@@ -112,7 +113,7 @@ enum UnitInbetweener {
         let spanDuration = max(1, framesCount - 1)
         let t = Float(step) / Float(spanDuration)
         let eased = Easing.sample(easing, t: t, strength: strength)
-        return UnitStateInterpolator.inbetweenStatesAt(
+        return try UnitStateInterpolator.inbetweenStatesAt(
             unit1: start,
             unit2: end,
             t: eased,
@@ -132,14 +133,14 @@ enum UnitInbetweener {
         easing: TweenEasing,
         strength: Float,
         shakeFrequency: Float
-    ) -> [Int] {
+    ) throws -> [Int] {
         if start.name != end.name {
-            fatalError("UnitInbetweener bake name mismatch '\(start.name)' vs '\(end.name)'")
+            throw SceneLoadError(message: "UnitInbetweener bake name mismatch '\(start.name)' vs '\(end.name)'")
         }
         let framesCount = to - from + 1
         var written: [Int] = []
         for step in 0..<framesCount {
-            let pose = interpolateClosedRange(
+            let pose = try interpolateClosedRange(
                 start: start,
                 end: end,
                 step: step,
@@ -150,9 +151,9 @@ enum UnitInbetweener {
             )
             let frameIndex = from + step
             guard let unitIndex = scene.frames[frameIndex].units.firstIndex(where: { $0.name == start.name }) else {
-                fatalError("UnitInbetweener bake missing '\(start.name)' on frame \(frameIndex)")
+                throw SceneLoadError(message: "UnitInbetweener bake missing '\(start.name)' on frame \(frameIndex)")
             }
-            scene.frames[frameIndex].units[unitIndex].applyPose(from: pose)
+            try scene.frames[frameIndex].units[unitIndex].applyPose(from: pose)
             written.append(frameIndex)
         }
         return written
@@ -163,14 +164,14 @@ enum UnitInbetweener {
         reference: StickmanUnit,
         from: Int,
         to: Int
-    ) -> [Int] {
+    ) throws -> [Int] {
         var mismatches: [Int] = []
         for index in from...to {
             guard let onFrame = scene.frames[index].units.first(where: { $0.name == reference.name }) else {
                 mismatches.append(index)
                 continue
             }
-            if !sameConnectedStructure(reference, onFrame, unitsA: scene.frames[from].units, unitsB: scene.frames[index].units) {
+            if try !sameConnectedStructure(reference, onFrame, unitsA: scene.frames[from].units, unitsB: scene.frames[index].units) {
                 mismatches.append(index)
             }
         }
@@ -182,18 +183,18 @@ enum UnitInbetweener {
         _ endRoot: StickmanUnit,
         unitsA: [StickmanUnit],
         unitsB: [StickmanUnit]
-    ) -> Bool {
+    ) throws -> Bool {
         if startRoot.name != endRoot.name {
             return false
         }
-        return attachedSlaves(of: startRoot, in: unitsA) == attachedSlaves(of: endRoot, in: unitsB)
+        return try attachedSlaves(of: startRoot, in: unitsA) == attachedSlaves(of: endRoot, in: unitsB)
     }
 
-    private static func attachedSlaves(of root: StickmanUnit, in units: [StickmanUnit]) -> Set<AttachedSlave> {
+    private static func attachedSlaves(of root: StickmanUnit, in units: [StickmanUnit]) throws -> Set<AttachedSlave> {
         var out = Set<AttachedSlave>()
-        for unit in SlavesRegistry.allConnected(of: root, in: units) where unit.name != root.name {
+        for unit in try SlavesRegistry.allConnected(of: root, in: units) where unit.name != root.name {
             guard let attachment = SlavesRegistry.attachment(of: unit) else {
-                fatalError("UnitInbetweener connected '\(unit.name)' has no attachment")
+                throw SceneLoadError(message: "UnitInbetweener connected '\(unit.name)' has no attachment")
             }
             out.insert(AttachedSlave(name: unit.name, attachment: attachment))
         }

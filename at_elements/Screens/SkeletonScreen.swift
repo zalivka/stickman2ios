@@ -22,7 +22,7 @@ struct SkeletonScreen: View {
     @State private var selectedPointId: Int?
     @State private var layerEpoch = 0
     @State private var exposeVacantPoints = false
-    @State private var showingPreview = false
+    @State private var previewTicket: PreviewTicket?
     @State private var showingSettings = false
     @State private var showingSave = false
     @State private var bonePaperEdit: BonePaperEdit?
@@ -186,7 +186,7 @@ struct SkeletonScreen: View {
         .modifier(StatusBarClearance())
         .accessibilityLabel(title)
         .onAppear(perform: loadIfNeeded)
-        .fullScreenCover(isPresented: $showingPreview) {
+        .fullScreenCover(item: $previewTicket) { _ in
             previewScreen
         }
         .sheet(isPresented: $showingSettings) {
@@ -272,6 +272,11 @@ struct SkeletonScreen: View {
         let bmName: String
     }
 
+    /// Present-attempt marker: existence means the fatal preview guards already passed.
+    private struct PreviewTicket: Identifiable {
+        let id = UUID()
+    }
+
     private struct PointPropsEdit: Identifiable {
         var id: Int { pointId }
         let pointId: Int
@@ -282,10 +287,12 @@ struct SkeletonScreen: View {
 
     private func openBonePaper() {
         guard let unit = optionalUnit else {
-            fatalError("SkeletonScreen '\(title)' edit with no unit")
+            bail("edit with no unit")
+            return
         }
         guard let id = selectedPointId, let edge = unit.upperEdge(of: id) else {
-            fatalError("SkeletonScreen '\(title)' edit with no selected edge")
+            bail("edit with no selected edge")
+            return
         }
         openBonePaper(from: edge.from, to: edge.to)
     }
@@ -293,29 +300,36 @@ struct SkeletonScreen: View {
     /// Android gallery long-press Edit: Kurwa for that picture; onion if some edge uses it.
     private func editGalleryBone(_ bmName: String) {
         guard let unit = optionalUnit, let assets else {
-            fatalError("SkeletonScreen '\(title)' gallery edit with no unit")
+            bail("gallery edit with no unit")
+            return
         }
         if bmName.isEmpty {
-            fatalError("SkeletonScreen '\(title)' gallery edit empty bmName")
+            bail("gallery edit empty bmName")
+            return
         }
         if let ends = assets.firstEdgeUsing(bmName: bmName, unitName: unit.name) {
             openBonePaper(from: ends.start, to: ends.end)
             return
         }
         guard let asset = assets.firstAsset(bmName: bmName, unitName: unit.name) else {
-            fatalError("SkeletonScreen '\(title)' gallery edit unknown bm '\(bmName)'")
+            bail("gallery edit unknown bm '\(bmName)'")
+            return
         }
         presentBonePaper(asset: asset, length: UnitAssets.defaultBoneLength, onion: nil, placement: nil)
     }
 
     private func openBonePaper(from: Int, to: Int) {
         guard let unit = optionalUnit, let assets else {
-            fatalError("SkeletonScreen '\(title)' edit with no unit")
+            bail("edit with no unit")
+            return
         }
-        let startPt = unit.point(id: from)
-        let endPt = unit.point(id: to)
+        guard let startPt = unit.point(optionalId: from), let endPt = unit.point(optionalId: to) else {
+            bail("edit missing points \(from)/\(to)")
+            return
+        }
         if unit.scale <= 0 {
-            fatalError("SkeletonScreen '\(title)' scale is \(unit.scale)")
+            bail("scale is \(unit.scale)")
+            return
         }
         // PNG offsets are item-pixel units. Scene points already include unit.scale
         // (Android skeleton editor stores unscaled model coords, so getLength() is 1:1).
@@ -357,9 +371,10 @@ struct SkeletonScreen: View {
         )
     }
 
-    private func bonePaperPlacement(start: StickmanPoint, end: StickmanPoint, mirror: Bool, unitScale: CGFloat) -> BonePaperPlacement {
+    private func bonePaperPlacement(start: StickmanPoint, end: StickmanPoint, mirror: Bool, unitScale: CGFloat) -> BonePaperPlacement? {
         guard let layout = editSession.layout else {
-            fatalError("SkeletonScreen '\(title)' edit before the canvas laid out")
+            print("SkeletonScreen '\(title)' placement before the canvas laid out; opening without placement")
+            return nil
         }
         let joint = layout.screenPoint(x: start.x, y: start.y)
         return BonePaperPlacement(
@@ -376,7 +391,8 @@ struct SkeletonScreen: View {
     /// Android gallery NEW BONE: dummy picture at `DEFAULT_LENGTH`, then Kurwa with pen.
     private func createNewGalleryBone() {
         guard let unit = optionalUnit, let assets else {
-            fatalError("SkeletonScreen '\(title)' new bone with no unit")
+            bail("new bone with no unit")
+            return
         }
         prepareUndo(includeAssets: true)
         let length = UnitAssets.defaultBoneLength
@@ -392,7 +408,8 @@ struct SkeletonScreen: View {
         placement: BonePaperPlacement?
     ) {
         if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
-            fatalError("SkeletonScreen '\(title)' bone '\(asset.bmName)' size \(asset.bitmap.width)x\(asset.bitmap.height)")
+            showToast("This bone picture is invalid.")
+            return
         }
         let limit = BonePaperScreen.worldSide
         if asset.bitmap.width > limit || asset.bitmap.height > limit {
@@ -436,7 +453,8 @@ struct SkeletonScreen: View {
 
     private func applyBonePaper(bmName: String, export: BonePaperExport) {
         guard let assets else {
-            fatalError("SkeletonScreen '\(title)' apply with no assets")
+            bail("apply with no assets")
+            return
         }
         prepareUndo(includeAssets: true)
         assets.replaceBitmap(
@@ -471,7 +489,8 @@ struct SkeletonScreen: View {
 
     private func clearArtwork() {
         guard let unit = optionalUnit, let assets else {
-            fatalError("SkeletonScreen '\(title)' clear with no unit")
+            bail("clear with no unit")
+            return
         }
         guard let id = selectedPointId, let edge = unit.upperEdge(of: id) else {
             showToast("Select a point")
@@ -484,10 +503,12 @@ struct SkeletonScreen: View {
 
     private func applyBoneShift(from: Int, to: Int, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
         guard let unit = optionalUnit, let assets else {
-            fatalError("SkeletonScreen '\(title)' shift with no unit")
+            bail("shift with no unit")
+            return
         }
         if scale <= 0 {
-            fatalError("SkeletonScreen '\(title)' shift scale \(scale)")
+            bail("shift scale \(scale)")
+            return
         }
         guard let bmName = assets.bmName(forEdge: from, end: to, unitName: unit.name) else {
             return
@@ -507,6 +528,18 @@ struct SkeletonScreen: View {
         }
     }
 
+    /// Log, toast, and close the screen: an unexpected state that used to be
+    /// `fatalError` now ends the session instead of killing the app.
+    private func bail(_ text: String) {
+        print("SkeletonScreen '\(title)': \(text)")
+        showToast(text)
+        DispatchQueue.main.async { dismiss() }
+    }
+
+    private func bail(_ error: Error) {
+        bail(ItemLoadError.text(error))
+    }
+
     private func attachBone(_ bmName: String) {
         guard var unit = optionalUnit, let assets else { return }
         guard let parentId = selectedPointId else {
@@ -514,7 +547,13 @@ struct SkeletonScreen: View {
             return
         }
         prepareUndo(includeAssets: true)
-        let newId = unit.addGalleryBonePoint(parentId: parentId, length: UnitAssets.defaultBoneLength)
+        let newId: Int
+        do {
+            newId = try unit.addGalleryBonePoint(parentId: parentId, length: UnitAssets.defaultBoneLength)
+        } catch {
+            bail(error)
+            return
+        }
         assets.attachBone(bmName: bmName, toEdge: parentId, end: newId, unitName: unit.name)
         writeUnit(unit)
         selectedPointId = newId
@@ -545,7 +584,9 @@ struct SkeletonScreen: View {
         guard let unit = optionalUnit, let id = selectedPointId else {
             return
         }
-        let point = unit.point(id: id)
+        guard let point = unit.point(optionalId: id) else {
+            return
+        }
         pointProps = PointPropsEdit(
             pointId: id,
             isBase: point.isBase,
@@ -556,21 +597,35 @@ struct SkeletonScreen: View {
 
     private func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) {
         guard var unit = optionalUnit else {
-            fatalError("SkeletonScreen '\(title)' point props with no unit")
+            bail("point props with no unit")
+            return
         }
         prepareUndo()
-        unit.applyPointProps(id: id, attachable: attachable, fixed: fixed)
+        do {
+            try unit.applyPointProps(id: id, attachable: attachable, fixed: fixed)
+        } catch {
+            bail(error)
+            return
+        }
         writeUnit(unit)
         layerEpoch += 1
     }
 
     private func deleteSelected() {
         guard var unit = optionalUnit, let id = selectedPointId else { return }
-        if unit.point(id: id).isBase {
+        guard let point = unit.point(optionalId: id) else {
+            return
+        }
+        if point.isBase {
             return
         }
         prepareUndo(includeAssets: true)
-        unit.deletePointSubtree(id: id)
+        do {
+            try unit.deletePointSubtree(id: id)
+        } catch {
+            bail(error)
+            return
+        }
         selectedPointId = nil
         writeUnit(unit)
         layerEpoch += 1
@@ -586,8 +641,8 @@ struct SkeletonScreen: View {
     }
 
     private var optionalUnit: StickmanUnit? {
-        guard let scene, !scene.currentFrame.units.isEmpty else { return nil }
-        return scene.currentFrame.units[0]
+        guard let scene, let frame = scene.currentFrameOrNil, !frame.units.isEmpty else { return nil }
+        return frame.units[0]
     }
 
     private func captureUndoEntry(includeAssets: Bool) -> SkeletonUndo.Entry? {
@@ -609,7 +664,8 @@ struct SkeletonScreen: View {
     private func applyUndoEntry(_ entry: SkeletonUndo.Entry) {
         if let snap = entry.assets {
             guard let assets else {
-                fatalError("SkeletonScreen '\(title)' undo with no assets")
+                bail("undo with no assets")
+                return
             }
             assets.restore(snap)
         }
@@ -672,7 +728,8 @@ struct SkeletonScreen: View {
 
     private func writeUnit(_ unit: StickmanUnit) {
         guard var loaded = scene else {
-            fatalError("SkeletonScreen '\(title)' has no scene loaded")
+            bail("has no scene loaded")
+            return
         }
         let frameIndex = loaded.currentIndex
         loaded.frames[frameIndex].units[0] = unit
@@ -685,18 +742,20 @@ struct SkeletonScreen: View {
 
     private func openPreview() {
         showingMenu = false
-        guard let scene, assets != nil else {
-            fatalError("SkeletonScreen '\(title)' preview before load")
+        guard let scene, let frame = scene.currentFrameOrNil, assets != nil else {
+            bail("preview before load")
+            return
         }
-        if scene.currentFrame.units.isEmpty {
-            fatalError("SkeletonScreen '\(title)' preview with no unit")
+        if frame.units.isEmpty {
+            bail("preview with no unit")
+            return
         }
         // Android SkeletonActivity.readyToSave: a base point alone is not a bone.
-        if scene.currentFrame.units[0].points.count < 2 {
+        if frame.units[0].points.count < 2 {
             showToast("Add more points")
             return
         }
-        showingPreview = true
+        previewTicket = PreviewTicket()
     }
 
     private func openSettings() {
@@ -704,43 +763,54 @@ struct SkeletonScreen: View {
         showingSettings = true
     }
 
-    private var previewScreen: SkeletonPreviewScreen {
-        guard let scene, let assets else {
-            fatalError("SkeletonScreen '\(title)' preview cover with no scene")
+    private var previewScreen: some View {
+        guard let scene, let frame = scene.currentFrameOrNil, let assets else {
+            // Cover content is only built while previewTicket exists, which openPreview
+            // sets only after these checks; the fallback just avoids a fatalError.
+            bail("preview cover with no scene")
+            return AnyView(Color.clear)
         }
-        if scene.currentFrame.units.isEmpty {
-            fatalError("SkeletonScreen '\(title)' preview with no unit")
+        if frame.units.isEmpty {
+            bail("preview with no unit")
+            return AnyView(Color.clear)
         }
-        return SkeletonPreviewScreen(
-            unit: scene.currentFrame.units[0],
-            assets: assets,
-            sceneWidth: scene.width,
-            sceneHeight: scene.height
+        return AnyView(
+            SkeletonPreviewScreen(
+                unit: frame.units[0],
+                assets: assets,
+                sceneWidth: scene.width,
+                sceneHeight: scene.height
+            )
         )
     }
 
     private func saveAs() {
         showingMenu = false
         guard scene != nil else {
-            fatalError("SkeletonScreen '\(title)' save before load")
+            bail("save before load")
+            return
         }
         guard assets != nil else {
-            fatalError("SkeletonScreen '\(title)' has no assets to save")
+            bail("has no assets to save")
+            return
         }
         showingSave = true
     }
 
     private func saveItem(name: String, then finish: @escaping () -> Void) {
-        guard let scene else {
-            fatalError("SkeletonScreen '\(title)' save before load")
+        guard let scene, let frame = scene.currentFrameOrNil else {
+            bail("save before load")
+            return
         }
         guard let assets else {
-            fatalError("SkeletonScreen '\(title)' has no assets to save")
+            bail("has no assets to save")
+            return
         }
-        if scene.currentFrame.units.isEmpty {
-            fatalError("SkeletonScreen '\(title)' save with no unit")
+        if frame.units.isEmpty {
+            bail("save with no unit")
+            return
         }
-        let unit = scene.currentFrame.units[0]
+        let unit = frame.units[0]
         let source = sourceZip
         let images = SceneThumbRenderer.itemPair(unit: unit, assets: assets)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -754,7 +824,10 @@ struct SkeletonScreen: View {
                     poster: images.poster
                 )
             } catch {
-                fatalError("SkeletonScreen could not save '\(name)': \(error)")
+                DispatchQueue.main.async {
+                    showingSave = false
+                    showToast("Could not save: \(ItemLoadError.text(error))")
+                }
             }
             DispatchQueue.main.async(execute: finish)
         }
@@ -803,7 +876,7 @@ struct SkeletonScreen: View {
             let zip = try Manifest.shared.itemZip(fullname: template.makeFullName())
             return try build(zip: zip, defaultScale: template.scale)
         case .unit(let unit):
-            return Loaded(scene: ItemConstructor.scene(unit: unit), assets: UnitAssets(), zip: nil)
+            return Loaded(scene: try ItemConstructor.scene(unit: unit), assets: UnitAssets(), zip: nil)
         }
     }
 
@@ -826,28 +899,31 @@ struct SkeletonScreen: View {
                 scale = atiScale
             }
         }
-        return Loaded(scene: ItemConstructor.scene(unit: unit, scale: scale), assets: assets, zip: zip)
+        return Loaded(scene: try ItemConstructor.scene(unit: unit, scale: scale), assets: assets, zip: zip)
     }
 
     private var unitBinding: Binding<StickmanUnit> {
         Binding(
             get: {
-                guard let scene else {
-                    fatalError("SkeletonScreen '\(title)' has no scene loaded")
+                guard let scene, let frame = scene.currentFrameOrNil else {
+                    bail("has no scene loaded")
+                    return StickmanUnit(name: optionalUnit?.name ?? title, points: [], edges: [])
                 }
-                let frame = scene.currentFrame
                 if frame.units.isEmpty {
-                    fatalError("StickmanScene frame \(frame.id) has no units")
+                    bail("frame \(frame.id) has no units")
+                    return StickmanUnit(name: title, points: [], edges: [])
                 }
                 return frame.units[0]
             },
             set: { newUnit in
                 guard var loaded = scene else {
-                    fatalError("SkeletonScreen '\(title)' has no scene loaded")
+                    bail("has no scene loaded")
+                    return
                 }
                 let frameIndex = loaded.currentIndex
                 if loaded.frames[frameIndex].units.isEmpty {
-                    fatalError("StickmanScene frame \(loaded.frames[frameIndex].id) has no units")
+                    bail("frame \(loaded.frames[frameIndex].id) has no units")
+                    return
                 }
                 loaded.frames[frameIndex].units[0] = newUnit
                 scene = loaded

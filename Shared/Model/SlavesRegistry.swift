@@ -1,8 +1,12 @@
 struct SlavesRegistry {
     private var children: [String: [String]] = [:]
 
+    /// Nil for a unit without exactly one base: such a unit is malformed, and "no attachment"
+    /// is the honest answer rather than a crash.
     static func attachment(of unit: StickmanUnit) -> SlaveAttachment? {
-        let base = unit.basePoint()
+        guard let base = unit.basePointOrNil() else {
+            return nil
+        }
         if base.attachable != .slave {
             return nil
         }
@@ -21,7 +25,7 @@ struct SlavesRegistry {
 
     /// Android `SlavesRegistry.isStraying` — slave base that is not attached.
     static func isStraying(_ unit: StickmanUnit) -> Bool {
-        unit.basePoint().attachable == .slave && attachment(of: unit) == nil
+        unit.basePointOrNil()?.attachable == .slave && attachment(of: unit) == nil
     }
 
     mutating func populate(units: [StickmanUnit]) throws {
@@ -66,16 +70,21 @@ struct SlavesRegistry {
         return result
     }
 
+    /// Deepest master reachable from `unit`. Stops at a cycle or a missing master and reports
+    /// the unit it stopped on: `populate` rejects both shapes, so reaching it means the caller
+    /// passed an array that was never populated.
     static func rootMaster(of unit: StickmanUnit, in units: [StickmanUnit]) -> StickmanUnit {
         var current = unit
         var seen: Set<String> = []
         while let attachment = attachment(of: current) {
             if seen.contains(current.name) {
-                fatalError("SlavesRegistry cycle at '\(current.name)'")
+                print("SlavesRegistry cycle at '\(current.name)'; rootMaster stops here")
+                return current
             }
             seen.insert(current.name)
             guard let master = units.first(where: { $0.name == attachment.masterName }) else {
-                fatalError("SlavesRegistry missing master '\(attachment.masterName)' for '\(current.name)'")
+                print("SlavesRegistry missing master '\(attachment.masterName)' for '\(current.name)'; rootMaster stops here")
+                return current
             }
             current = master
         }
@@ -83,34 +92,34 @@ struct SlavesRegistry {
     }
 
     /// Android `getAllConnected` — root master plus every descendant slave.
-    static func allConnected(of unit: StickmanUnit, in units: [StickmanUnit]) -> [StickmanUnit] {
+    static func allConnected(of unit: StickmanUnit, in units: [StickmanUnit]) throws -> [StickmanUnit] {
         var registry = SlavesRegistry()
-        do {
-            try registry.populate(units: units)
-        } catch {
-            fatalError("\(error)")
-        }
+        try registry.populate(units: units)
         let root = rootMaster(of: unit, in: units)
         let names = [root.name] + registry.allSlaves(of: root.name)
-        return names.map { name in
+        return try names.map { name in
             guard let match = units.first(where: { $0.name == name }) else {
-                fatalError("SlavesRegistry connected missing '\(name)'")
+                throw SceneLoadError(message: "SlavesRegistry connected missing '\(name)'")
             }
             return match
         }
     }
 
+    /// How many masters up `unit` sits. Stops early on a cycle or missing master, same
+    /// reporting as `rootMaster`; a truncated depth only orders slaves less precisely.
     static func slaveDepth(_ unit: StickmanUnit, in units: [StickmanUnit]) -> Int {
         var depth = 0
         var current = unit
         var seen: Set<String> = []
         while let attachment = attachment(of: current) {
             if seen.contains(current.name) {
-                fatalError("SlavesRegistry cycle at '\(current.name)'")
+                print("SlavesRegistry cycle at '\(current.name)'; slaveDepth stops at \(depth)")
+                return depth
             }
             seen.insert(current.name)
             guard let master = units.first(where: { $0.name == attachment.masterName }) else {
-                fatalError("SlavesRegistry missing master '\(attachment.masterName)' for '\(current.name)'")
+                print("SlavesRegistry missing master '\(attachment.masterName)' for '\(current.name)'; slaveDepth stops at \(depth)")
+                return depth
             }
             depth += 1
             current = master

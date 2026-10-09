@@ -9,7 +9,7 @@ enum InstantiateUnit {
         frameIndices: [Int]
     ) throws -> String {
         if frameIndices.isEmpty {
-            fatalError("InstantiateUnit no target frames")
+            throw SceneLoadError(message: "InstantiateUnit no target frames")
         }
         let zip = try Manifest.shared.itemZip(fullname: item.makeFullName())
         try assets.loadItemFromArchive(
@@ -28,17 +28,17 @@ enum InstantiateUnit {
         var existing: [String] = []
         for index in frameIndices {
             if index < 0 || index >= scene.frames.count {
-                fatalError("InstantiateUnit frame \(index) out of \(scene.frames.count)")
+                throw SceneLoadError(message: "InstantiateUnit frame \(index) out of \(scene.frames.count)")
             }
             existing.append(contentsOf: scene.frames[index].units.map(\.name))
         }
-        let resolved = UnitName.unique(base: model.name, existing: existing)
+        let resolved = try UnitName.unique(base: model.name, existing: existing)
         let wherePoint = CGPoint(x: scene.width / 2, y: scene.height / 2)
         for index in frameIndices {
             if index < 0 || index >= scene.frames.count {
-                fatalError("InstantiateUnit frame \(index) out of \(scene.frames.count)")
+                throw SceneLoadError(message: "InstantiateUnit frame \(index) out of \(scene.frames.count)")
             }
-            scene.frames[index].addCopy(model, name: resolved, at: wherePoint, scale: scale)
+            try scene.frames[index].addCopy(model, name: resolved, at: wherePoint, scale: scale)
         }
         return resolved
     }

@@ -106,14 +106,14 @@ final class UnitAssets {
         }
         if model.unitType == .bubble {
             archives[key] = StoredArchive(entryName: entryName, zip: zip)
-            captureRest(from: model)
+            try captureRest(from: model)
             return
         }
         let xml = try ZipStore.dataThrowing(named: "assets.xml", in: zip)
         let parsed = try AssetsXML.parse(xml)
         try install(parsed, zip: zip)
         archives[key] = StoredArchive(entryName: entryName, zip: zip)
-        captureRest(from: model)
+        try captureRest(from: model)
     }
 
     func archive(for unitName: String) -> StoredArchive {
@@ -167,8 +167,7 @@ final class UnitAssets {
         for edge in unit.edges {
             let key = EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: unit.flipped)
             guard let asset = getDrawable(key, state: state) else { continue }
-            let start = unit.point(id: edge.from)
-            let end = unit.point(id: edge.to)
+            guard let start = unit.point(optionalId: edge.from), let end = unit.point(optionalId: edge.to) else { continue }
             let angle = atan2(end.y - start.y, end.x - start.x)
             let mirror = unit.flipped && !asset.nativeFlipped
             let scale = unit.scale
@@ -1034,12 +1033,12 @@ final class UnitAssets {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func captureRest(from model: StickmanUnit) {
+    private func captureRest(from model: StickmanUnit) throws {
         var lengths: [Int: CGFloat] = [:]
         for point in model.points {
             if point.isBase { continue }
             guard let parentId = point.parentId else { continue }
-            let parent = model.point(id: parentId)
+            let parent = try model.point(id: parentId)
             let rest = hypot(point.x - parent.x, point.y - parent.y)
             if rest > 0 {
                 lengths[point.id] = rest

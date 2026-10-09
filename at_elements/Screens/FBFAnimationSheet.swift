@@ -175,16 +175,20 @@ struct FBFAnimationSheet: View {
         if tick % draft.period != 0 { return }
         tick = 0
         let states = assets.states(for: preview.name)
-        if states.count < 2 {
-            fatalError("FBFAnimationSheet '\(preview.name)' has \(states.count) states")
+        // Fewer than 2 states: there is nothing to cycle, the preview just holds still.
+        guard states.count >= 2 else { return }
+        do {
+            let next = try preview.nextState(
+                states: states,
+                current: preview.assetsState,
+                backward: backward,
+                loop: draft.loop
+            )
+            backward = next.backward
+        } catch {
+            print("FBFAnimationSheet: \(error)")
+            ToastCenter.show(ItemLoadError.text(error))
         }
-        let next = preview.nextState(
-            states: states,
-            current: preview.assetsState,
-            backward: backward,
-            loop: draft.loop
-        )
-        backward = next.backward
     }
 
     private static func fitted(_ unit: StickmanUnit, assets: UnitAssets) -> StickmanUnit {

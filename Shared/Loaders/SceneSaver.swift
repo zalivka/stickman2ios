@@ -43,7 +43,7 @@ enum SceneSaver {
         if scene.frames.isEmpty {
             fatalError("SceneSaver scene has no frames")
         }
-        let thumbs = SceneThumbRenderer.pair(scene: scene, assets: assets, backgrounds: backgrounds)
+        let thumbs = try SceneThumbRenderer.pair(scene: scene, assets: assets, backgrounds: backgrounds)
         var files: [(name: String, data: Data)] = [
             (name: "model.xml", data: SceneXML.serialize(scene)),
             (name: "thumb.png", data: thumbs.small),

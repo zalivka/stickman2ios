@@ -199,6 +199,8 @@ struct SkeletonCanvas: View {
     /// Android `NavigablePresenter.mAllowSceneMovements` — empty drag pans, pinch zooms.
     var allowsSceneMovements: Bool = true
     var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat, _ scale: CGFloat, _ rotation: CGFloat) -> Void)? = nil
+    /// A pose edit hit a malformed unit. The owning screen toasts and closes; the canvas stops mutating.
+    var onEditError: ((Error) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     var canMutateCamera: Bool = true
     var onBackgroundChange: ((PictureMove) -> Void)? = nil
@@ -471,8 +473,7 @@ struct SkeletonCanvas: View {
         guard let bubble = drawn.bubble else {
             fatalError("SkeletonCanvas unit '\(drawn.name)' type=bubble missing meta")
         }
-        let start = drawn.point(id: 1)
-        let end = drawn.point(id: 2)
+        guard let start = drawn.point(optionalId: 1), let end = drawn.point(optionalId: 2) else { return }
         let angle = atan2(end.y - start.y, end.x - start.x)
         let rgba = bubble.rgba
         let text = Text(bubble.text)
@@ -526,8 +527,7 @@ struct SkeletonCanvas: View {
         let selectedId = selectedPointId.wrappedValue
         let selectedEdge = selectedId.flatMap { drawn.upperEdge(of: $0) }
         for edge in drawn.edges {
-            let from = drawn.point(id: edge.from)
-            let to = drawn.point(id: edge.to)
+            guard let from = drawn.point(optionalId: edge.from), let to = drawn.point(optionalId: edge.to) else { continue }
             var path = Path()
             path.move(to: layout.screenPoint(x: from.x, y: from.y))
             path.addLine(to: layout.screenPoint(x: to.x, y: to.y))
@@ -596,7 +596,7 @@ struct SkeletonCanvas: View {
         guard boneCreateHoldFlag, let startId = boneCreateStartId, let end = boneCreateEnd else {
             return
         }
-        let start = liveUnit.point(id: startId)
+        guard let start = liveUnit.point(optionalId: startId) else { return }
         let from = layout.screenPoint(x: start.x, y: start.y)
         let to = layout.screenPoint(x: end.x, y: end.y)
         var path = Path()
@@ -616,7 +616,7 @@ struct SkeletonCanvas: View {
         let radius = StickmanUnit.exposeMarkerRadius
         for unit in unitsToDraw {
             if unit.name == held.name {
-                let base = unit.basePoint()
+                guard let base = unit.basePointOrNil() else { continue }
                 let center = layout.screenPoint(x: base.x, y: base.y)
                 context.fill(
                     Path(ellipseIn: Self.square(around: center, radius: radius)),
@@ -699,8 +699,7 @@ struct SkeletonCanvas: View {
         for edge in drawn.edges {
             let key = UnitAssets.EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: drawn.flipped)
             guard let asset = assets.getDrawable(key, state: drawn.assetsState) else { continue }
-            let from = drawn.point(id: edge.from)
-            let to = drawn.point(id: edge.to)
+            guard let from = drawn.point(optionalId: edge.from), let to = drawn.point(optionalId: edge.to) else { continue }
             bones.append(
                 Bone(
                     weight: asset.weight,
@@ -800,7 +799,7 @@ struct SkeletonCanvas: View {
         if drawnUnits.isEmpty {
             return
         }
-        let centers = liveUnit.handlerCenters(sceneScale: layout.scale)
+        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale) else { return }
         handlerMove = centers.move
         handlerRotate = centers.rotate
         handlerScale = centers.scale
@@ -810,7 +809,7 @@ struct SkeletonCanvas: View {
         if drawnUnits.isEmpty {
             return
         }
-        let centers = liveUnit.handlerCenters(sceneScale: layout.scale)
+        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale) else { return }
         handlerMove = centers.move
         handlerRotate = centers.rotate
         handlerScale = centers.scale
@@ -1024,16 +1023,22 @@ struct SkeletonCanvas: View {
                 dragRef.handlerY = handle.y
                 dragRef.nodeId = nil
                 dragRef.panning = false
-                if handle.kind == .rotate {
-                    dragRef.rotateDiff = liveUnit.handlerRotateDiff(handler: CGPoint(x: handle.x, y: handle.y))
-                } else if handle.kind == .scale {
-                    let base = liveUnit.basePoint()
-                    let dist = hypot(handle.x - base.x, handle.y - base.y)
-                    if dist <= 0 {
-                        fatalError("SkeletonCanvas scale handler sits on the base")
+                do {
+                    if handle.kind == .rotate {
+                        dragRef.rotateDiff = try liveUnit.handlerRotateDiff(handler: CGPoint(x: handle.x, y: handle.y))
+                    } else if handle.kind == .scale {
+                        let base = try liveUnit.basePoint()
+                        let dist = hypot(handle.x - base.x, handle.y - base.y)
+                        if dist <= 0 {
+                            throw SceneLoadError(message: "SkeletonCanvas scale handler sits on the base")
+                        }
+                        dragRef.scalePivotDist = dist
+                        dragRef.scaleStart = liveUnit.scale
                     }
-                    dragRef.scalePivotDist = dist
-                    dragRef.scaleStart = liveUnit.scale
+                } catch {
+                    onEditError?(error)
+                    dragRef.handler = nil
+                    return
                 }
             } else {
                 dragRef.handler = nil
@@ -1048,14 +1053,20 @@ struct SkeletonCanvas: View {
                     }
                     dragRef.nodeId = hit.pointId
                     let graph = current.graphPoint(screen: location)
-                    let node = hit.unit.point(id: hit.pointId)
+                    guard let node = hit.unit.point(optionalId: hit.pointId) else {
+                        dragRef.nodeId = nil
+                        return
+                    }
                     dragRef.touchOffsetX = graph.x - node.x
                     dragRef.touchOffsetY = graph.y - node.y
                 } else {
                     dragRef.nodeId = drawnUnits.isEmpty ? nil : hitNode(at: location, layout: current)
                     if let id = dragRef.nodeId {
                         let graph = current.graphPoint(screen: location)
-                        let node = liveUnit.point(id: id)
+                        guard let node = liveUnit.point(optionalId: id) else {
+                            dragRef.nodeId = nil
+                            return
+                        }
                         dragRef.touchOffsetX = graph.x - node.x
                         dragRef.touchOffsetY = graph.y - node.y
                     } else {
@@ -1082,7 +1093,7 @@ struct SkeletonCanvas: View {
                 } else {
                     capturedUnitName.wrappedValue = nil
                 }
-                let holdingBase = dragRef.nodeId.map { liveUnit.point(id: $0).isBase } ?? false
+                let holdingBase = dragRef.nodeId.map { liveUnit.point(optionalId: $0)?.isBase } ?? false
                 if dragRef.handler == .move || holdingBase {
                     attachHold = SlavesRegistry.isStraying(liveUnit)
                 } else {
@@ -1104,19 +1115,29 @@ struct SkeletonCanvas: View {
             case .move:
                 liveUnit.translateAll(dx: dx, dy: dy)
             case .rotate:
-                liveUnit.rotateToHandler(
-                    handler: CGPoint(x: dragRef.handlerX, y: dragRef.handlerY),
-                    constDiff: dragRef.rotateDiff
-                )
+                do {
+                    try liveUnit.rotateToHandler(
+                        handler: CGPoint(x: dragRef.handlerX, y: dragRef.handlerY),
+                        constDiff: dragRef.rotateDiff
+                    )
+                } catch {
+                    onEditError?(error)
+                    return
+                }
             case .scale:
-                let base = liveUnit.basePoint()
-                let dist = hypot(dragRef.handlerX - base.x, dragRef.handlerY - base.y)
-                if dist <= 1 { return }
-                liveUnit.scaleAt(
-                    pivotX: base.x,
-                    pivotY: base.y,
-                    target: dragRef.scaleStart * dist / dragRef.scalePivotDist
-                )
+                do {
+                    let base = try liveUnit.basePoint()
+                    let dist = hypot(dragRef.handlerX - base.x, dragRef.handlerY - base.y)
+                    if dist <= 1 { return }
+                    try liveUnit.scaleAt(
+                        pivotX: base.x,
+                        pivotY: base.y,
+                        target: dragRef.scaleStart * dist / dragRef.scalePivotDist
+                    )
+                } catch {
+                    onEditError?(error)
+                    return
+                }
             }
             placeHandlers(on: current)
             return
@@ -1128,10 +1149,15 @@ struct SkeletonCanvas: View {
             let graphPoint = current.graphPoint(screen: location)
             let destX = graphPoint.x - dragRef.touchOffsetX
             let destY = graphPoint.y - dragRef.touchOffsetY
-            if mode == .skeleton {
-                liveUnit.movePointAndDescendants(id: id, destX: destX, destY: destY)
-            } else {
-                liveUnit.drag(id: id, destX: destX, destY: destY)
+            do {
+                if mode == .skeleton {
+                    try liveUnit.movePointAndDescendants(id: id, destX: destX, destY: destY)
+                } else {
+                    try liveUnit.drag(id: id, destX: destX, destY: destY)
+                }
+            } catch {
+                onEditError?(error)
+                return
             }
             snapHandlers(to: current)
             return
@@ -1225,8 +1251,10 @@ struct SkeletonCanvas: View {
             dragRef.lastScreen = location
             return
         }
-        let from = liveUnit.point(id: edge.from)
-        let to = liveUnit.point(id: edge.to)
+        guard let from = liveUnit.point(optionalId: edge.from), let to = liveUnit.point(optionalId: edge.to) else {
+            dragRef.lastScreen = location
+            return
+        }
         let prev = layout.graphPoint(screen: last)
         let now = layout.graphPoint(screen: location)
         boneShift.addDrag(
@@ -1292,10 +1320,10 @@ struct SkeletonCanvas: View {
                 layout: layout,
                 radius: Self.boneCreateCapture * layout.scale
             )
-            if let id = boneCreateStartId {
-                let start = liveUnit.point(id: id)
+            if let id = boneCreateStartId, let start = liveUnit.point(optionalId: id) {
                 boneCreateEnd = CGPoint(x: start.x, y: start.y)
             } else {
+                boneCreateStartId = nil
                 boneCreateEnd = nil
             }
             return
@@ -1310,7 +1338,7 @@ struct SkeletonCanvas: View {
         guard let startId = boneCreateStartId, let end = boneCreateEnd else {
             return
         }
-        let start = liveUnit.point(id: startId)
+        guard let start = liveUnit.point(optionalId: startId) else { return }
         let drag = hypot(end.x - start.x, end.y - start.y)
         // Android BONE_CREATE_MIN_DRAG is in unscaled item units; iOS points are already scaled.
         let minDrag = Self.boneCreateMinDrag * max(liveUnit.scale, 0.01)
@@ -1318,8 +1346,12 @@ struct SkeletonCanvas: View {
             return
         }
         onPrepareUndo?()
-        let newId = liveUnit.addPointWithEdge(parentId: startId, destX: end.x, destY: end.y)
-        selectedPointId.wrappedValue = newId
+        do {
+            let newId = try liveUnit.addPointWithEdge(parentId: startId, destX: end.x, destY: end.y)
+            selectedPointId.wrappedValue = newId
+        } catch {
+            onEditError?(error)
+        }
     }
 
     private func resetBoneCreateGesture() {

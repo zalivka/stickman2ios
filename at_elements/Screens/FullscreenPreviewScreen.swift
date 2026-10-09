@@ -56,7 +56,7 @@ struct FullscreenPreviewScreen: View {
         }
         .overlay(alignment: .bottomLeading) {
             if let movie, phase != .generating {
-                originFrameBadge(current: movie.currentFrame.originFrameIndex + 1)
+                originFrameBadge(current: (movie.currentFrameOrNil?.originFrameIndex ?? -1) + 1)
                     .padding(.leading, 16)
                     .padding(.bottom, 20)
                     .allowsHitTesting(false)
@@ -129,7 +129,7 @@ struct FullscreenPreviewScreen: View {
     }
 
     private func canvas(_ movie: StickmanScene) -> some View {
-        let units = movie.currentFrame.units
+        let units = movie.currentFrameOrNil?.units ?? []
         return SkeletonCanvas(
             unit: units.first.map { first in
                 Binding(
@@ -142,9 +142,9 @@ struct FullscreenPreviewScreen: View {
             frameUnits: units,
             assets: assets,
             backgrounds: backgrounds,
-            bgName: movie.currentFrame.bgName,
-            bgMove: movie.currentFrame.bgMove,
-            cameraMove: movie.currentFrame.cameraMove,
+            bgName: movie.currentFrameOrNil?.bgName,
+            bgMove: movie.currentFrameOrNil?.bgMove ?? .identity,
+            cameraMove: movie.currentFrameOrNil?.cameraMove ?? .identity,
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,
@@ -167,6 +167,12 @@ struct FullscreenPreviewScreen: View {
             progress: { value in
                 guard generation == token else { return }
                 percent = value
+            },
+            failure: { error in
+                guard generation == token else { return }
+                print("FullscreenPreviewScreen: \(error)")
+                ToastCenter.show(ItemLoadError.text(error))
+                dismiss()
             },
             completion: { generated in
                 guard generation == token else { return }

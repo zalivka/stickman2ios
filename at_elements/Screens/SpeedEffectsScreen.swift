@@ -100,7 +100,7 @@ struct SpeedEffectsScreen: View {
     }
 
     private var highlightIndex: Int {
-        movie?.currentFrame.originFrameIndex ?? 0
+        movie?.currentFrameOrNil?.originFrameIndex ?? 0
     }
 
     private var overlayText: String {
@@ -143,12 +143,12 @@ struct SpeedEffectsScreen: View {
     }
 
     private func canvas(_ movie: StickmanScene) -> some View {
-        SkeletonCanvas(
+        let frame = movie.currentFrameOrNil
+        return SkeletonCanvas(
             unit: Binding(
                 get: {
-                    let frame = movie.currentFrame
-                    guard let first = frame.units.first else {
-                        fatalError("SpeedEffectsScreen frame \(frame.id) read unit")
+                    guard let first = frame?.units.first else {
+                        return StickmanUnit(name: "", points: [], edges: [])
                     }
                     return first
                 },
@@ -156,12 +156,12 @@ struct SpeedEffectsScreen: View {
                     fatalError("SpeedEffectsScreen canvas is not interactive")
                 }
             ),
-            frameUnits: movie.currentFrame.units,
+            frameUnits: frame?.units ?? [],
             assets: assets,
             backgrounds: backgrounds,
-            bgName: movie.currentFrame.bgName,
-            bgMove: movie.currentFrame.bgMove,
-            cameraMove: movie.currentFrame.cameraMove,
+            bgName: frame?.bgName,
+            bgMove: frame?.bgMove ?? .identity,
+            cameraMove: frame?.cameraMove ?? .identity,
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,
@@ -248,6 +248,14 @@ struct SpeedEffectsScreen: View {
             progress: { value in
                 guard generation == token else { return }
                 percent = value
+            },
+            failure: { error in
+                guard generation == token else { return }
+                print("SpeedEffectsScreen: \(error)")
+                ToastCenter.show(ItemLoadError.text(error))
+                // Leave with the scene untouched; staying here would strand the screen
+                // in .generating with no movie to play.
+                dismiss()
             },
             completion: { generated in
                 guard generation == token else { return }

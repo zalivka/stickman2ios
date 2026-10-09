@@ -29,7 +29,7 @@ enum ItemSaver {
         let fullName = "\(pack):\(name)"
 
         var files: [(name: String, data: Data)] = [
-            (name: "model.xml", data: ModelXML.serialize(unit, fullName: fullName))
+            (name: "model.xml", data: try ModelXML.serialize(unit, fullName: fullName))
         ]
 
         let rows = assets.exportRows(unitName: unit.name)

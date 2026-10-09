@@ -7,10 +7,12 @@ enum MovieGenerator {
         scene: StickmanScene,
         assets: UnitAssets,
         progress: @escaping (Int) -> Void,
+        failure: @escaping (Error) -> Void,
         completion: @escaping (StickmanScene) -> Void
     ) {
         if scene.frames.count < 2 {
-            fatalError("MovieGenerator needs at least 2 keyframes, got \(scene.frames.count)")
+            failure(SceneLoadError(message: "MovieGenerator needs at least 2 keyframes, got \(scene.frames.count)"))
+            return
         }
         var stateLists: [String: [Int]] = [:]
         for name in scene.unitAnimations.keys {
@@ -22,30 +24,37 @@ enum MovieGenerator {
                 : max(scene.interframes, 1)
             let gaps = scene.frames.count - 1
             var movieFrames: [StickmanFrame] = []
-            for index in 0..<gaps {
-                let speed = scene.speedModifier.speedMod(gapIndex: index, frameCount: scene.frames.count)
-                let duration = max(1, Int(Float(base) * speed))
-                var generated = scene.noInterpolation
-                    ? NullInterpolator.interpolate(
-                        from: scene.frames[index],
-                        to: scene.frames[index + 1],
-                        duration: duration
-                    )
-                    : NlerpInterpolator.interpolate(
-                        from: scene.frames[index],
-                        to: scene.frames[index + 1],
-                        duration: duration,
-                        scene: scene,
-                        originIndex: index
-                    )
-                for i in generated.indices {
-                    generated[i].originFrameIndex = index
+            do {
+                for index in 0..<gaps {
+                    let speed = scene.speedModifier.speedMod(gapIndex: index, frameCount: scene.frames.count)
+                    let duration = max(1, Int(Float(base) * speed))
+                    var generated = scene.noInterpolation
+                        ? NullInterpolator.interpolate(
+                            from: scene.frames[index],
+                            to: scene.frames[index + 1],
+                            duration: duration
+                        )
+                        : try NlerpInterpolator.interpolate(
+                            from: scene.frames[index],
+                            to: scene.frames[index + 1],
+                            duration: duration,
+                            scene: scene,
+                            originIndex: index
+                        )
+                    for i in generated.indices {
+                        generated[i].originFrameIndex = index
+                    }
+                    movieFrames.append(contentsOf: generated)
+                    let percent = min(max((index + 1) * 100 / gaps, 0), 100)
+                    DispatchQueue.main.async {
+                        progress(percent)
+                    }
                 }
-                movieFrames.append(contentsOf: generated)
-                let percent = min(max((index + 1) * 100 / gaps, 0), 100)
+            } catch {
                 DispatchQueue.main.async {
-                    progress(percent)
+                    failure(error)
                 }
+                return
             }
             OngoingAnimations.apply(source: scene, frames: &movieFrames, stateLists: stateLists)
             var movie = scene

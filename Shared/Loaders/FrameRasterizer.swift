@@ -125,8 +125,7 @@ enum FrameRasterizer {
         guard let bubble = drawn.bubble else {
             fatalError("FrameRasterizer unit '\(drawn.name)' type=bubble missing meta")
         }
-        let start = drawn.point(id: 1)
-        let end = drawn.point(id: 2)
+        guard let start = drawn.point(optionalId: 1), let end = drawn.point(optionalId: 2) else { return }
         let angle = atan2(end.y - start.y, end.x - start.x)
         let rgba = bubble.rgba
         let color = UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a)
@@ -160,8 +159,7 @@ enum FrameRasterizer {
         for edge in drawn.edges {
             let key = UnitAssets.EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: drawn.flipped)
             guard let asset = assets.getDrawable(key, state: drawn.assetsState) else { continue }
-            let from = drawn.point(id: edge.from)
-            let to = drawn.point(id: edge.to)
+            guard let from = drawn.point(optionalId: edge.from), let to = drawn.point(optionalId: edge.to) else { continue }
             bones.append(
                 Bone(
                     weight: asset.weight,

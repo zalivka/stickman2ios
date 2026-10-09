@@ -5,15 +5,17 @@
   - [x] `VideoExport`, `JpegVideoAssembler`, `JpegSequenceWriter` — bad frame count, missing jpeg, encode/write failures report `exportFailed` instead of crashing
   - [x] `SavedScenes` / `SavedSceneThumbProvider` — unreadable archive, bad `model.xml`, or missing thumb is skipped; thumb load returns a normal failure
   - [ ] `LandingScreen` version string and `chrome/*.png` still `fatalError` (testdata JSON crashes are `#if DEBUG`)
-  - [ ] `SceneEditorScreen`, `SkeletonScreen`, `BgAnimatorScreen`, `CameraAnimatorScreen`, `SpeedEffectsScreen` (dozens of state asserts). Same pattern in `FullscreenPreviewScreen`, `RangeDialogSheet`, `FBFAnimationSheet`, `SkeletonSaveScreen`
+  - [x] `SkeletonScreen` — all 31: unexpected state → toast + close scene; save failure toasts and keeps the editor open
+  - [x] `StickmanScene.swift` — all 73: full throws migration. Mutators/lookups throw `SceneLoadError`; render loops and view bodies use non-fatal optional lookups (`point(optionalId:)`, `currentFrameOrNil`, `unit(namedOrNil:)`) and skip what they cannot draw. Propagated through the Shared layer (SlavesRegistry, UnitAssets, UnitTweenEffects, interpolators, UnitInbetweener, FrameRasterizer, SceneThumbRenderer, InstantiateUnit, ItemConstructor, CopyPasteBuffer, SceneUndo, SkeletonOnion, PresentUnitsPanel, MovieGenerator/JpegSequenceWriter gain a `failure:` callback). `OngoingAnimations.apply` drops only the bad unit's animation per frame. Screens terminate throws at toast+bail boundaries (SceneEditorScreen, SkeletonScreen, BgAnimatorScreen, CameraAnimatorScreen, SpeedEffectsScreen, FBFAnimationSheet, FullscreenPreviewScreen). The screens' own state asserts remain (next item).
+  - [ ] `SceneEditorScreen`, `BgAnimatorScreen`, `CameraAnimatorScreen`, `SpeedEffectsScreen` (dozens of state asserts). Same pattern in `FullscreenPreviewScreen`, `RangeDialogSheet`, `FBFAnimationSheet`, `SkeletonSaveScreen`
 - [ ] 1.2 Add corrupted-file path: bad `ats/ati`, missing thumb, empty frames → toast + empty state, never crash.
 - [ ] 1.3 Fuzz-test: import garbage `.ats/.ati`, delete thumbs, 0/1-frame scene, export with 0 frames.
 
 ## 2. Plist / privacy / signing
-- [ ] 2.1 Add `PrivacyInfo.xcprivacy` (required). Declare `UserDefaults`, file timestamps, no tracking if true.
+- [x] 2.1 Done: `at_elements/PrivacyInfo.xcprivacy`. No tracking. UserDefaults `CA92.1`, file timestamps `C617.1`, system boot time `35F9.1` (boot logs and the recorder clock). Collected data matches Amplitude and Bugsnag: product interaction, device ID, coarse location (analytics, linked); crash data and other data types (app functionality, not linked).
 - [x] 2.2 Done: `ITSAppUsesNonExemptEncryption=false` in `Info.plist` (only exempt SHA-256 + HTTPS). Still answer No/exempt in Connect once.
 - [x] 2.3 Done: `UIFileSharingEnabled=false`, recordings moved to `Library/Application Support/BonePaperRecordings` (`BonePaperRecorder.swift`).
-- [ ] 2.4 Usage string is done in `Info.plist` and both `INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription` settings: "The app saves exported videos to your photo library." Still add privacy nutrition + privacy policy URL in Connect.
+- [ ] 2.4 Usage string is done in `Info.plist` and both `INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription` settings: "The app saves exported videos to your photo library." Policy page is `site/privacy.html` in the stickman site. In Connect, paste that URL once the site is deployed, and enter nutrition labels with tracking off. Data linked to you: Product Interaction, Device ID, Coarse Location (Analytics). Data not linked: Crash Data, Other Data Types (App Functionality). Photos are not collected. Bugsnag’s own manifest also lists User ID and Product Interaction as not linked and used for app functionality; include those if the Xcode privacy report shows them.
 - [ ] 2.5 Bump `MARKETING_VERSION / CURRENT_PROJECT_VERSION` (now 1.0 / 1). Confirm bundle id `zalivka.animation`, team `2X6F8N8723`.
 
 ## 3. Permissions UX

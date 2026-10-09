@@ -104,7 +104,7 @@ struct BgAnimatorScreen: View {
                         names: stripNames,
                         pictureMode: pictureStrip,
                         backgrounds: backgrounds,
-                        selected: scene.currentFrame.bgName,
+                        selected: scene.currentFrameOrNil?.bgName,
                         onPick: applyBackground,
                         onLongPress: beginRangePick,
                         onEdit: { openEdit(bgName: $0) },
@@ -119,7 +119,13 @@ struct BgAnimatorScreen: View {
                     currentIndex: currentIndexBinding,
                     range: $range,
                     mode: $navMode,
-                    onNextAtEnd: { scene.addFrame() }
+                    onNextAtEnd: {
+                        do {
+                            try scene.addFrame()
+                        } catch {
+                            bail(error)
+                        }
+                    }
                 )
         }
         .ignoresSafeArea(edges: [.horizontal, .bottom])
@@ -224,7 +230,11 @@ struct BgAnimatorScreen: View {
     /// Solid color: blank scene-sized page over that color. Picture: the picture itself,
     /// saved as a new background on Apply with every use of the old one retargeted.
     private func openDraw() {
-        guard let bgName = scene.currentFrame.bgName, !bgName.hasPrefix("#") else {
+        guard let frame = scene.currentFrameOrNil else {
+            showToast("Scene has no current frame")
+            return
+        }
+        guard let bgName = frame.bgName, !bgName.hasPrefix("#") else {
             let width = Int(scene.width.rounded())
             let height = Int(scene.height.rounded())
             let limit = BonePaperScreen.worldSide
@@ -397,7 +407,7 @@ struct BgAnimatorScreen: View {
                 return
             }
             backgrounds.install(name: saved.bgName, image: image, archive: saved.archive)
-            undo.commitTimeline(from: scene)
+            commitTimeline()
             for index in scene.frames.indices where scene.frames[index].bgName == retargetName {
                 scene.frames[index].bgName = saved.bgName
             }
@@ -446,22 +456,36 @@ struct BgAnimatorScreen: View {
         }
     }
 
+    private func bail(_ error: Error) {
+        print("BgAnimatorScreen: \(error)")
+        showToast(ItemLoadError.text(error))
+    }
+
+    private func commitTimeline() {
+        do {
+            try undo.commitTimeline(from: scene)
+        } catch {
+            bail(error)
+        }
+    }
+
     private var workArea: some View {
-        SkeletonCanvas(
-                unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
-                frameUnits: scene.currentFrame.units,
+        let frame = scene.currentFrameOrNil
+        return SkeletonCanvas(
+                unit: (frame?.units.isEmpty == false) ? unitBinding : nil,
+                frameUnits: frame?.units ?? [],
                 assets: assets,
                 backgrounds: backgrounds,
-                bgName: scene.currentFrame.bgName,
+                bgName: frame?.bgName,
                 backgroundRevision: backgroundRevision,
-                bgMove: scene.currentFrame.bgMove,
-                cameraMove: scene.currentFrame.cameraMove,
+                bgMove: frame?.bgMove ?? .identity,
+                cameraMove: frame?.cameraMove ?? .identity,
                 sceneWidth: scene.width,
                 sceneHeight: scene.height,
                 currentIndex: scene.currentIndex,
                 mode: .background,
                 showSkeleton: false,
-                onPrepareUndo: { undo.commitTimeline(from: scene) },
+                onPrepareUndo: commitTimeline,
                 onBackgroundChange: applyBgMove
             )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -469,7 +493,7 @@ struct BgAnimatorScreen: View {
     }
 
     private var pickerInitialColor: UIColor {
-        guard let name = scene.currentFrame.bgName, name.hasPrefix("#") else {
+        guard let name = scene.currentFrameOrNil?.bgName, name.hasPrefix("#") else {
             return UIColor.white
         }
         guard let rgba = HexRGB.parse(name) else {
@@ -596,7 +620,7 @@ struct BgAnimatorScreen: View {
         if span.lowerBound < 0 || span.upperBound >= scene.frames.count {
             fatalError("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
         }
-        undo.commitTimeline(from: scene)
+        commitTimeline()
         let move: PictureMove
         if bgName.hasPrefix("#") {
             rememberColor(bgName)
@@ -642,7 +666,12 @@ struct BgAnimatorScreen: View {
         if !undo.canUndo {
             return
         }
-        undo.restore(into: &scene)
+        do {
+            try undo.restore(into: &scene)
+        } catch {
+            bail(error)
+            return
+        }
         let last = scene.frames.count - 1
         let low = min(max(range.lowerBound, 0), last)
         let high = min(max(range.upperBound, low), last)
@@ -664,9 +693,9 @@ struct BgAnimatorScreen: View {
     private var unitBinding: Binding<StickmanUnit> {
         Binding(
             get: {
-                let frame = scene.currentFrame
-                guard let first = frame.units.first else {
-                    fatalError("BgAnimatorScreen frame \(frame.id) read unit")
+                guard let first = scene.currentFrameOrNil?.units.first else {
+                    bail("BgAnimatorScreen frame has no units")
+                    return StickmanUnit(name: "", points: [], edges: [])
                 }
                 return first
             },

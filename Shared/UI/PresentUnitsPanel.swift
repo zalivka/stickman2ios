@@ -76,7 +76,8 @@ struct PresentUnitsPanel: View {
 
     private func row(_ unit: StickmanUnit) -> some View {
         let selected = unit.name == selectedName
-        let number = UnitName.number(unit.name)
+        // A name whose #suffix is not an integer gets no badge rather than crashing the panel.
+        let number = UnitName.numberOrNil(unit.name) ?? 0
         return ZStack(alignment: .bottomTrailing) {
             Color.white
             if let image = thumb(unit) {

@@ -84,6 +84,9 @@ enum JpegSequenceWriter {
             progress: { value in
                 progress(min(max(value * 40 / 100, 0), 40))
             },
+            failure: { error in
+                completion(.failure(error))
+            },
             completion: { movie in
                 queue.async {
                     if stop.isCancelled {

@@ -59,39 +59,42 @@ struct StickmanUnit {
     var unitType: StickmanUnitType = .unit
     var bubble: BubbleMeta? = nil
 
-    func point(id: Int) -> StickmanPoint {
+    func point(id: Int) throws -> StickmanPoint {
         guard let point = points.first(where: { $0.id == id }) else {
-            fatalError("StickmanUnit '\(name)' missing point \(id)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(id)")
         }
         return point
     }
 
+    /// Non-fatal lookup for render loops and view bodies: a missing point means skip, not crash.
+    func point(optionalId id: Int) -> StickmanPoint? {
+        points.first(where: { $0.id == id })
+    }
+
     /// Adds a child tip at `dest` under `parentId` and rebuilds edges. Returns the new point id.
-    mutating func addPointWithEdge(parentId: Int, destX: CGFloat, destY: CGFloat) -> Int {
-        _ = point(id: parentId)
+    @discardableResult
+    mutating func addPointWithEdge(parentId: Int, destX: CGFloat, destY: CGFloat) throws -> Int {
+        _ = try point(id: parentId)
         let newId = (points.map(\.id).max() ?? 0) + 1
         if points.contains(where: { $0.id == newId }) {
-            fatalError("StickmanUnit '\(name)' already has point \(newId)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' already has point \(newId)")
         }
         points.append(
             StickmanPoint(id: newId, x: destX, y: destY, isBase: false, parentId: parentId)
         )
-        do {
-            try link()
-        } catch {
-            fatalError("\(error)")
-        }
+        try link()
         return newId
     }
 
     /// Gallery attach: new child at `length` from parent, angled like Android `EditUnit.addPointWithEdge`.
-    mutating func addGalleryBonePoint(parentId: Int, length: CGFloat = 200) -> Int {
-        let parent = point(id: parentId)
+    @discardableResult
+    mutating func addGalleryBonePoint(parentId: Int, length: CGFloat = 200) throws -> Int {
+        let parent = try point(id: parentId)
         var dx: CGFloat = 150
         var dy: CGFloat = 0
         if let upper = upperEdge(of: parentId) {
-            let start = point(id: upper.from)
-            let end = point(id: upper.to)
+            let start = try point(id: upper.from)
+            let end = try point(id: upper.to)
             let baseDeg = atan2(end.y - start.y, end.x - start.x) * 180 / .pi
             let angleDeg = baseDeg + CGFloat(Int.random(in: 0..<12)) * 30
             let rads = angleDeg * .pi / 180
@@ -101,10 +104,10 @@ struct StickmanUnit {
         }
         let dist = hypot(dx, dy)
         if dist < 0.001 {
-            fatalError("StickmanUnit '\(name)' gallery bone direction is zero")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' gallery bone direction is zero")
         }
         let scale = length / dist
-        return addPointWithEdge(
+        return try addPointWithEdge(
             parentId: parentId,
             destX: parent.x + dx * scale,
             destY: parent.y + dy * scale
@@ -112,28 +115,24 @@ struct StickmanUnit {
     }
 
     /// Deletes `id` and every descendant. Base point is not deletable.
-    mutating func deletePointSubtree(id: Int) {
-        let target = point(id: id)
+    mutating func deletePointSubtree(id: Int) throws {
+        let target = try point(id: id)
         if target.isBase {
-            fatalError("StickmanUnit '\(name)' cannot delete base \(id)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' cannot delete base \(id)")
         }
-        let remove = Set([id] + descendants(of: id))
+        let remove = Set([id] + try descendants(of: id))
         points.removeAll { remove.contains($0.id) }
-        do {
-            try link()
-        } catch {
-            fatalError("\(error)")
-        }
+        try link()
     }
 
     /// Android `EditPointDialog` Apply: attachable + invisible (`fixed`). Slave is base-only.
-    mutating func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) {
+    mutating func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) throws {
         guard let index = points.firstIndex(where: { $0.id == id }) else {
-            fatalError("StickmanUnit '\(name)' missing point \(id)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(id)")
         }
         let isBase = points[index].isBase
         if attachable == .slave && !isBase {
-            fatalError("StickmanUnit '\(name)' slave only on base, got point \(id)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' slave only on base, got point \(id)")
         }
         points[index].fixed = isBase ? false : fixed
         points[index].attachable = attachable
@@ -199,8 +198,8 @@ struct StickmanUnit {
         self.edges = edges
     }
 
-    func descendants(of id: Int) -> [Int] {
-        _ = point(id: id)
+    func descendants(of id: Int) throws -> [Int] {
+        _ = try point(id: id)
         var result: [Int] = []
         var seen: Set<Int> = [id]
         var queue = [id]
@@ -208,7 +207,7 @@ struct StickmanUnit {
             queue.removeFirst()
             for edge in edges where edge.from == current {
                 if seen.contains(edge.to) {
-                    fatalError("StickmanUnit '\(name)' cycle at \(edge.to)")
+                    throw SceneLoadError(message: "StickmanUnit '\(name)' cycle at \(edge.to)")
                 }
                 seen.insert(edge.to)
                 result.append(edge.to)
@@ -240,24 +239,24 @@ struct StickmanUnit {
         flipped.toggle()
     }
 
-    mutating func placeInScene(width: CGFloat, height: CGFloat, scale factor: CGFloat) {
+    mutating func placeInScene(width: CGFloat, height: CGFloat, scale factor: CGFloat) throws {
         if width <= 0 || height <= 0 {
-            fatalError("StickmanUnit '\(name)' scene size \(width)x\(height)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' scene size \(width)x\(height)")
         }
         if factor <= 0 {
-            fatalError("StickmanUnit '\(name)' place scale is \(factor)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' place scale is \(factor)")
         }
         translateAll(dx: width / 2, dy: height / 2)
-        let base = basePoint()
+        let base = try basePoint()
         scaleBy(pivotX: base.x, pivotY: base.y, factor: factor)
     }
 
-    mutating func rotateAroundParent(id: Int, destX: CGFloat, destY: CGFloat) {
-        let grabbed = point(id: id)
+    mutating func rotateAroundParent(id: Int, destX: CGFloat, destY: CGFloat) throws {
+        let grabbed = try point(id: id)
         guard let parentId = grabbed.parentId else {
-            fatalError("StickmanUnit '\(name)' point \(id) has no parent")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' point \(id) has no parent")
         }
-        let parent = point(id: parentId)
+        let parent = try point(id: parentId)
         let dx = destX - parent.x
         let dy = destY - parent.y
         if hypot(dx, dy) < 1e-6 { return }
@@ -266,9 +265,9 @@ struct StickmanUnit {
             .translatedBy(x: parent.x, y: parent.y)
             .rotated(by: dAngle)
             .translatedBy(x: -parent.x, y: -parent.y)
-        for rotateId in [id] + descendants(of: id) {
+        for rotateId in [id] + try descendants(of: id) {
             guard let index = points.firstIndex(where: { $0.id == rotateId }) else {
-                fatalError("StickmanUnit '\(name)' missing point \(rotateId)")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(rotateId)")
             }
             let p = CGPoint(x: points[index].x, y: points[index].y).applying(transform)
             points[index].x = p.x
@@ -276,41 +275,47 @@ struct StickmanUnit {
         }
     }
 
-    mutating func drag(id: Int, destX: CGFloat, destY: CGFloat) {
-        if point(id: id).isBase {
-            translateAll(dx: destX - point(id: id).x, dy: destY - point(id: id).y)
+    mutating func drag(id: Int, destX: CGFloat, destY: CGFloat) throws {
+        if try point(id: id).isBase {
+            translateAll(dx: destX - try point(id: id).x, dy: destY - try point(id: id).y)
         } else {
-            rotateAroundParent(id: id, destX: destX, destY: destY)
+            try rotateAroundParent(id: id, destX: destX, destY: destY)
         }
     }
 
-    mutating func movePointAndDescendants(id: Int, destX: CGFloat, destY: CGFloat) {
-        let grabbed = point(id: id)
+    mutating func movePointAndDescendants(id: Int, destX: CGFloat, destY: CGFloat) throws {
+        let grabbed = try point(id: id)
         if grabbed.isBase {
             return
         }
         let dx = destX - grabbed.x
         let dy = destY - grabbed.y
-        for moveId in [id] + descendants(of: id) {
+        for moveId in [id] + try descendants(of: id) {
             guard let index = points.firstIndex(where: { $0.id == moveId }) else {
-                fatalError("StickmanUnit '\(name)' missing point \(moveId)")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(moveId)")
             }
             points[index].x += dx
             points[index].y += dy
         }
     }
 
-    func basePoint() -> StickmanPoint {
+    func basePoint() throws -> StickmanPoint {
         let bases = points.filter(\.isBase)
         if bases.count != 1 {
-            fatalError("StickmanUnit '\(name)' must have exactly one base, got \(bases.map(\.id))")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' must have exactly one base, got \(bases.map(\.id))")
         }
         return bases[0]
     }
 
-    func axisBounds() -> (minX: CGFloat, minY: CGFloat, maxX: CGFloat, maxY: CGFloat) {
+    /// Non-fatal lookup for render loops and view bodies: a bad base count means skip, not crash.
+    func basePointOrNil() -> StickmanPoint? {
+        let bases = points.filter(\.isBase)
+        return bases.count == 1 ? bases[0] : nil
+    }
+
+    func axisBounds() throws -> (minX: CGFloat, minY: CGFloat, maxX: CGFloat, maxY: CGFloat) {
         if points.isEmpty {
-            fatalError("StickmanUnit '\(name)' has no points")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' has no points")
         }
         var minX = points.map(\.x).min()!
         var maxX = points.map(\.x).max()!
@@ -327,11 +332,11 @@ struct StickmanUnit {
         return (minX, minY, maxX, maxY)
     }
 
-    func handlerCenters(sceneScale: CGFloat) -> (move: CGPoint, rotate: CGPoint, scale: CGPoint) {
+    func handlerCenters(sceneScale: CGFloat) throws -> (move: CGPoint, rotate: CGPoint, scale: CGPoint) {
         if sceneScale <= 0 {
-            fatalError("StickmanUnit '\(name)' handler sceneScale is \(sceneScale)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' handler sceneScale is \(sceneScale)")
         }
-        let bb = axisBounds()
+        let bb = try axisBounds()
         let offset = 80 / sceneScale
         let corner = offset / 1.5
         return (
@@ -351,12 +356,12 @@ struct StickmanUnit {
         scale *= factor
     }
 
-    mutating func scaleAt(pivotX: CGFloat, pivotY: CGFloat, target: CGFloat) {
+    mutating func scaleAt(pivotX: CGFloat, pivotY: CGFloat, target: CGFloat) throws {
         if scale <= 0 {
-            fatalError("StickmanUnit '\(name)' scale is \(scale)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' scale is \(scale)")
         }
         if target <= 0 {
-            fatalError("StickmanUnit '\(name)' target scale is \(target)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' target scale is \(target)")
         }
         scaleBy(pivotX: pivotX, pivotY: pivotY, factor: 1 / scale)
         scale = target
@@ -381,13 +386,13 @@ struct StickmanUnit {
     }
 
     /// Copy interpolated pose onto this instance; keep attachment / identity fields.
-    mutating func applyPose(from other: StickmanUnit) {
+    mutating func applyPose(from other: StickmanUnit) throws {
         if name != other.name {
-            fatalError("StickmanUnit '\(name)' applyPose from '\(other.name)'")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' applyPose from '\(other.name)'")
         }
         for i in points.indices {
             guard let src = other.points.first(where: { $0.id == points[i].id }) else {
-                fatalError("StickmanUnit '\(name)' applyPose missing point \(points[i].id)")
+                throw SceneLoadError(message: "StickmanUnit '\(name)' applyPose missing point \(points[i].id)")
             }
             points[i].x = src.x
             points[i].y = src.y
@@ -396,46 +401,46 @@ struct StickmanUnit {
         alpha = other.alpha
     }
 
-    func handlerRotateDiff(handler: CGPoint) -> CGFloat {
+    func handlerRotateDiff(handler: CGPoint) throws -> CGFloat {
         if edges.isEmpty {
-            fatalError("StickmanUnit '\(name)' has no edges for rotate handler")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' has no edges for rotate handler")
         }
-        let base = basePoint()
+        let base = try basePoint()
         let handlerAngle = atan2(handler.y - base.y, handler.x - base.x)
-        let from = point(id: edges[0].from)
-        let to = point(id: edges[0].to)
+        let from = try point(id: edges[0].from)
+        let to = try point(id: edges[0].to)
         let edgeAngle = atan2(to.y - from.y, to.x - from.x)
         return edgeAngle - handlerAngle
     }
 
-    mutating func stripAttachment() {
+    mutating func stripAttachment() throws {
         guard let index = points.firstIndex(where: \.isBase) else {
-            fatalError("StickmanUnit '\(name)' has no base")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' has no base")
         }
         points[index].attachedMasterName = nil
         points[index].attachedMasterPointId = nil
     }
 
-    mutating func rotateToHandler(handler: CGPoint, constDiff: CGFloat) {
+    mutating func rotateToHandler(handler: CGPoint, constDiff: CGFloat) throws {
         if edges.isEmpty {
-            fatalError("StickmanUnit '\(name)' has no edges for rotate handler")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' has no edges for rotate handler")
         }
-        let base = basePoint()
+        let base = try basePoint()
         let pivotAngle = atan2(handler.y - base.y, handler.x - base.x)
-        let from = point(id: edges[0].from)
-        let to = point(id: edges[0].to)
+        let from = try point(id: edges[0].from)
+        let to = try point(id: edges[0].to)
         let edgeAngle = atan2(to.y - from.y, to.x - from.x)
         rotate(radians: constDiff - (edgeAngle - pivotAngle), pivotX: base.x, pivotY: base.y)
     }
 
-    mutating func nextState(states: [Int], current: Int, backward: Bool, loop: Bool) -> (state: Int, backward: Bool) {
+    mutating func nextState(states: [Int], current: Int, backward: Bool, loop: Bool) throws -> (state: Int, backward: Bool) {
         var states = states
         if states.isEmpty {
-            fatalError("StickmanUnit '\(name)' has no asset states")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' has no asset states")
         }
         let currentState = states.contains(current) ? current : states[0]
         guard let currentIndex = states.firstIndex(of: currentState) else {
-            fatalError("StickmanUnit '\(name)' missing state \(currentState)")
+            throw SceneLoadError(message: "StickmanUnit '\(name)' missing state \(currentState)")
         }
         rotateStates(&states, by: backward ? 1 : -1)
         let newState = states[currentIndex]
@@ -470,83 +475,84 @@ struct StickmanFrame {
     var originFrameIndex: Int = 0
     var slaves = SlavesRegistry()
 
-    func unit(named name: String) -> StickmanUnit {
+    func unit(named name: String) throws -> StickmanUnit {
         guard let unit = units.first(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) missing unit '\(name)'")
         }
         return unit
     }
 
-    mutating func refreshAttachments() {
-        do {
-            try slaves.populate(units: units)
-        } catch {
-            fatalError("\(error)")
-        }
+    /// Non-fatal lookup for view bodies: a missing unit means not-ready, not crash.
+    func unit(namedOrNil name: String) -> StickmanUnit? {
+        units.first(where: { $0.name == name })
+    }
+
+    mutating func refreshAttachments() throws {
+        try slaves.populate(units: units)
     }
 
     /// Android `Unit.setAlpha(alpha, true)` — this unit and its slaves.
-    mutating func setUnitAlpha(_ alpha: CGFloat, unitNamed name: String) {
+    mutating func setUnitAlpha(_ alpha: CGFloat, unitNamed name: String) throws {
         if alpha < 0 || alpha > 1 {
-            fatalError("StickmanFrame \(id) opacity \(alpha) for '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) opacity \(alpha) for '\(name)'")
         }
         guard units.contains(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) opacity missing '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) opacity missing '\(name)'")
         }
-        refreshAttachments()
+        try refreshAttachments()
         let names = [name] + slaves.allSlaves(of: name)
         for slaveName in names {
             guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
-                fatalError("StickmanFrame \(id) opacity missing slave '\(slaveName)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) opacity missing slave '\(slaveName)'")
             }
             units[index].alpha = alpha
         }
     }
 
     /// Android `Unit.flip` — mirror this unit and its slaves across this unit's base X.
-    mutating func flipUnit(named name: String) {
+    mutating func flipUnit(named name: String) throws {
         guard let source = units.first(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) flip missing '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) flip missing '\(name)'")
         }
-        refreshAttachments()
-        let axisX = source.basePoint().x
+        try refreshAttachments()
+        let axisX = try source.basePoint().x
         let names = [name] + slaves.allSlaves(of: name)
         for slaveName in names {
             guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
-                fatalError("StickmanFrame \(id) flip missing slave '\(slaveName)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) flip missing slave '\(slaveName)'")
             }
             units[index].flipBones(around: axisX)
             units[index].flipBitmaps()
         }
-        refreshAttachments()
+        try refreshAttachments()
     }
 
-    mutating func deleteConnectedUnit(named name: String) {
+    mutating func deleteConnectedUnit(named name: String) throws {
         guard let victim = units.first(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) missing unit '\(name)'")
         }
-        refreshAttachments()
+        try refreshAttachments()
         let names = Set([victim.name] + slaves.allSlaves(of: victim.name))
         units.removeAll { names.contains($0.name) }
-        refreshAttachments()
+        try refreshAttachments()
     }
 
-    func canRearrange(unitNamed name: String, forward: Bool) -> Bool {
+    func canRearrange(unitNamed name: String, forward: Bool) throws -> Bool {
         guard let unit = units.first(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) missing unit '\(name)'")
         }
         let boundary = forward ? units.map(\.arrange).max() : units.map(\.arrange).min()
         guard let boundary else {
-            fatalError("StickmanFrame \(id) has no units")
+            throw SceneLoadError(message: "StickmanFrame \(id) has no units")
         }
         return forward ? unit.arrange < boundary : unit.arrange > boundary
     }
 
-    mutating func rearrange(unitNamed name: String, forward: Bool) {
+    mutating func rearrange(unitNamed name: String, forward: Bool) throws {
         guard let index = units.firstIndex(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) missing unit '\(name)'")
         }
-        guard canRearrange(unitNamed: name, forward: forward) else { return }
+        guard try canRearrange(unitNamed: name, forward: forward) else { return }
         let oldArrange = units[index].arrange
         let newArrange = oldArrange + (forward ? 1 : -1)
         if let swapIndex = units.firstIndex(where: { $0.arrange == newArrange }) {
@@ -555,36 +561,36 @@ struct StickmanFrame {
         units[index].arrange = newArrange
     }
 
-    mutating func moveUnitToMaster(named name: String) {
+    mutating func moveUnitToMaster(named name: String) throws {
         guard let index = units.firstIndex(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) missing unit '\(name)'")
         }
         guard let attachment = SlavesRegistry.attachment(of: units[index]) else {
             return
         }
-        let master = unit(named: attachment.masterName)
-        let target = master.point(id: attachment.masterPointId)
-        let base = units[index].basePoint()
+        let master = try unit(named: attachment.masterName)
+        let target = try master.point(id: attachment.masterPointId)
+        let base = try units[index].basePoint()
         units[index].translateAll(dx: target.x - base.x, dy: target.y - base.y)
     }
 
     /// Android `Frame.findCloseMasterPoint` plus `Unit.canAttachTo`. Nearest vacant master inside `radius`.
-    func nearestAttachTarget(for name: String, radius: CGFloat) -> MasterTarget? {
+    func nearestAttachTarget(for name: String, radius: CGFloat) throws -> MasterTarget? {
         if radius <= 0 {
-            fatalError("StickmanFrame \(id) attach radius \(radius)")
+            throw SceneLoadError(message: "StickmanFrame \(id) attach radius \(radius)")
         }
         guard let slave = units.first(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) missing unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) missing unit '\(name)'")
         }
         guard SlavesRegistry.isStraying(slave) else {
             return nil
         }
-        let base = slave.basePoint()
+        let base = try slave.basePoint()
         var best: (target: MasterTarget, dist: CGFloat)?
         for other in units where other.name != slave.name {
             for point in other.points where point.attachable == .master {
                 let target = MasterTarget(unitName: other.name, pointId: point.id)
-                guard canAttach(slave, to: target) else { continue }
+                guard try canAttach(slave, to: target) else { continue }
                 let dist = hypot(point.x - base.x, point.y - base.y)
                 if dist < radius {
                     if let current = best {
@@ -600,7 +606,7 @@ struct StickmanFrame {
         return best?.target
     }
 
-    func canAttach(_ slave: StickmanUnit, to target: MasterTarget) -> Bool {
+    func canAttach(_ slave: StickmanUnit, to target: MasterTarget) throws -> Bool {
         guard let master = units.first(where: { $0.name == target.unitName }) else {
             return false
         }
@@ -610,19 +616,19 @@ struct StickmanFrame {
         guard isMasterVacant(target) else {
             return false
         }
-        let connected = SlavesRegistry.allConnected(of: slave, in: units)
+        let connected = try SlavesRegistry.allConnected(of: slave, in: units)
         return !connected.contains(where: { $0.name == target.unitName })
     }
 
     /// Android `Unit.doAttachTo` — snap this straying unit and its slaves onto the master point.
-    mutating func attach(named name: String, to target: MasterTarget) -> Bool {
+    mutating func attach(named name: String, to target: MasterTarget) throws -> Bool {
         guard let index = units.firstIndex(where: { $0.name == name }) else {
             return false
         }
         guard SlavesRegistry.isStraying(units[index]) else {
             return false
         }
-        guard canAttach(units[index], to: target) else {
+        guard try canAttach(units[index], to: target) else {
             return false
         }
         guard let master = units.first(where: { $0.name == target.unitName }),
@@ -631,25 +637,25 @@ struct StickmanFrame {
             return false
         }
         guard let baseIndex = units[index].points.firstIndex(where: \.isBase) else {
-            fatalError("StickmanFrame \(id) '\(name)' has no base")
+            throw SceneLoadError(message: "StickmanFrame \(id) '\(name)' has no base")
         }
         units[index].points[baseIndex].attachedMasterName = target.unitName
         units[index].points[baseIndex].attachedMasterPointId = target.pointId
-        let base = units[index].basePoint()
-        shiftUnitAndSlaves(named: name, dx: point.x - base.x, dy: point.y - base.y)
+        let base = try units[index].basePoint()
+        try shiftUnitAndSlaves(named: name, dx: point.x - base.x, dy: point.y - base.y)
         return true
     }
 
     /// Android `Unit.detachAndShift`.
-    mutating func detachAndShift(named name: String) -> Bool {
+    mutating func detachAndShift(named name: String) throws -> Bool {
         guard let index = units.firstIndex(where: { $0.name == name }) else {
             return false
         }
         guard SlavesRegistry.isEnslaved(units[index]) else {
             return false
         }
-        units[index].stripAttachment()
-        shiftUnitAndSlaves(
+        try units[index].stripAttachment()
+        try shiftUnitAndSlaves(
             named: name,
             dx: StickmanUnit.attachRadius,
             dy: StickmanUnit.attachRadius
@@ -665,85 +671,86 @@ struct StickmanFrame {
     }
 
     /// Slaves only. The named unit is already at its new pose.
-    mutating func shiftSlaves(of name: String, dx: CGFloat, dy: CGFloat) {
+    mutating func shiftSlaves(of name: String, dx: CGFloat, dy: CGFloat) throws {
         if dx == 0 && dy == 0 { return }
-        refreshAttachments()
+        try refreshAttachments()
         for slaveName in slaves.allSlaves(of: name) {
             guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
-                fatalError("StickmanFrame \(id) shift missing '\(slaveName)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) shift missing '\(slaveName)'")
             }
             units[index].translateAll(dx: dx, dy: dy)
         }
     }
 
-    private mutating func shiftUnitAndSlaves(named name: String, dx: CGFloat, dy: CGFloat) {
+    private mutating func shiftUnitAndSlaves(named name: String, dx: CGFloat, dy: CGFloat) throws {
         guard let index = units.firstIndex(where: { $0.name == name }) else {
-            fatalError("StickmanFrame \(id) shift missing '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) shift missing '\(name)'")
         }
         units[index].translateAll(dx: dx, dy: dy)
-        shiftSlaves(of: name, dx: dx, dy: dy)
+        try shiftSlaves(of: name, dx: dx, dy: dy)
     }
 
     /// Android `applyMatrix(..., includingSlaves)` and `PointManipulator` — slaves ride the master point.
-    mutating func followAttachedSlaves(old: StickmanUnit, new: StickmanUnit) {
+    mutating func followAttachedSlaves(old: StickmanUnit, new: StickmanUnit) throws {
         if old.name != new.name {
-            fatalError("StickmanFrame \(id) follow renamed '\(old.name)' to '\(new.name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) follow renamed '\(old.name)' to '\(new.name)'")
         }
         for point in old.points where !new.points.contains(where: { $0.id == point.id }) {
-            fatalError("StickmanFrame \(id) '\(new.name)' lost point \(point.id)")
+            throw SceneLoadError(message: "StickmanFrame \(id) '\(new.name)' lost point \(point.id)")
         }
-        refreshAttachments()
+        try refreshAttachments()
         let slaveNames = slaves.allSlaves(of: new.name)
         if slaveNames.isEmpty { return }
 
-        if let shift = Self.translation(from: old, to: new) {
+        if let shift = try Self.translation(from: old, to: new) {
             if shift.dx == 0 && shift.dy == 0 { return }
-            translateUnits(slaveNames, dx: shift.dx, dy: shift.dy)
+            try translateUnits(slaveNames, dx: shift.dx, dy: shift.dy)
             return
         }
         if new.scale != old.scale {
             if old.scale <= 0 {
-                fatalError("StickmanFrame \(id) '\(new.name)' scale is \(old.scale)")
+                throw SceneLoadError(message: "StickmanFrame \(id) '\(new.name)' scale is \(old.scale)")
             }
-            followScale(slaveNames, factor: new.scale / old.scale)
+            try followScale(slaveNames, factor: new.scale / old.scale)
             return
         }
-        let pivot = new.basePoint()
-        let oldBase = old.basePoint()
+        let pivot = try new.basePoint()
+        let oldBase = try old.basePoint()
         if hypot(pivot.x - oldBase.x, pivot.y - oldBase.y) < 0.05,
            let angle = Self.uniformRotation(from: old, to: new, pivotX: pivot.x, pivotY: pivot.y),
            abs(angle) > 0.0001 {
-            rotateUnits(slaveNames, radians: angle, pivotX: pivot.x, pivotY: pivot.y)
+            try rotateUnits(slaveNames, radians: angle, pivotX: pivot.x, pivotY: pivot.y)
             return
         }
         if let limb = Self.limbRotation(from: old, to: new), abs(limb.angle) > 0.0001 {
-            followLimb(masterName: new.name, limb)
+            try followLimb(masterName: new.name, limb)
             return
         }
-        glueSlaves(masterName: new.name, old: old, new: new)
+        try glueSlaves(masterName: new.name, old: old, new: new)
     }
 
-    private mutating func followScale(_ slaveNames: [String], factor: CGFloat) {
+    private mutating func followScale(_ slaveNames: [String], factor: CGFloat) throws {
         if factor <= 0 {
-            fatalError("StickmanFrame \(id) slave scale factor \(factor)")
+            throw SceneLoadError(message: "StickmanFrame \(id) slave scale factor \(factor)")
         }
-        let ordered = slaveNames.sorted {
-            SlavesRegistry.slaveDepth(unit(named: $0), in: units)
-                < SlavesRegistry.slaveDepth(unit(named: $1), in: units)
+        // slaveDepth does not throw; only the unit lookup can.
+        let depths = try slaveNames.map { (name: String) in
+            (name, SlavesRegistry.slaveDepth(try unit(named: name), in: units))
         }
+        let ordered = depths.sorted { $0.1 < $1.1 }.map(\.0)
         for name in ordered {
             guard let index = units.firstIndex(where: { $0.name == name }) else {
-                fatalError("StickmanFrame \(id) scale missing '\(name)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) scale missing '\(name)'")
             }
-            let base = units[index].basePoint()
+            let base = try units[index].basePoint()
             units[index].scaleBy(pivotX: base.x, pivotY: base.y, factor: factor)
         }
         for name in ordered {
-            moveUnitToMaster(named: name)
+            try moveUnitToMaster(named: name)
         }
     }
 
-    private mutating func followLimb(masterName: String, _ limb: LimbTurn) {
+    private mutating func followLimb(masterName: String, _ limb: LimbTurn) throws {
         var names: [String] = []
         for unit in units {
             guard let attachment = SlavesRegistry.attachment(of: unit),
@@ -755,38 +762,41 @@ struct StickmanFrame {
         }
         var seen: Set<String> = []
         let unique = names.filter { seen.insert($0).inserted }
-        rotateUnits(unique, radians: limb.angle, pivotX: limb.pivotX, pivotY: limb.pivotY)
+        try rotateUnits(unique, radians: limb.angle, pivotX: limb.pivotX, pivotY: limb.pivotY)
     }
 
     /// Keep each slave's base on its master point when the pose edit was not a rigid move.
-    private mutating func glueSlaves(masterName: String, old: StickmanUnit, new: StickmanUnit) {
+    private mutating func glueSlaves(masterName: String, old: StickmanUnit, new: StickmanUnit) throws {
         for unit in units {
             guard let attachment = SlavesRegistry.attachment(of: unit), attachment.masterName == masterName else {
                 continue
             }
-            let from = old.point(id: attachment.masterPointId)
-            let to = new.point(id: attachment.masterPointId)
+            guard let from = old.point(optionalId: attachment.masterPointId),
+                  let to = new.point(optionalId: attachment.masterPointId)
+            else {
+                continue
+            }
             let dx = to.x - from.x
             let dy = to.y - from.y
             if dx == 0 && dy == 0 { continue }
             let names = [unit.name] + slaves.allSlaves(of: unit.name)
-            translateUnits(names, dx: dx, dy: dy)
+            try translateUnits(names, dx: dx, dy: dy)
         }
     }
 
-    private mutating func translateUnits(_ names: [String], dx: CGFloat, dy: CGFloat) {
+    private mutating func translateUnits(_ names: [String], dx: CGFloat, dy: CGFloat) throws {
         for name in names {
             guard let index = units.firstIndex(where: { $0.name == name }) else {
-                fatalError("StickmanFrame \(id) shift missing '\(name)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) shift missing '\(name)'")
             }
             units[index].translateAll(dx: dx, dy: dy)
         }
     }
 
-    private mutating func rotateUnits(_ names: [String], radians: CGFloat, pivotX: CGFloat, pivotY: CGFloat) {
+    private mutating func rotateUnits(_ names: [String], radians: CGFloat, pivotX: CGFloat, pivotY: CGFloat) throws {
         for name in names {
             guard let index = units.firstIndex(where: { $0.name == name }) else {
-                fatalError("StickmanFrame \(id) rotate missing '\(name)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) rotate missing '\(name)'")
             }
             units[index].rotate(radians: radians, pivotX: pivotX, pivotY: pivotY)
         }
@@ -799,9 +809,9 @@ struct StickmanFrame {
         var movedIds: Set<Int>
     }
 
-    private static func translation(from old: StickmanUnit, to new: StickmanUnit) -> (dx: CGFloat, dy: CGFloat)? {
-        let dx = new.basePoint().x - old.basePoint().x
-        let dy = new.basePoint().y - old.basePoint().y
+    private static func translation(from old: StickmanUnit, to new: StickmanUnit) throws -> (dx: CGFloat, dy: CGFloat)? {
+        let dx = try new.basePoint().x - old.basePoint().x
+        let dy = try new.basePoint().y - old.basePoint().y
         for point in old.points {
             guard let moved = new.points.first(where: { $0.id == point.id }) else { return nil }
             if moved.x - point.x != dx || moved.y - point.y != dy { return nil }
@@ -818,7 +828,8 @@ struct StickmanFrame {
     ) -> CGFloat? {
         var angle: CGFloat?
         for point in old.points {
-            let moved = new.point(id: point.id)
+            // A point new does not have is not a rotation of old.
+            guard let moved = new.point(optionalId: point.id) else { return nil }
             guard let delta = rotationDelta(
                 ox: point.x, oy: point.y, nx: moved.x, ny: moved.y, pivotX: pivotX, pivotY: pivotY
             ) else { continue }
@@ -835,7 +846,7 @@ struct StickmanFrame {
         var movedIds: [Int] = []
         var stationary: [StickmanPoint] = []
         for point in old.points {
-            let moved = new.point(id: point.id)
+            guard let moved = new.point(optionalId: point.id) else { return nil }
             if hypot(moved.x - point.x, moved.y - point.y) <= 0.05 {
                 stationary.append(point)
             } else {
@@ -843,14 +854,16 @@ struct StickmanFrame {
             }
         }
         if movedIds.isEmpty || stationary.isEmpty { return nil }
-        let parentIds = Set(movedIds.compactMap { old.point(id: $0).parentId })
+        let parentIds = Set(movedIds.compactMap { old.point(optionalId: $0)?.parentId })
         let pivots = stationary.sorted { parentIds.contains($0.id) && !parentIds.contains($1.id) }
         for pivot in pivots {
             var angle: CGFloat?
             var matched = true
             for id in movedIds {
-                let from = old.point(id: id)
-                let to = new.point(id: id)
+                guard let from = old.point(optionalId: id), let to = new.point(optionalId: id) else {
+                    matched = false
+                    break
+                }
                 guard let delta = rotationDelta(
                     ox: from.x, oy: from.y, nx: to.x, ny: to.y, pivotX: pivot.x, pivotY: pivot.y
                 ) else {
@@ -897,13 +910,13 @@ struct StickmanFrame {
         return value
     }
 
-    func uniqueName(for name: String) -> String {
-        UnitName.unique(base: name, existing: units.map(\.name))
+    func uniqueName(for name: String) throws -> String {
+        try UnitName.unique(base: name, existing: units.map(\.name))
     }
 
-    func clone() -> StickmanFrame {
+    func clone() throws -> StickmanFrame {
         var copy = self
-        copy.refreshAttachments()
+        try copy.refreshAttachments()
         return copy
     }
 
@@ -914,14 +927,14 @@ struct StickmanFrame {
     }
 
     /// Android `Inbetweener.structureIntact` — same names and attachments, no extra slaves.
-    func structureIntact(_ structure: [StickmanUnit]) -> Bool {
+    func structureIntact(_ structure: [StickmanUnit]) throws -> Bool {
         guard let strRoot = structure.first(where: { SlavesRegistry.attachment(of: $0) == nil }) else {
-            fatalError("StickmanFrame \(id) structure has no root")
+            throw SceneLoadError(message: "StickmanFrame \(id) structure has no root")
         }
         guard units.contains(where: { $0.name == strRoot.name }) else {
             return false
         }
-        var onFrameNames = Set(SlavesRegistry.allConnected(of: unit(named: strRoot.name), in: units).map(\.name))
+        var onFrameNames = Set(try SlavesRegistry.allConnected(of: unit(named: strRoot.name), in: units).map(\.name))
         let ordered = structure.sorted {
             SlavesRegistry.slaveDepth($0, in: structure) < SlavesRegistry.slaveDepth($1, in: structure)
         }
@@ -937,9 +950,9 @@ struct StickmanFrame {
         return onFrameNames.isEmpty
     }
 
-    mutating func pasteStructure(_ structure: [StickmanUnit]) {
+    mutating func pasteStructure(_ structure: [StickmanUnit]) throws {
         if structure.isEmpty {
-            fatalError("StickmanFrame \(id) pasteStructure empty")
+            throw SceneLoadError(message: "StickmanFrame \(id) pasteStructure empty")
         }
         let offset = units.map(\.arrange).max() ?? 0
         let ordered = structure.sorted {
@@ -948,14 +961,14 @@ struct StickmanFrame {
         var existing = units.map(\.name)
         var rename: [String: String] = [:]
         for unit in ordered {
-            let next = UnitName.unique(base: unit.name, existing: existing)
+            let next = try UnitName.unique(base: unit.name, existing: existing)
             rename[unit.name] = next
             existing.append(next)
         }
         for var unit in ordered {
             let oldName = unit.name
             guard let newName = rename[oldName] else {
-                fatalError("StickmanFrame \(id) paste missing rename for '\(oldName)'")
+                throw SceneLoadError(message: "StickmanFrame \(id) paste missing rename for '\(oldName)'")
             }
             unit.name = newName
             unit.arrange += offset
@@ -966,16 +979,16 @@ struct StickmanFrame {
             }
             units.append(unit)
         }
-        refreshAttachments()
+        try refreshAttachments()
     }
 
     /// Android `Unit.setNumber` plus `SlavesRegistry.onUnitNameUpdated` on this frame.
-    mutating func renameUnit(from oldName: String, to newName: String) {
+    mutating func renameUnit(from oldName: String, to newName: String) throws {
         guard let index = units.firstIndex(where: { $0.name == oldName }) else {
-            fatalError("StickmanFrame \(id) rename missing '\(oldName)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) rename missing '\(oldName)'")
         }
         if units.contains(where: { $0.name == newName }) {
-            fatalError("StickmanFrame \(id) already has unit '\(newName)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) already has unit '\(newName)'")
         }
         units[index].name = newName
         for unitIndex in units.indices {
@@ -984,53 +997,59 @@ struct StickmanFrame {
                 units[unitIndex].points[pointIndex].attachedMasterName = newName
             }
         }
-        refreshAttachments()
+        try refreshAttachments()
     }
 
-    mutating func addCopy(_ src: StickmanUnit, name: String, at point: CGPoint, scale: CGFloat) {
+    mutating func addCopy(_ src: StickmanUnit, name: String, at point: CGPoint, scale: CGFloat) throws {
         if scale <= 0 {
-            fatalError("StickmanFrame \(id) addCopy scale is \(scale)")
+            throw SceneLoadError(message: "StickmanFrame \(id) addCopy scale is \(scale)")
         }
         if units.contains(where: { $0.name == name }) {
-            fatalError("StickmanFrame \(id) already has unit '\(name)'")
+            throw SceneLoadError(message: "StickmanFrame \(id) already has unit '\(name)'")
         }
         var copy = src
         copy.name = name
         copy.arrange = (units.map(\.arrange).max() ?? -1) + 1
         copy.translateAll(dx: point.x, dy: point.y)
-        let base = copy.basePoint()
+        let base = try copy.basePoint()
         copy.scaleBy(pivotX: base.x, pivotY: base.y, factor: scale)
         units.append(copy)
     }
 }
 
 enum UnitName {
-    static func number(_ name: String) -> Int {
+    static func number(_ name: String) throws -> Int {
         guard let hash = name.firstIndex(of: "#") else { return 0 }
         let rest = name[name.index(after: hash)...]
         guard let value = Int(rest) else {
-            fatalError("UnitName '\(name)' has non-integer number")
+            throw SceneLoadError(message: "UnitName '\(name)' has non-integer number")
         }
         return value
     }
 
+    /// Non-fatal read for view bodies: a non-integer suffix just means no number badge.
+    static func numberOrNil(_ name: String) -> Int? {
+        guard let hash = name.firstIndex(of: "#") else { return 0 }
+        return Int(name[name.index(after: hash)...])
+    }
+
     /// Android `Unit.setNumber`: 0 keeps the bare name, 1...9 appends `#n`.
-    static func withNumber(_ name: String, _ number: Int) -> String {
+    static func withNumber(_ name: String, _ number: Int) throws -> String {
         if number < 0 || number > 9 {
-            fatalError("UnitName '\(name)' number \(number) out of 0...9")
+            throw SceneLoadError(message: "UnitName '\(name)' number \(number) out of 0...9")
         }
         let pure = UnitAssets.removeNumber(name)
         return number == 0 ? pure : "\(pure)#\(number)"
     }
 
-    static func unique(base: String, existing: [String]) -> String {
+    static func unique(base: String, existing: [String]) throws -> String {
         if !existing.contains(base) {
-            let n = number(base)
+            let n = try number(base)
             let pure = UnitAssets.removeNumber(base)
             return n == 0 ? pure : "\(pure)#\(n)"
         }
         let pure = UnitAssets.removeNumber(base)
-        let maxN = existing
+        let maxN = try existing
             .filter { UnitAssets.removeNumber($0) == pure }
             .map(number)
             .max() ?? 0
@@ -1062,13 +1081,19 @@ struct StickmanScene {
         )
     }
 
-    var currentFrame: StickmanFrame {
+    func currentFrame() throws -> StickmanFrame {
         if frames.isEmpty {
-            fatalError("StickmanScene has no frames")
+            throw SceneLoadError(message: "StickmanScene has no frames")
         }
         if currentIndex < 0 || currentIndex >= frames.count {
-            fatalError("StickmanScene currentIndex \(currentIndex) out of \(frames.count)")
+            throw SceneLoadError(message: "StickmanScene currentIndex \(currentIndex) out of \(frames.count)")
         }
+        return frames[currentIndex]
+    }
+
+    /// Non-fatal read for view bodies and render loops: an out-of-range cursor means not-ready.
+    var currentFrameOrNil: StickmanFrame? {
+        guard !frames.isEmpty, currentIndex >= 0, currentIndex < frames.count else { return nil }
         return frames[currentIndex]
     }
 
@@ -1084,72 +1109,72 @@ struct StickmanScene {
     }
 
     /// Android `Scene.addFrame` — clone last, otherwise nlerp midpoint. Moves current to the new frame.
-    mutating func addFrame() {
+    mutating func addFrame() throws {
         if frames.isEmpty {
-            fatalError("StickmanScene addFrame has no frames")
+            throw SceneLoadError(message: "StickmanScene addFrame has no frames")
         }
         if currentIndex < 0 || currentIndex >= frames.count {
-            fatalError("StickmanScene addFrame currentIndex \(currentIndex) out of \(frames.count)")
+            throw SceneLoadError(message: "StickmanScene addFrame currentIndex \(currentIndex) out of \(frames.count)")
         }
         let appendAtEnd = currentIndex == frames.count - 1
         let oldCount = frames.count
         let insertIndex = currentIndex + 1
         var created: StickmanFrame
         if appendAtEnd {
-            created = frames[currentIndex].clone()
+            created = try frames[currentIndex].clone()
         } else {
-            let generated = NlerpInterpolator.interpolate(
+            let generated = try NlerpInterpolator.interpolate(
                 from: frames[currentIndex],
                 to: frames[currentIndex + 1],
                 duration: 2
             )
             if generated.count < 2 {
-                fatalError("StickmanScene addFrame interpolator returned \(generated.count)")
+                throw SceneLoadError(message: "StickmanScene addFrame interpolator returned \(generated.count)")
             }
             created = generated[1]
         }
         created.id = nextFrameId()
-        created.refreshAttachments()
+        try created.refreshAttachments()
         frames.insert(created, at: insertIndex)
         currentIndex += 1
         speedModifier.adjustTo(frameCount: frames.count)
         if !appendAtEnd {
-            retweenReconciled(unitTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
+            try retweenReconciled(unitTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
             retweenCameraReconciled(cameraTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
         }
     }
 
     /// Android `Scene.removeFrames` — cannot delete every frame. Lands on the neighbor Android picks.
-    mutating func removeFrames(at indices: [Int]) {
+    mutating func removeFrames(at indices: [Int]) throws {
         let unique = Array(Set(indices)).sorted()
         if unique.isEmpty {
-            fatalError("StickmanScene removeFrames empty")
+            throw SceneLoadError(message: "StickmanScene removeFrames empty")
         }
         if !canDeleteFrames(at: unique) {
-            fatalError("StickmanScene cannot delete all \(frames.count) frames")
+            throw SceneLoadError(message: "StickmanScene cannot delete all \(frames.count) frames")
         }
         for index in unique where index < 0 || index >= frames.count {
-            fatalError("StickmanScene removeFrames \(index) out of \(frames.count)")
+            throw SceneLoadError(message: "StickmanScene removeFrames \(index) out of \(frames.count)")
         }
         let minDeleted = unique[0]
         let maxDeleted = unique[unique.count - 1]
         let landingOld = minDeleted == 0 ? maxDeleted + 1 : minDeleted - 1
         if landingOld < 0 || landingOld >= frames.count {
-            fatalError("StickmanScene removeFrames landing \(landingOld) out of \(frames.count)")
+            throw SceneLoadError(message: "StickmanScene removeFrames landing \(landingOld) out of \(frames.count)")
         }
         if unique.contains(landingOld) {
-            fatalError("StickmanScene removeFrames landing \(landingOld) is deleted")
+            throw SceneLoadError(message: "StickmanScene removeFrames landing \(landingOld) is deleted")
         }
         let landingId = frames[landingOld].id
         let oldCount = frames.count
         var drop = Set(unique)
         frames = frames.enumerated().compactMap { drop.contains($0.offset) ? nil : $0.element }
         guard let next = frames.firstIndex(where: { $0.id == landingId }) else {
-            fatalError("StickmanScene removeFrames lost landing id \(landingId)")
+            throw SceneLoadError(message: "StickmanScene removeFrames lost landing id \(landingId)")
         }
         currentIndex = next
         speedModifier.adjustTo(frameCount: frames.count)
-        retweenReconciled(unitTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
+        try retweenReconciled(unitTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
         retweenCameraReconciled(cameraTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
     }
 
@@ -1158,20 +1183,20 @@ struct StickmanScene {
     mutating func pasteFrames(
         _ source: [StickmanFrame],
         animations incoming: [String: FBFAnimation]
-    ) -> [Int] {
+    ) throws -> [Int] {
         if source.isEmpty {
-            fatalError("StickmanScene pasteFrames empty")
+            throw SceneLoadError(message: "StickmanScene pasteFrames empty")
         }
         let insertAt = currentIndex == 0 ? 0 : currentIndex + 1
         var oldToNew: [Int: Int] = [:]
         var inserted: [Int] = []
         var cursor = insertAt
         for original in source {
-            var frame = original.clone()
+            var frame = try original.clone()
             let newId = nextFrameId()
             oldToNew[original.id] = newId
             frame.id = newId
-            frame.refreshAttachments()
+            try frame.refreshAttachments()
             frames.insert(frame, at: cursor)
             inserted.append(cursor)
             cursor += 1
@@ -1202,26 +1227,26 @@ struct StickmanScene {
         root: StickmanUnit,
         in sourceUnits: [StickmanUnit],
         range: ClosedRange<Int>
-    ) -> [Int] {
+    ) throws -> [Int] {
         if SlavesRegistry.isEnslaved(root) {
-            fatalError("StickmanScene ensureStructureOnRange enslaved '\(root.name)'")
+            throw SceneLoadError(message: "StickmanScene ensureStructureOnRange enslaved '\(root.name)'")
         }
         if range.lowerBound < 0 || range.upperBound >= frames.count {
-            fatalError("StickmanScene ensureStructureOnRange \(range) out of \(frames.count)")
+            throw SceneLoadError(message: "StickmanScene ensureStructureOnRange \(range) out of \(frames.count)")
         }
-        let structure = SlavesRegistry.allConnected(of: root, in: sourceUnits)
+        let structure = try SlavesRegistry.allConnected(of: root, in: sourceUnits)
         var conflicts: [Int] = []
         for index in range {
             let frame = frames[index]
-            if !frame.structureIntact(structure) && frame.hasNameIntersection(structure) {
+            if try !frame.structureIntact(structure) && frame.hasNameIntersection(structure) {
                 conflicts.append(index)
             }
         }
         if !conflicts.isEmpty {
             return conflicts
         }
-        for index in range where !frames[index].structureIntact(structure) {
-            frames[index].pasteStructure(structure)
+        for index in range where try !frames[index].structureIntact(structure) {
+            try frames[index].pasteStructure(structure)
         }
         return []
     }
@@ -1287,13 +1312,13 @@ struct StickmanScene {
         }
     }
 
-    mutating func removeUnitTweenContaining(unitName: String, frameIndex: Int) -> AutoTweenRange? {
+    mutating func removeUnitTweenContaining(unitName: String, frameIndex: Int) throws -> AutoTweenRange? {
         guard let range = unitTweens.removeContaining(unitName: unitName, frameIndex: frameIndex) else {
             return nil
         }
         if let unit = frames[safe: range.fromFrame]?.units.first(where: { $0.name == unitName }) {
             let root = SlavesRegistry.rootMaster(of: unit, in: frames[range.fromFrame].units)
-            for connected in SlavesRegistry.allConnected(of: root, in: frames[range.fromFrame].units)
+            for connected in try SlavesRegistry.allConnected(of: root, in: frames[range.fromFrame].units)
             where connected.name != unitName {
                 unitTweens.removeExact(unitName: connected.name, from: range.fromFrame, to: range.toFrame)
             }
@@ -1301,20 +1326,20 @@ struct StickmanScene {
         return range
     }
 
-    mutating func breakTweensTouching(unitName: String, frameIndex: Int) {
+    mutating func breakTweensTouching(unitName: String, frameIndex: Int) throws {
         if unitTweens.isOwned(unitName: unitName, frameIndex: frameIndex) {
-            _ = removeUnitTweenContaining(unitName: unitName, frameIndex: frameIndex)
+            _ = try removeUnitTweenContaining(unitName: unitName, frameIndex: frameIndex)
         }
         guard let unit = frames[safe: frameIndex]?.units.first(where: { $0.name == unitName }) else {
             return
         }
         let root = SlavesRegistry.rootMaster(of: unit, in: frames[frameIndex].units)
         if root.name != unitName && unitTweens.isOwned(unitName: root.name, frameIndex: frameIndex) {
-            _ = removeUnitTweenContaining(unitName: root.name, frameIndex: frameIndex)
+            _ = try removeUnitTweenContaining(unitName: root.name, frameIndex: frameIndex)
         }
     }
 
-    mutating func retweenEndpoints(unitName: String, frames edited: [Int]) {
+    mutating func retweenEndpoints(unitName: String, frames edited: [Int]) throws {
         if edited.isEmpty {
             return
         }
@@ -1332,7 +1357,7 @@ struct StickmanScene {
             if !seen.insert(key).inserted {
                 continue
             }
-            retweenSpan(
+            try retweenSpan(
                 AutoTweenRange(
                     unitName: root.name,
                     fromFrame: span.fromFrame,
@@ -1345,7 +1370,7 @@ struct StickmanScene {
         }
     }
 
-    mutating func retweenSpan(_ span: AutoTweenRange) {
+    mutating func retweenSpan(_ span: AutoTweenRange) throws {
         if span.fromFrame < 0 || span.toFrame >= frames.count {
             unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
             return
@@ -1364,7 +1389,7 @@ struct StickmanScene {
         if root.name != span.unitName {
             return
         }
-        if !UnitInbetweener.propagate(
+        if try !UnitInbetweener.propagate(
             scene: &self,
             rootName: root.name,
             from: span.fromFrame,
@@ -1388,7 +1413,7 @@ struct StickmanScene {
         }
     }
 
-    private mutating func retweenReconciled(_ spans: [AutoTweenRange]) {
+    private mutating func retweenReconciled(_ spans: [AutoTweenRange]) throws {
         var seen = Set<String>()
         for span in spans {
             guard let unit = frames[safe: span.fromFrame]?.units.first(where: { $0.name == span.unitName }) else {
@@ -1399,7 +1424,7 @@ struct StickmanScene {
             if !seen.insert(key).inserted {
                 continue
             }
-            retweenSpan(
+            try retweenSpan(
                 AutoTweenRange(
                     unitName: root.name,
                     fromFrame: span.fromFrame,

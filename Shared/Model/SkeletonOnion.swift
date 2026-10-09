@@ -46,8 +46,7 @@ enum SkeletonOnion {
                 flipped: unit.flipped
             )
             guard let asset = assets.getDrawable(key, state: unit.assetsState) else { continue }
-            let from = unit.point(id: edge.from)
-            let to = unit.point(id: edge.to)
+            guard let from = unit.point(optionalId: edge.from), let to = unit.point(optionalId: edge.to) else { continue }
             bones.append(
                 Bone(
                     weight: asset.weight,
@@ -62,8 +61,9 @@ enum SkeletonOnion {
         }
         bones.sort { $0.weight < $1.weight }
 
-        let editFrom = unit.point(id: excludeFrom)
-        let editTo = unit.point(id: excludeTo)
+        guard let editFrom = unit.point(optionalId: excludeFrom), let editTo = unit.point(optionalId: excludeTo) else {
+            return nil
+        }
         let editStart = CGPoint(x: editFrom.x / unit.scale, y: editFrom.y / unit.scale)
         let editAngle = atan2(editTo.y - editFrom.y, editTo.x - editFrom.x)
         let originX = (worldSize - pngWidth) / 2

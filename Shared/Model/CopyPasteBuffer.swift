@@ -18,7 +18,7 @@ final class CopyPasteBuffer: ObservableObject {
         units = structure
     }
 
-    func copyFrames(from scene: StickmanScene, indices: [Int]) {
+    func copyFrames(from scene: StickmanScene, indices: [Int]) throws {
         if indices.isEmpty {
             fatalError("CopyPasteBuffer copyFrames empty")
         }
@@ -28,21 +28,21 @@ final class CopyPasteBuffer: ObservableObject {
             if index < 0 || index >= scene.frames.count {
                 fatalError("CopyPasteBuffer copyFrames \(index) out of \(scene.frames.count)")
             }
-            copied.append(scene.frames[index].clone())
+            copied.append(try scene.frames[index].clone())
         }
         frames = copied
         animations = Self.animations(from: scene, copied: copied)
     }
 
     @discardableResult
-    func pasteFrames(into scene: inout StickmanScene) -> [Int] {
+    func pasteFrames(into scene: inout StickmanScene) throws -> [Int] {
         if frames.isEmpty {
             fatalError("CopyPasteBuffer pasteFrames empty")
         }
-        return scene.pasteFrames(frames, animations: animations)
+        return try scene.pasteFrames(frames, animations: animations)
     }
 
-    func pasteUnits(into scene: inout StickmanScene, at indices: [Int]) {
+    func pasteUnits(into scene: inout StickmanScene, at indices: [Int]) throws {
         if units.isEmpty {
             fatalError("CopyPasteBuffer pasteUnits empty")
         }
@@ -53,7 +53,7 @@ final class CopyPasteBuffer: ObservableObject {
             if index < 0 || index >= scene.frames.count {
                 fatalError("CopyPasteBuffer pasteUnits \(index) out of \(scene.frames.count)")
             }
-            scene.frames[index].pasteStructure(units)
+            try scene.frames[index].pasteStructure(units)
         }
     }
 
