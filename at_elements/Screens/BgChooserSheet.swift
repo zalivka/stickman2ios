@@ -93,7 +93,6 @@ struct BgChooserSheet: View {
     private func folderList(_ folders: [BackgroundCatalog.Folder]) -> some View {
         ScrollView {
             VStack(spacing: 8) {
-                actionRow("Pick", fill: Self.pickFill, ink: Self.pickInk, symbol: "photo")
                 actionRow("Draw", fill: Self.drawFill, ink: Self.drawInk, symbol: "paintbrush.pointed")
                 actionRow("Color", fill: Self.colorFill, ink: Self.colorInk, symbol: "paintpalette") {
                     showingColor = true
@@ -120,9 +119,7 @@ struct BgChooserSheet: View {
         .frame(width: 180)
     }
 
-    /// Android chooser action colors: Pick Image `#38BDF8`, Draw `#F59E0B`.
-    private static let pickFill = Color(red: 0x38 / 255, green: 0xBD / 255, blue: 0xF8 / 255)
-    private static let pickInk = Color(red: 0x07 / 255, green: 0x23 / 255, blue: 0x3A / 255)
+    /// Android chooser action color: Draw `#F59E0B`.
     private static let drawFill = Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
     private static let drawInk = Color(red: 0x38 / 255, green: 0x21 / 255, blue: 0)
     private static let colorFill = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue: 0xFD / 255)

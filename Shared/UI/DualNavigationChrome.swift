@@ -155,6 +155,10 @@ extension View {
     func paddingTrailingIsland() -> some View {
         modifier(TrailingIslandPad())
     }
+
+    func offsetLeadingIsland() -> some View {
+        modifier(LeadingIslandOffset())
+    }
 }
 
 private struct TrailingIslandPad: ViewModifier {
@@ -164,7 +168,7 @@ private struct TrailingIslandPad: ViewModifier {
         content
             .padding(.trailing, trailingInset)
             .background {
-                WindowTrailingInsetProbe { inset in
+                IslandInsetProbe(edge: .trailing) { inset in
                     if inset != trailingInset {
                         trailingInset = inset
                     }
@@ -174,23 +178,46 @@ private struct TrailingIslandPad: ViewModifier {
     }
 }
 
-/// Window trailing inset. A SwiftUI safe-area read is 0 once an ancestor ignores the horizontal edges.
-private struct WindowTrailingInsetProbe: UIViewRepresentable {
+/// The button sits in the safe area while the tool rail is drawn from the screen edge.
+/// Drop the leading inset so the circle stays 8 pt past the rail.
+private struct LeadingIslandOffset: ViewModifier {
+    @State private var leadingInset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: -leadingInset)
+            .background {
+                IslandInsetProbe(edge: .leading) { inset in
+                    if inset != leadingInset {
+                        leadingInset = inset
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+    }
+}
+
+/// Window side inset. A SwiftUI safe-area read is 0 once an ancestor ignores the horizontal edges.
+private struct IslandInsetProbe: UIViewRepresentable {
+    var edge: Edge.Set
     var onChange: (CGFloat) -> Void
 
     func makeUIView(context: Context) -> Probe {
         let view = Probe()
         view.isUserInteractionEnabled = false
+        view.edge = edge
         view.onChange = onChange
         return view
     }
 
     func updateUIView(_ uiView: Probe, context: Context) {
+        uiView.edge = edge
         uiView.onChange = onChange
         uiView.report()
     }
 
     final class Probe: UIView {
+        var edge: Edge.Set = .trailing
         var onChange: ((CGFloat) -> Void)?
         private var last: CGFloat?
 
@@ -208,10 +235,12 @@ private struct WindowTrailingInsetProbe: UIViewRepresentable {
             guard let window else { return }
             let ltr = UIView.userInterfaceLayoutDirection(for: semanticContentAttribute) == .leftToRight
             let trailing = ltr ? window.safeAreaInsets.right : window.safeAreaInsets.left
-            guard trailing != last else { return }
-            last = trailing
+            let leading = ltr ? window.safeAreaInsets.left : window.safeAreaInsets.right
+            let inset = edge == .trailing ? trailing : leading
+            guard inset != last else { return }
+            last = inset
             DispatchQueue.main.async { [weak self] in
-                self?.onChange?(trailing)
+                self?.onChange?(inset)
             }
         }
     }

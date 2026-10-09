@@ -1,4 +1,5 @@
 import Combine
+import Foundation
 
 final class VideoExport: ObservableObject {
     enum Failure: Equatable {

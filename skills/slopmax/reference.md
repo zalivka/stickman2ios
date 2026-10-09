@@ -36,7 +36,25 @@ A ring loses its outline. The tracer keeps a loop only when a representative poi
 
 `hand.stroke` at `jitter = 0.5`, brush 14. `jitter = 2.0` is too much: sideways waves scale with `jitter * min(4, 1.2 + extent/90)`, and a limb about 190 px across comes out near 6.6. Three waves then add to an 8–12 px swing, and a side only ~150 px long gets one fat hump. At 0.5 that swing is about 3 px. The trace was already within 1.8 px of straight before the brush ran.
 
-`hand.poly` draws straight segments and turns the finger at each vertex. A 24-gon on a large shape shows facets under a 14 px brush. Sample a large outline so edges are about 5 px (on the order of 128 points for a tall rock). `hand.curve` is Catmull-Rom. `svg_export` simplifies fill paths at 0.25 px and does not smooth the stroke ring.
+`hand.poly` draws straight segments and turns the finger at each vertex. A 24-gon on a large shape shows facets under a 14 px brush. Sample a large outline so edges are about 5 px (on the order of 128 points for a tall rock). `hand.curve` is Catmull-Rom with about 2 px steps. `svg_export` simplifies fill paths at 0.25 px and does not smooth the stroke ring.
+
+The traced ring breaks that rule. `brush_svg` hands the `buffer(2.5).simplify(1.8)` ring to `hand.poly` as it is:
+
+| Disc radius | Corners | Longest edge | Mean edge |
+|---|---|---|---|
+| 30 | 12 | 23 px | 17 px |
+| 60 | 16 | 29 px | 25 px |
+| 120 | 27 | 43 px | 29 px |
+
+Stroke a round traced part as `hand.curve(ring, closed=True)`. Keep `hand.poly` for parts with real corners.
+
+## Why not a tracing library
+
+Potrace, vtracer, and autotrace return Bezier contours. `brush_svg` needs flat-colour shapely polygons and reads only the exterior: a limb uses the long axis of the minimum rotated rectangle, and a compact part uses the ring. The shipped SVG is rebuilt by `svg_export` from the stroke log, so no tracer path reaches the file.
+
+None of them do the colour policy above: merge across black ink, use the white sentinel, drop `#2C2C2B`-style outlines, and drop blobs under 40 px and loops under area 30. Potrace is one bit per pass, so it would only replace `boundary_loops`. For speed, `cv2.findContours` on each colour mask replaces that same step without Beziers.
+
+Tracing a soft or photographic raster fails either way, because quantization makes a band per shade. Draw that kind of picture from shapes (`out/storypic`).
 
 What `stroke()` does, in order:
 

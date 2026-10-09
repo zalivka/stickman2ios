@@ -41,6 +41,19 @@ def color_distance(a, b):
     return math.dist(oklab(a), oklab(b))
 
 
+def polygons_of(geom):
+    if geom.is_empty:
+        return []
+    if isinstance(geom, Polygon):
+        return [geom]
+    if not hasattr(geom, "geoms"):
+        return []
+    found = []
+    for part in geom.geoms:
+        found.extend(polygons_of(part))
+    return found
+
+
 class Layer:
     def __init__(self, kind, geom, color, opacity, points=None, size=None):
         self.kind = kind
@@ -128,6 +141,46 @@ class Scene:
         # Grown under the bounding lines: two antialiased edges on the same boundary leave a seam.
         geom = region.buffer(FILL_RING, quad_segs=4).intersection(self.page)
         self.layers.append(Layer("fill", geom, op["color"], op["opacity"]))
+
+    def foreign_pieces(self, interior, color):
+        """Connected areas inside `interior` that one tap of `color` would miss.
+
+        A recolour covers only the tapped colour, within NEIGHBOUR. Bare paper counts
+        as its own area. A shape drawn across two colours needs one tap on each,
+        or the second colour stays showing.
+        """
+        if interior.is_empty:
+            return []
+        above = Polygon()
+        grouped = []
+
+        def absorb(key, piece):
+            for have, geoms in grouped:
+                if key is None and have is None:
+                    geoms.append(piece)
+                    return
+                if key is not None and have is not None and color_distance(key, have) < NEIGHBOUR:
+                    geoms.append(piece)
+                    return
+            grouped.append((key, [piece]))
+
+        for layer in reversed(self.layers):
+            part = layer.geom.difference(above)
+            above = unary_union([above, layer.geom])
+            for piece in polygons_of(part.intersection(interior)):
+                if piece.area >= 1:
+                    absorb(layer.color, piece)
+        for piece in polygons_of(interior.difference(above)):
+            if piece.area >= 1:
+                absorb(None, piece)
+        out = []
+        for key, geoms in grouped:
+            if key is not None and color_distance(key, color) < NEIGHBOUR:
+                continue
+            for part in polygons_of(unary_union(geoms)):
+                if part.area >= 1:
+                    out.append(part)
+        return out
 
     def _top_color(self, at):
         for layer in reversed(self.layers):

@@ -6,6 +6,8 @@ private let slotsDarkGrey = Color(red: 0x20 / 255, green: 0x20 / 255, blue: 0x20
 private let slotsBrightGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
 private let slotsThumbFill = Color(red: 0xee / 255, green: 0xee / 255, blue: 0xee / 255)
 private let templateIconSize: CGFloat = 80
+/// Clears the floating back circle (8 pt top pad + 44 pt button).
+private let slotsGridTopPad: CGFloat = 52
 
 struct CustomItemsListScreen: View {
     @State private var items: [CustomItems.Item] = []
@@ -104,6 +106,7 @@ struct CustomItemsListScreen: View {
             }
             .padding(2)
         }
+        .padding(.top, slotsGridTopPad)
         .frame(maxWidth: .infinity)
     }
 
