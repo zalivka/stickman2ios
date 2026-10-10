@@ -56,11 +56,13 @@ struct RoadLoopScreen: View {
     private static func image(_ frame: Int, _ copy: Int) -> CGImage {
         let name = "frame_\(frame)_\(copy)"
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "testdata/road") else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("RoadLoopScreen missing testdata/road/\(name).png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "testdata/road/\(name).png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("RoadLoopScreen could not read \(url.path): \(error)")
         }
     }

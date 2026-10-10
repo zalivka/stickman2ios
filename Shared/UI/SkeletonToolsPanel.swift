@@ -510,12 +510,14 @@ private func chromeImage(_ name: String) -> CGImage {
     guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
         ?? Bundle.main.url(forResource: name, withExtension: "png")
     else {
+        // bundled resource: a failure here ships broken, fires on first debug run
         fatalError("chrome missing \(name).png")
     }
     do {
         let data = try Data(contentsOf: url)
         return PNGImage.cgImage(from: data, name: "chrome/\(name).png")
     } catch {
+        // bundled resource: a failure here ships broken, fires on first debug run
         fatalError("chrome could not read \(url.path): \(error)")
     }
 }

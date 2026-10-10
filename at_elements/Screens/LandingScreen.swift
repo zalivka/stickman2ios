@@ -247,11 +247,13 @@ private struct MakePane: View {
     #if DEBUG
     private static func testSession(_ name: String) -> Data {
         guard let url = Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "testdata") else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("LandingScreen missing testdata/\(name).json")
         }
         do {
             return try Data(contentsOf: url)
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("LandingScreen could not read \(url.path): \(error)")
         }
     }
@@ -281,6 +283,7 @@ private struct MakePane: View {
         guard let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
               !value.isEmpty
         else {
+            // Info.plist: a failure here ships broken, fires on first debug run
             fatalError("LandingScreen missing CFBundleShortVersionString")
         }
         return value

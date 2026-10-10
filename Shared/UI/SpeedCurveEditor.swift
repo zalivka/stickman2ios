@@ -55,6 +55,7 @@ final class SpeedCurveView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
+        // unused: views are built in code; storyboard init is never invoked
         fatalError("SpeedCurveView coder")
     }
 
