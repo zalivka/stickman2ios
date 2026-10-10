@@ -13,15 +13,15 @@ enum SkeletonOnion {
         pngHeight: Int,
         boneStartPNG: CGPoint,
         mirror: Bool
-    ) -> CGImage? {
+    ) throws -> CGImage? {
         if worldSize < 1 {
-            fatalError("SkeletonOnion worldSize \(worldSize)")
+            throw SceneLoadError(message: "SkeletonOnion worldSize \(worldSize)")
         }
         if unit.scale <= 0 {
-            fatalError("SkeletonOnion '\(unit.name)' scale is \(unit.scale)")
+            throw SceneLoadError(message: "SkeletonOnion '\(unit.name)' scale is \(unit.scale)")
         }
         if pngWidth < 1 || pngHeight < 1 {
-            fatalError("SkeletonOnion '\(unit.name)' png \(pngWidth)x\(pngHeight)")
+            throw SceneLoadError(message: "SkeletonOnion '\(unit.name)' png \(pngWidth)x\(pngHeight)")
         }
 
         struct Bone {
@@ -99,22 +99,24 @@ enum SkeletonOnion {
             }
         }
         guard let cgRaster = raster.cgImage else {
-            fatalError("SkeletonOnion '\(unit.name)' raster failed")
+            throw SceneLoadError(message: "SkeletonOnion '\(unit.name)' raster failed")
         }
-        return Self.pale(cgRaster, worldSize: worldSize, name: unit.name)
+        return try Self.pale(cgRaster, worldSize: worldSize, name: unit.name)
     }
 
-    private static func pale(_ image: CGImage, worldSize: Int, name: String) -> CGImage {
+    private static func pale(_ image: CGImage, worldSize: Int, name: String) throws -> CGImage {
         let input = CIImage(cgImage: image)
+        // Core Image filters ship with the OS; a missing one is a broken system, not bad input.
         guard let saturate = CIFilter(name: "CIColorControls") else {
             fatalError("SkeletonOnion '\(name)' missing CIColorControls")
         }
         saturate.setValue(input, forKey: kCIInputImageKey)
         saturate.setValue(0, forKey: kCIInputSaturationKey)
         guard let gray = saturate.outputImage else {
-            fatalError("SkeletonOnion '\(name)' saturate failed")
+            throw SceneLoadError(message: "SkeletonOnion '\(name)' saturate failed")
         }
         guard let matrix = CIFilter(name: "CIColorMatrix") else {
+            // Core Image filters ship with the OS; a missing one is a broken system, not bad input.
             fatalError("SkeletonOnion '\(name)' missing CIColorMatrix")
         }
         matrix.setValue(gray, forKey: kCIInputImageKey)
@@ -124,12 +126,12 @@ enum SkeletonOnion {
         matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0.85), forKey: "inputAVector")
         matrix.setValue(CIVector(x: 0.8, y: 0.8, z: 0.8, w: 0), forKey: "inputBiasVector")
         guard let output = matrix.outputImage else {
-            fatalError("SkeletonOnion '\(name)' matrix failed")
+            throw SceneLoadError(message: "SkeletonOnion '\(name)' matrix failed")
         }
         let ci = CIContext(options: nil)
         let extent = CGRect(x: 0, y: 0, width: worldSize, height: worldSize)
         guard let filtered = ci.createCGImage(output, from: extent) else {
-            fatalError("SkeletonOnion '\(name)' filter output failed")
+            throw SceneLoadError(message: "SkeletonOnion '\(name)' filter output failed")
         }
         return filtered
     }

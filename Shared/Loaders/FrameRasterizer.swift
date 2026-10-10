@@ -15,10 +15,20 @@ enum FrameRasterizer {
         backgrounds: BackgroundAssets,
         sceneWidth: CGFloat,
         sceneHeight: CGFloat
-    ) -> CGImage {
+    ) throws -> CGImage {
         if sceneWidth <= 0 || sceneHeight <= 0 {
-            fatalError("FrameRasterizer scene size \(sceneWidth)x\(sceneHeight)")
+            throw SceneLoadError(message: "FrameRasterizer scene size \(sceneWidth)x\(sceneHeight)")
         }
+        // Resolve the background before rasterizing: the renderer closure cannot throw,
+        // and an imported scene missing its stripped background must fail the frame
+        // honestly instead of drawing a lie.
+        let background = try resolveBackground(
+            name: frame.bgName,
+            move: frame.bgMove,
+            backgrounds: backgrounds,
+            sceneWidth: sceneWidth,
+            sceneHeight: sceneHeight
+        )
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -31,28 +41,69 @@ enum FrameRasterizer {
             cg.saveGState()
             cg.clip(to: CGRect(origin: .zero, size: size))
             cg.concatenate(frame.cameraMove.toTransform())
-            drawBackground(
-                name: frame.bgName,
-                move: frame.bgMove,
-                backgrounds: backgrounds,
-                sceneWidth: sceneWidth,
-                sceneHeight: sceneHeight,
-                context: cg
-            )
+            drawBackground(background, context: cg)
             for unit in unitsToDraw(frame.units) {
                 drawUnit(unit, assets: assets, context: cg)
             }
             cg.restoreGState()
         }
         guard let cgImage = image.cgImage else {
-            fatalError("FrameRasterizer produced no CGImage")
+            throw SceneLoadError(message: "FrameRasterizer produced no CGImage")
         }
         if cgImage.width != Int(sceneWidth.rounded()) || cgImage.height != Int(sceneHeight.rounded()) {
-            fatalError(
-                "FrameRasterizer size \(cgImage.width)x\(cgImage.height) != \(Int(sceneWidth))x\(Int(sceneHeight))"
+            throw SceneLoadError(
+                message: "FrameRasterizer size \(cgImage.width)x\(cgImage.height) != \(Int(sceneWidth))x\(Int(sceneHeight))"
             )
         }
         return cgImage
+    }
+
+    private enum BackgroundDraw {
+        case sceneFill(rect: CGRect)
+        case color(CGColor, rect: CGRect)
+        case image(CGImage, PictureMove)
+    }
+
+    private static func resolveBackground(
+        name: String?,
+        move: PictureMove,
+        backgrounds: BackgroundAssets,
+        sceneWidth: CGFloat,
+        sceneHeight: CGFloat
+    ) throws -> BackgroundDraw {
+        let rect = CGRect(x: 0, y: 0, width: sceneWidth, height: sceneHeight)
+        guard let name, !name.isEmpty else {
+            return .sceneFill(rect: rect)
+        }
+        if name.hasPrefix("usermade:") {
+            guard let image = backgrounds.image(for: name) else {
+                throw SceneLoadError(message: "FrameRasterizer missing background '\(name)'")
+            }
+            return .image(image, move)
+        }
+        if name.hasPrefix("#") {
+            guard let rgba = HexRGB.parse(name) else {
+                return .sceneFill(rect: rect)
+            }
+            return .color(UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a).cgColor, rect: rect)
+        }
+        throw SceneLoadError(message: "FrameRasterizer unknown bg_name '\(name)'")
+    }
+
+    private static func drawBackground(_ background: BackgroundDraw, context: CGContext) {
+        switch background {
+        case .sceneFill(let rect):
+            sceneFill.setFill()
+            context.fill(rect)
+        case .color(let color, let rect):
+            context.setFillColor(color)
+            context.fill(rect)
+        case .image(let image, let move):
+            context.saveGState()
+            context.concatenate(move.toTransform())
+            drawImage(image, alpha: 1)
+            context.restoreGState()
+        }
     }
 
     private static func unitsToDraw(_ units: [StickmanUnit]) -> [StickmanUnit] {
@@ -62,40 +113,6 @@ enum FrameRasterizer {
             }
             return $0.name < $1.name
         }
-    }
-
-    private static func drawBackground(
-        name: String?,
-        move: PictureMove,
-        backgrounds: BackgroundAssets,
-        sceneWidth: CGFloat,
-        sceneHeight: CGFloat,
-        context: CGContext
-    ) {
-        let rect = CGRect(x: 0, y: 0, width: sceneWidth, height: sceneHeight)
-        guard let name, !name.isEmpty else {
-            sceneFill.setFill()
-            context.fill(rect)
-            return
-        }
-        if name.hasPrefix("usermade:") {
-            context.saveGState()
-            context.concatenate(move.toTransform())
-            drawImage(backgrounds.image(for: name), alpha: 1)
-            context.restoreGState()
-            return
-        }
-        if name.hasPrefix("#") {
-            guard let rgba = HexRGB.parse(name) else {
-                sceneFill.setFill()
-                context.fill(rect)
-                return
-            }
-            context.setFillColor(UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a).cgColor)
-            context.fill(rect)
-            return
-        }
-        fatalError("FrameRasterizer unknown bg_name '\(name)'")
     }
 
     /// UIKit Y-down. Raw `CGContext.draw(CGImage)` is Y-up and flips bitmaps/bg.
@@ -123,7 +140,9 @@ enum FrameRasterizer {
 
     private static func drawBubble(_ drawn: StickmanUnit, context: CGContext) {
         guard let bubble = drawn.bubble else {
-            fatalError("FrameRasterizer unit '\(drawn.name)' type=bubble missing meta")
+            // SceneXML.parse rejects a bubble without meta; a scene reaching here was built in-memory.
+            assertionFailure("FrameRasterizer unit '\(drawn.name)' type=bubble missing meta")
+            return
         }
         guard let start = drawn.point(optionalId: 1), let end = drawn.point(optionalId: 2) else { return }
         let angle = atan2(end.y - start.y, end.x - start.x)

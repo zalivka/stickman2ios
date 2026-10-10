@@ -56,9 +56,9 @@ enum BackgroundStore {
     static func saveDrawn(_ image: CGImage) throws -> (bgName: String, archive: Data) {
         let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
         let bgName = usermadePrefix + own
-        let archive = ZipStore.archive([
-            (name: "bg.png", data: png(image, name: bgName)),
-            (name: "thumb.png", data: png(thumb(image), name: bgName)),
+        let archive = try ZipStore.archive([
+            (name: "bg.png", data: try png(image, name: bgName)),
+            (name: "thumb.png", data: try png(try thumb(image), name: bgName)),
         ])
         do {
             try FileManager.default.createDirectory(at: userDirectory(), withIntermediateDirectories: true)
@@ -73,11 +73,11 @@ enum BackgroundStore {
     static func replaceDrawn(_ bgName: String, image: CGImage) throws -> Data {
         let own = SceneLoader.ownName(bgName)
         if own.isEmpty || own.contains("/") {
-            fatalError("BackgroundStore replaceDrawn own name '\(own)'")
+            throw Failure.unsupported(bgName)
         }
-        let archive = ZipStore.archive([
-            (name: "bg.png", data: png(image, name: bgName)),
-            (name: "thumb.png", data: png(thumb(image), name: bgName)),
+        let archive = try ZipStore.archive([
+            (name: "bg.png", data: try png(image, name: bgName)),
+            (name: "thumb.png", data: try png(try thumb(image), name: bgName)),
         ])
         do {
             try FileManager.default.createDirectory(at: userDirectory(), withIntermediateDirectories: true)
@@ -90,7 +90,7 @@ enum BackgroundStore {
 
     static func deleteUser(ownName: String) throws {
         if ownName.isEmpty || ownName.contains("/") {
-            fatalError("BackgroundStore deleteUser own name '\(ownName)'")
+            throw Failure.unsupported(ownName)
         }
         let url = userDirectory().appendingPathComponent("\(ownName).\(ext)")
         let fm = FileManager.default
@@ -115,7 +115,8 @@ enum BackgroundStore {
         do {
             urls = try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])
         } catch {
-            fatalError("BackgroundStore cannot list \(dir.path): \(error)")
+            print("BackgroundStore cannot list \(dir.path): \(error)")
+            return []
         }
         func modified(_ url: URL) -> Date {
             (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -135,7 +136,9 @@ enum BackgroundStore {
 
     /// Android `BackgroundAsyncCache.loadFromArchive` raster order.
     static func rasterEntry(in zip: Data) -> String? {
-        let names = ZipStore.names(in: zip)
+        guard let names = try? ZipStore.namesThrowing(in: zip) else {
+            return nil
+        }
         if names.contains("bg.png") {
             return "bg.png"
         }
@@ -145,15 +148,15 @@ enum BackgroundStore {
         return nil
     }
 
-    private static func png(_ image: CGImage, name: String) -> Data {
+    private static func png(_ image: CGImage, name: String) throws -> Data {
         guard let data = UIImage(cgImage: image).pngData(), !data.isEmpty else {
-            fatalError("BackgroundStore PNG encode failed for \(name)")
+            throw Failure.notAnImage(name)
         }
         return data
     }
 
     /// Cover scale into a `thumbSide` square, centre crop.
-    private static func thumb(_ image: CGImage) -> CGImage {
+    private static func thumb(_ image: CGImage) throws -> CGImage {
         let side = CGFloat(thumbSide)
         let width = CGFloat(image.width)
         let height = CGFloat(image.height)
@@ -171,13 +174,14 @@ enum BackgroundStore {
             ))
         }
         guard let cg = rendered.cgImage else {
-            fatalError("BackgroundStore thumb render failed")
+            throw Failure.notAnImage("thumb")
         }
         return cg
     }
 
     private static func root() -> URL {
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            // platform precondition: Application Support always resolves on a real device
             fatalError("BackgroundStore has no Application Support")
         }
         return root.appendingPathComponent("at_elements", isDirectory: true)

@@ -15,28 +15,28 @@ enum SceneThumbRenderer {
         backgrounds: BackgroundAssets
     ) throws -> (small: Data, big: Data) {
         let shot = try screenshot(scene: scene, assets: assets, backgrounds: backgrounds)
-        return (png(cover(shot, size: smallSize)), png(cover(shot, size: bigSize)))
+        return (try png(cover(shot, size: smallSize)), try png(cover(shot, size: bigSize)))
     }
 
     /// Android `EditView.screenshotItemPoster` (480, 10% pad) and `CustomUnitIO.thumbFromPoster` (196 on white).
     @MainActor
-    static func itemPair(unit: StickmanUnit, assets: UnitAssets) -> (thumb: Data, poster: Data) {
-        let poster = screenshotItem(unit: unit, assets: assets, size: itemPosterSize)
-        let thumb = cover(poster, size: itemThumbSize)
-        return (png(thumb), png(poster))
+    static func itemPair(unit: StickmanUnit, assets: UnitAssets) throws -> (thumb: Data, poster: Data) {
+        let poster = try screenshotItem(unit: unit, assets: assets, size: itemPosterSize)
+        let thumb = try cover(poster, size: itemThumbSize)
+        return (try png(thumb), try png(poster))
     }
 
     @MainActor
-    private static func screenshotItem(unit: StickmanUnit, assets: UnitAssets, size: CGSize) -> UIImage {
+    private static func screenshotItem(unit: StickmanUnit, assets: UnitAssets, size: CGSize) throws -> UIImage {
         if unit.points.isEmpty {
-            fatalError("SceneThumbRenderer item '\(unit.name)' has no points")
+            throw SceneLoadError(message: "SceneThumbRenderer item '\(unit.name)' has no points")
         }
-        let layout = posterLayout(unit: unit, assets: assets, size: size)
+        let layout = try posterLayout(unit: unit, assets: assets, size: size)
         let canvas = SkeletonCanvas(
             unit: Binding(
                 get: { unit },
                 set: { _ in
-                    fatalError("SceneThumbRenderer item canvas is not interactive")
+                    assertionFailure("SceneThumbRenderer item canvas is not interactive")
                 }
             ),
             frameUnits: [unit],
@@ -52,12 +52,12 @@ enum SceneThumbRenderer {
         renderer.scale = 1
         renderer.proposedSize = ProposedViewSize(size)
         guard let image = renderer.uiImage, image.size.width >= 1, image.size.height >= 1 else {
-            fatalError("SceneThumbRenderer item screenshot is empty")
+            throw SceneLoadError(message: "SceneThumbRenderer item screenshot is empty")
         }
         return image
     }
 
-    private static func posterLayout(unit: StickmanUnit, assets: UnitAssets, size: CGSize) -> SkeletonLayout {
+    private static func posterLayout(unit: StickmanUnit, assets: UnitAssets, size: CGSize) throws -> SkeletonLayout {
         var xs = unit.points.map(\.x)
         var ys = unit.points.map(\.y)
         for corner in assets.assetCornerPoints(for: unit, state: unit.assetsState) {
@@ -65,13 +65,13 @@ enum SceneThumbRenderer {
             ys.append(corner.y)
         }
         guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else {
-            fatalError("SceneThumbRenderer item '\(unit.name)' has no bounds")
+            throw SceneLoadError(message: "SceneThumbRenderer item '\(unit.name)' has no bounds")
         }
         var bounds = CGRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
         bounds = bounds.insetBy(dx: -bounds.width * itemPadding, dy: -bounds.height * itemPadding)
         let scale = min(size.width / bounds.width, size.height / bounds.height)
         if scale <= 0 {
-            fatalError("SceneThumbRenderer item scale is \(scale)")
+            throw SceneLoadError(message: "SceneThumbRenderer item scale is \(scale)")
         }
         return SkeletonLayout(
             minX: 0,
@@ -89,25 +89,22 @@ enum SceneThumbRenderer {
         backgrounds: BackgroundAssets
     ) throws -> UIImage {
         if scene.frames.isEmpty {
-            fatalError("SceneThumbRenderer scene has no frames")
+            throw SceneLoadError(message: "SceneThumbRenderer scene has no frames")
         }
         let frame = try scene.currentFrame()
         let size = CGSize(width: scene.width, height: scene.height)
         if size.width < 1 || size.height < 1 {
-            fatalError("SceneThumbRenderer scene size \(size.width)x\(size.height)")
+            throw SceneLoadError(message: "SceneThumbRenderer scene size \(size.width)x\(size.height)")
         }
         let canvas = SkeletonCanvas(
-            unit: Binding(
-                get: {
-                    guard let first = frame.units.first else {
-                        fatalError("SceneThumbRenderer empty frame read unit")
+            unit: frame.units.first.map { first in
+                Binding(
+                    get: { first },
+                    set: { _ in
+                        assertionFailure("SceneThumbRenderer canvas is not interactive")
                     }
-                    return first
-                },
-                set: { _ in
-                    fatalError("SceneThumbRenderer canvas is not interactive")
-                }
-            ),
+                )
+            },
             frameUnits: frame.units,
             assets: assets,
             backgrounds: backgrounds,
@@ -125,15 +122,15 @@ enum SceneThumbRenderer {
         renderer.scale = 1
         renderer.proposedSize = ProposedViewSize(size)
         guard let image = renderer.uiImage, image.size.width >= 1, image.size.height >= 1 else {
-            fatalError("SceneThumbRenderer screenshot is empty")
+            throw SceneLoadError(message: "SceneThumbRenderer screenshot is empty")
         }
         return image
     }
 
-    private static func cover(_ image: UIImage, size: CGSize) -> UIImage {
+    private static func cover(_ image: UIImage, size: CGSize) throws -> UIImage {
         let src = image.size
         if src.width < 1 || src.height < 1 {
-            fatalError("SceneThumbRenderer screenshot size \(src.width)x\(src.height)")
+            throw SceneLoadError(message: "SceneThumbRenderer screenshot size \(src.width)x\(src.height)")
         }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -153,9 +150,9 @@ enum SceneThumbRenderer {
         }
     }
 
-    private static func png(_ image: UIImage) -> Data {
+    private static func png(_ image: UIImage) throws -> Data {
         guard let data = image.pngData(), !data.isEmpty else {
-            fatalError("SceneThumbRenderer produced no PNG")
+            throw SceneLoadError(message: "SceneThumbRenderer produced no PNG")
         }
         return data
     }

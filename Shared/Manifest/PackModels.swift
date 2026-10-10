@@ -21,18 +21,18 @@ nonisolated struct PackMeta: Decodable {
         editableItems = try box.decodeIfPresent(Bool.self, forKey: .editableItems) ?? false
     }
 
-    static func parse(_ data: Data, source: String) -> PackMeta {
+    static func parse(_ data: Data, source: String) throws -> PackMeta {
         let meta: PackMeta
         do {
             meta = try JSONDecoder().decode(PackMeta.self, from: data)
         } catch {
-            fatalError("PackMeta '\(source)' is not JSON: \(error)")
+            throw ZipError(message: "PackMeta '\(source)' is not JSON: \(error)")
         }
         if meta.mSysName.isEmpty {
-            fatalError("PackMeta '\(source)' missing mSysName")
+            throw ZipError(message: "PackMeta '\(source)' missing mSysName")
         }
         if !meta.mSysName.contains(".") {
-            fatalError("PackMeta '\(source)' mSysName '\(meta.mSysName)' has no '.'")
+            throw ZipError(message: "PackMeta '\(source)' mSysName '\(meta.mSysName)' has no '.'")
         }
         return meta
     }

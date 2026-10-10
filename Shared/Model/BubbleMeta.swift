@@ -65,30 +65,30 @@ struct BubbleMeta: Equatable {
         )
     }
 
-    func encoded(unitName: String) -> String {
+    func encoded(unitName: String) throws -> String {
         if text.isEmpty {
-            fatalError("SceneXML unit '\(unitName)' bubble text is empty")
+            throw SceneLoadError(message: "SceneXML unit '\(unitName)' bubble text is empty")
         }
         if font != "default", !StickmanFonts.contains(font) {
-            fatalError("SceneXML unit '\(unitName)' unknown bubble font '\(font)'")
+            throw SceneLoadError(message: "SceneXML unit '\(unitName)' unknown bubble font '\(font)'")
         }
         if scale <= 0 {
-            fatalError("SceneXML unit '\(unitName)' bubble scale is \(scale)")
+            throw SceneLoadError(message: "SceneXML unit '\(unitName)' bubble scale is \(scale)")
         }
         let payload = Payload(text: text, color: color, font: font, scale: scale, oneLiner: oneLiner)
         let json: Data
         do {
             json = try JSONEncoder().encode(payload)
         } catch {
-            fatalError("SceneXML unit '\(unitName)' bubble meta JSON: \(error)")
+            throw SceneLoadError(message: "SceneXML unit '\(unitName)' bubble meta JSON: \(error)")
         }
         guard let raw = String(data: json, encoding: .utf8) else {
-            fatalError("SceneXML unit '\(unitName)' bubble meta is not UTF-8")
+            throw SceneLoadError(message: "SceneXML unit '\(unitName)' bubble meta is not UTF-8")
         }
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-_.")
         guard let encoded = raw.addingPercentEncoding(withAllowedCharacters: allowed) else {
-            fatalError("SceneXML unit '\(unitName)' bubble meta is not URL-encodable")
+            throw SceneLoadError(message: "SceneXML unit '\(unitName)' bubble meta is not URL-encodable")
         }
         return encoded
     }

@@ -1,26 +1,27 @@
 import Foundation
 
 nonisolated enum PackTranslator {
-    static func load(from zip: Data, packName: String) -> [String: String] {
+    static func load(from zip: Data, packName: String) throws -> [String: String] {
         let lang = Locale.current.language.languageCode?.identifier ?? "en"
         let preferred = "translate_\(lang).xml"
         let english = "translate_en.xml"
+        let names = try ZipStore.namesThrowing(in: zip)
         let name: String
-        if ZipStore.contains(preferred, in: zip) {
+        if names.contains(preferred) {
             name = preferred
-        } else if ZipStore.contains(english, in: zip) {
+        } else if names.contains(english) {
             name = english
         } else {
-            fatalError("PackTranslator '\(packName)' missing translate_en.xml")
+            throw ZipError(message: "PackTranslator '\(packName)' missing translate_en.xml")
         }
-        return parse(ZipStore.data(named: name, in: zip), source: "\(packName)/\(name)")
+        return try parse(ZipStore.dataThrowing(named: name, in: zip), source: "\(packName)/\(name)")
     }
 
     /// Android XmlPullParser accepts any xml version. NSXMLParser only accepts 1.0 / 1.1.
     /// moonlighte.test ships `translate_en.xml` / `translate_ru.xml` as `version='3.0'`.
-    private static func xml10(_ data: Data, source: String) -> Data {
+    private static func xml10(_ data: Data, source: String) throws -> Data {
         guard var text = String(data: data, encoding: .utf8) else {
-            fatalError("PackTranslator '\(source)' is not UTF-8")
+            throw ZipError(message: "PackTranslator '\(source)' is not UTF-8")
         }
         guard let end = text.range(of: "?>") else {
             return data
@@ -41,19 +42,23 @@ nonisolated enum PackTranslator {
         return Data(text.utf8)
     }
 
-    private static func parse(_ data: Data, source: String) -> [String: String] {
-        let parser = XMLParser(data: xml10(data, source: source))
+    private static func parse(_ data: Data, source: String) throws -> [String: String] {
+        let parser = XMLParser(data: try xml10(data, source: source))
         let sink = Sink()
         parser.delegate = sink
         if !parser.parse() {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
-            fatalError("PackTranslator '\(source)' parse failed: \(detail)")
+            throw ZipError(message: "PackTranslator '\(source)' parse failed: \(detail)")
+        }
+        if let error = sink.error {
+            throw ZipError(message: "PackTranslator '\(source)' \(error)")
         }
         return sink.values
     }
 
     nonisolated private final class Sink: NSObject, XMLParserDelegate {
         var values: [String: String] = [:]
+        private(set) var error: String?
         private var key: String?
         private var text = ""
 
@@ -66,7 +71,8 @@ nonisolated enum PackTranslator {
         ) {
             if elementName == "string" {
                 guard let name = attributes["name"], !name.isEmpty else {
-                    fatalError("PackTranslator string missing name")
+                    error = "string missing name"
+                    return
                 }
                 key = name
                 text = ""
@@ -87,7 +93,8 @@ nonisolated enum PackTranslator {
         ) {
             if elementName == "string" {
                 guard let key else {
-                    fatalError("PackTranslator string ended without name")
+                    error = "string ended without name"
+                    return
                 }
                 values[key] = text
                 self.key = nil

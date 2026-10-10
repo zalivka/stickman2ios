@@ -146,7 +146,7 @@ enum JpegSequenceWriter {
                 throw JpegWriteError.cancelled
             }
             try autoreleasepool {
-                let cgImage = FrameRasterizer.render(
+                let cgImage = try FrameRasterizer.render(
                     frame: movie.frames[index],
                     assets: assets,
                     backgrounds: backgrounds,

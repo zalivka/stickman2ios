@@ -68,19 +68,6 @@ nonisolated final class Manifest: @unchecked Sendable {
         }
     }
 
-    func schedule<T, E>(_ task: @escaping () -> T, then continuation: @escaping () -> E) async -> T {
-        await withCheckedContinuation { done in
-            let box = ResultBox<T>()
-            queue.async {
-                box.value = task()
-            }
-            queue.async {
-                _ = continuation()
-                done.resume(returning: box.value)
-            }
-        }
-    }
-
     func requestReload() async -> Int {
         await schedule { self.reloadAll() }
     }
@@ -193,18 +180,6 @@ nonisolated final class Manifest: @unchecked Sendable {
         return try loadZip(item: item, fullname: fullname)
     }
 
-    /// Items picked from the manifest listing are expected to exist; stay loud if not.
-    func itemZipOrCrash(fullname: String) -> Data {
-        guard let item = findItem(fullname: fullname) else {
-            fatalError(MissingManifestItem(fullname: fullname).message)
-        }
-        do {
-            return try loadZip(item: item, fullname: fullname)
-        } catch {
-            fatalError("\(error)")
-        }
-    }
-
     private func loadZip(item: Item, fullname: String) throws -> Data {
         if item.packName == Pack.customName {
             // Read directly: a fileExists check followed by a read is a TOCTOU
@@ -227,50 +202,57 @@ nonisolated final class Manifest: @unchecked Sendable {
             return try AssetTemplates.itemData(item.systemName)
         }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
-        return ZipStore.data(atiNamed: "\(item.systemName).ati", in: zip)
+        return try ZipStore.dataAtiThrowing(file: "\(item.systemName).ati", in: zip)
     }
 
-    func packLogo(_ packName: String) -> Data {
+    func packLogo(_ packName: String) throws -> Data {
         if packName == Pack.customName {
             guard let url = Bundle.main.url(forResource: "angry_cat", withExtension: "png", subdirectory: "chrome")
                 ?? Bundle.main.url(forResource: "angry_cat", withExtension: "png")
             else {
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("Manifest missing chrome/angry_cat.png")
             }
             do {
                 return try Data(contentsOf: url)
             } catch {
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("Manifest could not read \(url.path): \(error)")
             }
         }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
-        return ZipStore.data(named: "logo.png", in: zip)
+        return try ZipStore.dataThrowing(named: "logo.png", in: zip)
     }
 
     private func obtainBundlePack(_ url: URL) -> Pack {
         let packName = url.deletingPathExtension().lastPathComponent
         let zip = ExternalPack.mappedZip(url)
-        let meta = PackMeta.parse(ZipStore.data(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
-        if meta.mSysName != packName {
-            fatalError("Manifest \(url.lastPathComponent) meta.mSysName '\(meta.mSysName)' != '\(packName)'")
+        do {
+            let meta = try PackMeta.parse(ZipStore.dataThrowing(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
+            if meta.mSysName != packName {
+                throw ZipError(message: "Manifest \(url.lastPathComponent) meta.mSysName '\(meta.mSysName)' != '\(packName)'")
+            }
+            let translations = try PackTranslator.load(from: zip, packName: packName)
+            let parsed = try ManifestXML.parse(
+                ZipStore.dataThrowing(named: "manifest.xml", in: zip),
+                packName: packName,
+                translations: translations,
+                archive: zip
+            )
+            return Pack(
+                name: packName,
+                humanName: meta.mHumanName,
+                version: meta.version,
+                defScale: parsed.defScale,
+                editableItems: parsed.editableItems,
+                useCommonBg: parsed.useCommonBg,
+                items: parsed.items,
+                translations: translations
+            )
+        } catch {
+            // bundled pack: a failure here ships broken, fires on first debug run
+            fatalError("Manifest pack '\(packName)' is broken: \(error)")
         }
-        let translations = PackTranslator.load(from: zip, packName: packName)
-        let parsed = ManifestXML.parse(
-            ZipStore.data(named: "manifest.xml", in: zip),
-            packName: packName,
-            translations: translations,
-            archive: zip
-        )
-        return Pack(
-            name: packName,
-            humanName: meta.mHumanName,
-            version: meta.version,
-            defScale: parsed.defScale,
-            editableItems: parsed.editableItems,
-            useCommonBg: parsed.useCommonBg,
-            items: parsed.items,
-            translations: translations
-        )
     }
 
     /// Android `ReloadCustomPackTask` — `@` pack is the customs directory, not an `.atp`.
@@ -432,16 +414,4 @@ nonisolated final class Manifest: @unchecked Sendable {
         }
     }
 
-    private final class ResultBox<T> {
-        var storage: T?
-        var value: T {
-            get {
-                guard let storage else {
-                    fatalError("Manifest schedule continuation ran before task")
-                }
-                return storage
-            }
-            set { storage = newValue }
-        }
-    }
 }

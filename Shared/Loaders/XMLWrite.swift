@@ -30,14 +30,15 @@ enum XMLWrite {
 
     static func versionCode() -> String {
         guard let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !value.isEmpty else {
+            // Info.plist: a failure here ships broken, fires on first debug run
             fatalError("XMLWrite missing CFBundleVersion")
         }
         return value
     }
 
-    static func data(_ xml: String) -> Data {
+    static func data(_ xml: String) throws -> Data {
         guard let data = xml.data(using: .utf8) else {
-            fatalError("XMLWrite could not encode \(xml.count) characters as UTF-8")
+            throw SceneLoadError(message: "XMLWrite could not encode \(xml.count) characters as UTF-8")
         }
         return data
     }

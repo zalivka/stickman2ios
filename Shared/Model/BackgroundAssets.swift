@@ -8,11 +8,9 @@ final class BackgroundAssets {
     /// Backgrounds a loaded scene referenced but could not show; those frames fall back to white.
     private(set) var loadErrors: [String] = []
 
-    func image(for name: String) -> CGImage {
-        guard let image = images[name] else {
-            fatalError("BackgroundAssets missing '\(name)'")
-        }
-        return image
+    /// Nil when the background is not installed; draw sites fall back to the scene fill.
+    func image(for name: String) -> CGImage? {
+        images[name]
     }
 
     func hasImage(for name: String) -> Bool {
@@ -21,14 +19,16 @@ final class BackgroundAssets {
 
     func install(name: String, image: CGImage, archive: Data? = nil) {
         if name.isEmpty {
-            fatalError("BackgroundAssets empty name")
+            assertionFailure("BackgroundAssets empty name")
+            return
         }
         images[name] = image
         if let archive {
             if archive.isEmpty {
-                fatalError("BackgroundAssets '\(name)' archive is empty")
+                assertionFailure("BackgroundAssets '\(name)' archive is empty")
+            } else {
+                archives[name] = archive
             }
-            archives[name] = archive
         }
     }
 
@@ -37,7 +37,7 @@ final class BackgroundAssets {
         guard let entry = BackgroundStore.rasterEntry(in: archive) else {
             throw BackgroundStore.Failure.noRaster(name)
         }
-        guard let image = Self.tryDecode(ZipStore.data(named: entry, in: archive)) else {
+        guard let image = Self.tryDecode(try ZipStore.dataThrowing(named: entry, in: archive)) else {
             throw BackgroundStore.Failure.notAnImage(name)
         }
         install(name: name, image: image, archive: archive)
@@ -47,18 +47,13 @@ final class BackgroundAssets {
         loadErrors.append(message)
     }
 
-    func archive(for name: String) -> Data {
+    /// Nil when the scene referenced a background that never installed; the frame draws the fill.
+    func archive(for name: String) -> Data? {
         guard let zip = archives[name] else {
-            fatalError("BackgroundAssets missing archive for '\(name)'")
+            assertionFailure("BackgroundAssets missing archive for '\(name)'")
+            return nil
         }
         return zip
-    }
-
-    static func decode(_ data: Data, name: String) -> CGImage {
-        guard let image = tryDecode(data) else {
-            fatalError("BackgroundAssets '\(name)' is not an image")
-        }
-        return image
     }
 
     static func tryDecode(_ data: Data) -> CGImage? {
