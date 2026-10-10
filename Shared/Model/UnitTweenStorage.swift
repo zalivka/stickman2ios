@@ -17,7 +17,7 @@ struct AutoTweenRange: Equatable {
         shakeFrequency: Float
     ) {
         if unitName.isEmpty {
-            fatalError("AutoTweenRange empty unitName")
+            assertionFailure("AutoTweenRange empty unitName")
         }
         self.unitName = unitName
         self.fromFrame = fromFrame
@@ -70,10 +70,12 @@ struct UnitTweenStorage: Equatable {
         let from = min(fromFrame, toFrame)
         let to = max(fromFrame, toFrame)
         if from < 0 || to >= frameCount {
-            fatalError("Auto tween range \(from)..\(to) out of \(frameCount)")
+            assertionFailure("Auto tween range \(from)..\(to) out of \(frameCount)")
+            return
         }
         if from >= to {
-            fatalError("Auto tween range must cover at least 2 frames")
+            assertionFailure("Auto tween range must cover at least 2 frames")
+            return
         }
         ranges.removeAll { $0.unitName == unitName && $0.intersects(from: from, to: to) }
         ranges.append(
@@ -155,12 +157,12 @@ struct UnitTweenStorage: Equatable {
     }
 
     mutating func ensureValid(frameCount: Int) {
-        ensureNonOverlapping()
-        for span in ranges {
-            if span.fromFrame < 0 || span.toFrame >= frameCount || span.fromFrame >= span.toFrame {
-                fatalError("unit span [\(span.fromFrame)..\(span.toFrame)] invalid for \(frameCount) frames")
-            }
+        let before = ranges.count
+        ranges.removeAll { $0.fromFrame < 0 || $0.toFrame >= frameCount || $0.fromFrame >= $0.toFrame }
+        if ranges.count != before {
+            assertionFailure("dropped \(before - ranges.count) invalid unit tween spans for \(frameCount) frames")
         }
+        ensureNonOverlapping()
         sort()
     }
 
@@ -168,7 +170,7 @@ struct UnitTweenStorage: Equatable {
         UnitTweenStorage(ranges: ranges)
     }
 
-    func encodeArchive(scene: StickmanScene) -> Data {
+    func encodeArchive(scene: StickmanScene) throws -> Data {
         let spans = ranges.compactMap { span -> PersistedSpan? in
             if span.fromFrame < 0 || span.toFrame >= scene.frames.count {
                 return nil
@@ -186,7 +188,7 @@ struct UnitTweenStorage: Equatable {
         do {
             return try JSONEncoder().encode(Archive(spans: spans))
         } catch {
-            fatalError("UnitTweenStorage encode: \(error)")
+            throw SceneLoadError(message: "UnitTweenStorage encode: \(error)")
         }
     }
 
@@ -256,10 +258,12 @@ struct UnitTweenStorage: Equatable {
 
     mutating func reconcileInsert(at index: Int, oldFrameCount: Int) -> [AutoTweenRange] {
         if oldFrameCount < 1 {
-            fatalError("UnitTweenStorage insert oldFrameCount \(oldFrameCount)")
+            assertionFailure("UnitTweenStorage insert oldFrameCount \(oldFrameCount)")
+            return []
         }
         if index < 0 || index > oldFrameCount {
-            fatalError("UnitTweenStorage insert \(index) out of \(oldFrameCount)")
+            assertionFailure("UnitTweenStorage insert \(index) out of \(oldFrameCount)")
+            return []
         }
         var retween: [AutoTweenRange] = []
         var next: [AutoTweenRange] = []
@@ -282,7 +286,8 @@ struct UnitTweenStorage: Equatable {
 
     mutating func reconcileDelete(deleted: [Int], oldFrameCount: Int) -> [AutoTweenRange] {
         if oldFrameCount < 1 {
-            fatalError("UnitTweenStorage delete oldFrameCount \(oldFrameCount)")
+            assertionFailure("UnitTweenStorage delete oldFrameCount \(oldFrameCount)")
+            return []
         }
         let deletedSet = Set(deleted)
         var retween: [AutoTweenRange] = []
@@ -340,24 +345,30 @@ struct UnitTweenStorage: Equatable {
         }
     }
 
-    private func ensureNonOverlapping() {
+    private mutating func ensureNonOverlapping() {
         var byUnit: [String: [AutoTweenRange]] = [:]
         for span in ranges {
             byUnit[span.unitName, default: []].append(span)
         }
+        var dropKeys: [AutoTweenRange] = []
         for (name, spans) in byUnit {
             let ordered = spans.sorted {
                 $0.fromFrame == $1.fromFrame ? $0.toFrame < $1.toFrame : $0.fromFrame < $1.fromFrame
             }
-            for i in 1..<ordered.count {
-                let prev = ordered[i - 1]
-                let current = ordered[i]
-                if prev.intersects(from: current.fromFrame, to: current.toFrame) {
-                    fatalError(
-                        "Overlapping unit spans for \(name): [\(prev.fromFrame)..\(prev.toFrame)] and [\(current.fromFrame)..\(current.toFrame)]"
+            var kept: [AutoTweenRange] = []
+            for current in ordered {
+                if let prev = kept.last, prev.intersects(from: current.fromFrame, to: current.toFrame) {
+                    assertionFailure(
+                        "Overlapping unit spans for \(name): [\(prev.fromFrame)..\(prev.toFrame)] and [\(current.fromFrame)..\(current.toFrame)] — dropping later span"
                     )
+                    dropKeys.append(current)
+                    continue
                 }
+                kept.append(current)
             }
+        }
+        if !dropKeys.isEmpty {
+            ranges.removeAll { span in dropKeys.contains(where: { $0.unitName == span.unitName && $0.fromFrame == span.fromFrame && $0.toFrame == span.toFrame }) }
         }
     }
 

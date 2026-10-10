@@ -171,6 +171,7 @@ struct FBFAnimationSheet: View {
     }
 
     private func advancePreview() {
+        guard draft.period >= 1 else { return }
         tick += 1
         if tick % draft.period != 0 { return }
         tick = 0

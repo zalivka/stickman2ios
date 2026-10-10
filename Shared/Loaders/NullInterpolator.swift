@@ -3,7 +3,8 @@ import Foundation
 enum NullInterpolator {
     static func interpolate(from frame1: StickmanFrame, to frame2: StickmanFrame, duration: Int) -> [StickmanFrame] {
         if duration <= 0 {
-            fatalError("NullInterpolator duration must be > 0, got \(duration)")
+            assertionFailure("NullInterpolator duration must be > 0, got \(duration)")
+            return [frame1, frame2]
         }
         var frames: [StickmanFrame] = []
         frames.reserveCapacity(duration + 1)

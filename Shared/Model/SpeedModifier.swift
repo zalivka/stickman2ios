@@ -37,10 +37,13 @@ struct SpeedModifier: Equatable {
             resetFor(frameCount: frameCount)
             return
         }
+        guard let last = points.last else {
+            return
+        }
         let lastIndex = frameCount - 1
-        if last().index > lastIndex {
+        if last.index > lastIndex {
             trimTo(frameCount: frameCount)
-        } else if last().index < lastIndex {
+        } else if last.index < lastIndex {
             points[points.count - 1].index = lastIndex
         }
     }
@@ -55,7 +58,9 @@ struct SpeedModifier: Equatable {
         }
         let fine = slice()
         if fine.count != gaps {
-            fatalError("SpeedModifier slice produced \(fine.count) gaps for \(frameCount) frames")
+            // Malformed pivots (a 1-point or descending array survives decode).
+            print("SpeedModifier slice produced \(fine.count) gaps for \(frameCount) frames — flat speed")
+            return Array(repeating: Self.defaultSpeed, count: gaps)
         }
         return fine.map(\.speed)
     }
@@ -63,7 +68,8 @@ struct SpeedModifier: Equatable {
     func speedMod(gapIndex: Int, frameCount: Int) -> Float {
         let values = fineSpeedValues(frameCount: frameCount)
         if gapIndex < 0 || gapIndex >= values.count {
-            fatalError("SpeedModifier gap \(gapIndex) out of \(values.count)")
+            assertionFailure("SpeedModifier gap \(gapIndex) out of \(values.count)")
+            return Self.defaultSpeed
         }
         return values[gapIndex]
     }
@@ -84,22 +90,24 @@ struct SpeedModifier: Equatable {
         }
     }
 
-    func encodeJSON() -> String {
+    func encodeJSON() throws -> String {
+        let data: Data
         do {
-            let data = try JSONEncoder().encode(points)
-            guard let text = String(data: data, encoding: .utf8) else {
-                fatalError("SpeedModifier encode is not UTF-8")
-            }
-            return text
+            data = try JSONEncoder().encode(points)
         } catch {
-            fatalError("SpeedModifier encode: \(error)")
+            throw SceneLoadError(message: "SpeedModifier encode: \(error)")
         }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw SceneLoadError(message: "SpeedModifier encode is not UTF-8")
+        }
+        return text
     }
 
     static func yToSpeed(_ y: CGFloat, viewHeight: CGFloat) -> Float {
         let half = viewHeight / 2
         if half <= 0 {
-            fatalError("SpeedModifier yToSpeed height \(viewHeight)")
+            assertionFailure("SpeedModifier yToSpeed height \(viewHeight)")
+            return Self.defaultSpeed
         }
         let ratio = abs((half - y) / half)
         if y < half {
@@ -118,16 +126,10 @@ struct SpeedModifier: Equatable {
 
     static func speedPercent(_ speed: Float) -> Int {
         if speed <= 0 {
-            fatalError("SpeedModifier speedPercent \(speed)")
+            assertionFailure("SpeedModifier speedPercent \(speed)")
+            return 100
         }
         return Int((1 / speed * 100).rounded(.towardZero))
-    }
-
-    private func last() -> SpeedPoint {
-        guard let point = points.last else {
-            fatalError("SpeedModifier last on empty")
-        }
-        return point
     }
 
     private mutating func trimTo(frameCount: Int) {
@@ -153,17 +155,14 @@ struct SpeedModifier: Equatable {
     /// scenes (demo_lil_dino) keep two pivots on the same frame.
     private func slice() -> [(index: Int, speed: Float)] {
         if points.count < 2 {
-            fatalError("SpeedModifier slice needs 2 points, got \(points.count)")
+            return []
         }
         var fine: [(index: Int, speed: Float)] = []
         for i in 0..<(points.count - 1) {
             let start = points[i]
             let end = points[i + 1]
             let length = end.index - start.index
-            if length < 0 {
-                fatalError("SpeedModifier slice \(start.index)->\(end.index)")
-            }
-            if length == 0 {
+            if length <= 0 {
                 continue
             }
             let quant = (end.speedValue - start.speedValue) / Float(length)

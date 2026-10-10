@@ -122,8 +122,9 @@ struct VerticalRangeBar: View {
     }
 
     private func drawTicks(context: GraphicsContext, size: CGSize) {
-        if frameCount < 2 {
-            fatalError("VerticalRangeBar frameCount must be >= 2, got \(frameCount)")
+        // Ticks need at least 2 frames to place; a shrinking scene just draws no track.
+        guard frameCount >= 2 else {
+            return
         }
         if axis == .horizontal {
             drawHorizontalTrack(context: context, size: size)
@@ -175,6 +176,7 @@ struct VerticalRangeBar: View {
     }
 
     private func drawPin(context: GraphicsContext, size: CGSize, frame: Int) {
+        guard frameCount >= 2 else { return }
         let track = trackPoint(frame: frame, size: size)
         let bubble = bubbleCenter(from: track)
         context.fill(Self.pinBubble(center: bubble, size: Self.pinRadius * 2), with: .color(Self.tickColor))

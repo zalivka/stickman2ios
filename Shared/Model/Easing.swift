@@ -37,9 +37,10 @@ enum Easing {
     static let defaultStrength: Float = 0.5
 
     static func sample(_ type: TweenEasing, t: Float, strength: Float) -> Float {
-        if t < 0 || t > 1 {
-            fatalError("Easing sample t \(t)")
+        if !t.isFinite || t < 0 || t > 1 {
+            assertionFailure("Easing sample t \(t) — clamped")
         }
+        let t = t.isFinite ? min(max(t, 0), 1) : 0
         let s = clamp01(strength)
         switch type {
         case .NO, .SHAKE_X, .SHAKE_Y, .CARTWHEEL_CW, .CARTWHEEL_CCW:

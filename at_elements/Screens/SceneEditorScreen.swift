@@ -67,7 +67,7 @@ struct SceneEditorScreen: View {
 
     /// Backing out within this long after open never asks to save.
     private static let leaveGraceSeconds = 10.0
-    @State private var savedDocument: Data
+    @State private var savedDocument: Data?
     @StateObject private var videoExport = VideoExport()
     @StateObject private var clipboard = CopyPasteBuffer()
     @StateObject private var undo = SceneUndo()
@@ -108,9 +108,7 @@ struct SceneEditorScreen: View {
             )
         }
         _selectedUnitName = State(initialValue: nil)
-        _savedDocument = State(
-            initialValue: scene.frames.isEmpty ? Data() : SceneSaver.documentBytes(scene: scene)
-        )
+        _savedDocument = State(initialValue: SceneSaver.documentBytes(scene: scene))
         _tutorialStep = State(initialValue: tutorial ? .move : nil)
     }
 
@@ -183,7 +181,6 @@ struct SceneEditorScreen: View {
                         !scene.isPoseLocked(unitName: name, frameIndex: scene.currentIndex)
                     },
                     onLockedEdit: { showToast("Locked") },
-                    onEditError: bail,
                     onPoseEditEnded: {
                         do {
                             try retweenSelectedAfterPoseEdit(frames: [scene.currentIndex])
@@ -196,7 +193,8 @@ struct SceneEditorScreen: View {
                     },
                     onUnitMoved: tutorialUnitMoved,
                     showsHandlers: tutorialStep == nil,
-                    allowsSceneMovements: tutorialStep == nil
+                    allowsSceneMovements: tutorialStep == nil,
+                    onEditError: bail
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
@@ -659,7 +657,8 @@ struct SceneEditorScreen: View {
         case .play:
             play()
         case .move, .animate, nil:
-            fatalError("SceneEditorScreen tutorial hole tap without a hint")
+            assertionFailure("SceneEditorScreen tutorial hole tap without a hint")
+            return
         }
     }
 
@@ -783,7 +782,8 @@ struct SceneEditorScreen: View {
 
     private func deleteSelectedUnit() {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen delete without selected unit")
+            assertionFailure("SceneEditorScreen delete without selected unit")
+            return
         }
         prepareSelectionUndo()
         do {
@@ -800,7 +800,8 @@ struct SceneEditorScreen: View {
 
     private func setSelectedUnitState(_ state: Int) {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen set state without selected unit")
+            assertionFailure("SceneEditorScreen set state without selected unit")
+            return
         }
         if rearrangeFrames.contains(where: { scene.isPoseLocked(unitName: selectedUnitName, frameIndex: $0) }) {
             showToast("Locked")
@@ -822,7 +823,8 @@ struct SceneEditorScreen: View {
 
     private func previewSelectedOpacity(_ alpha: CGFloat) {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen opacity preview without selected unit")
+            assertionFailure("SceneEditorScreen opacity preview without selected unit")
+            return
         }
         do {
             try scene.frames[scene.currentIndex].setUnitAlpha(alpha, unitNamed: selectedUnitName)
@@ -835,7 +837,8 @@ struct SceneEditorScreen: View {
     /// An interior lock leaves the live preview and returns false.
     private func commitSelectedOpacity(_ alpha: CGFloat) -> Bool {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen opacity commit without selected unit")
+            assertionFailure("SceneEditorScreen opacity commit without selected unit")
+            return false
         }
         if let locked = rearrangeFrames.first(where: {
             scene.unitTweens.isPoseLocked(unitName: selectedUnitName, frameIndex: $0)
@@ -859,7 +862,8 @@ struct SceneEditorScreen: View {
     /// Android `AdvancedUnitProperties` number picker. Returns false when the number is taken.
     private func applyUnitNumber(_ number: Int) -> Bool {
         guard let oldName = selectedUnitName else {
-            fatalError("SceneEditorScreen unit number without selected unit")
+            assertionFailure("SceneEditorScreen unit number without selected unit")
+            return false
         }
         let newName: String
         do {
@@ -890,7 +894,9 @@ struct SceneEditorScreen: View {
         let stillHasOld = scene.frames.contains { $0.units.contains { $0.name == oldName } }
         if !stillHasOld, var animation = scene.unitAnimations.removeValue(forKey: oldName) {
             if scene.unitAnimations[newName] != nil {
-                fatalError("SceneEditorScreen animation already exists for '\(newName)'")
+                // Deleting a unit leaves its animations_v2 entry behind, so newName can hold a
+                // stale record for a unit that no longer exists. The live rename wins.
+                print("SceneEditorScreen dropping stale animation for '\(newName)'")
             }
             animation.unitname = newName
             scene.unitAnimations[newName] = animation
@@ -904,7 +910,8 @@ struct SceneEditorScreen: View {
 
     private func flipSelectedUnit() {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen flip without selected unit")
+            assertionFailure("SceneEditorScreen flip without selected unit")
+            return
         }
         if rearrangeFrames.contains(where: { scene.isPoseLocked(unitName: selectedUnitName, frameIndex: $0) }) {
             showToast("Locked")
@@ -926,7 +933,8 @@ struct SceneEditorScreen: View {
 
     private func detachSelectedUnit() {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen detach without selected unit")
+            assertionFailure("SceneEditorScreen detach without selected unit")
+            return
         }
         if rearrangeFrames.contains(where: { scene.isStructureLocked(unitName: selectedUnitName, frameIndex: $0) }) {
             showToast("Locked")
@@ -951,10 +959,12 @@ struct SceneEditorScreen: View {
     /// Android `TouchPointUseCase.tryAttach` — snap a straying unit onto a master inside the hold circles.
     private func tryAttachSelected(sceneScale: CGFloat) -> Bool {
         guard let name = selectedUnitName else {
-            fatalError("SceneEditorScreen attach without selected unit")
+            assertionFailure("SceneEditorScreen attach without selected unit")
+            return false
         }
         if sceneScale <= 0 {
-            fatalError("SceneEditorScreen attach scale \(sceneScale)")
+            assertionFailure("SceneEditorScreen attach scale \(sceneScale)")
+            return false
         }
         let radius = StickmanUnit.exposeMarkerRadius / sceneScale
         do {
@@ -989,7 +999,8 @@ struct SceneEditorScreen: View {
 
     private func moveSelectedUnit(forward: Bool) {
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen rearrange without selected unit")
+            assertionFailure("SceneEditorScreen rearrange without selected unit")
+            return
         }
         prepareSelectionUndo()
         do {
@@ -1016,14 +1027,17 @@ struct SceneEditorScreen: View {
             return
         }
         if sourceIndex < 0 || sourceIndex >= scene.frames.count {
-            fatalError("SceneEditorScreen hold-copy source \(sourceIndex) out of \(scene.frames.count)")
+            assertionFailure("SceneEditorScreen hold-copy source \(sourceIndex) out of \(scene.frames.count)")
+            return
         }
         if destIndex < 0 || destIndex >= scene.frames.count {
-            fatalError("SceneEditorScreen hold-copy dest \(destIndex) out of \(scene.frames.count)")
+            assertionFailure("SceneEditorScreen hold-copy dest \(destIndex) out of \(scene.frames.count)")
+            return
         }
         let source = scene.frames[sourceIndex]
         guard let captured = source.units.first(where: { $0.name == capturedUnitName }) else {
-            fatalError("SceneEditorScreen captured '\(capturedUnitName)' missing on source frame \(sourceIndex)")
+            assertionFailure("SceneEditorScreen captured '\(capturedUnitName)' missing on source frame \(sourceIndex)")
+            return
         }
         let root = SlavesRegistry.rootMaster(of: captured, in: source.units)
         if scene.isPoseLocked(unitName: capturedUnitName, frameIndex: destIndex) {
@@ -1137,10 +1151,12 @@ struct SceneEditorScreen: View {
 
     private func openSetText() {
         guard let selectedUnit else {
-            fatalError("SceneEditorScreen set text with no selection")
+            assertionFailure("SceneEditorScreen set text with no selection")
+            return
         }
         guard let bubble = selectedUnit.bubble else {
-            fatalError("SceneEditorScreen unit '\(selectedUnit.name)' type=bubble missing meta")
+            assertionFailure("SceneEditorScreen unit '\(selectedUnit.name)' type=bubble missing meta")
+            return
         }
         setTextDraft = bubble.text
         let rgba = bubble.rgba
@@ -1155,7 +1171,8 @@ struct SceneEditorScreen: View {
             return
         }
         guard let selectedUnitName else {
-            fatalError("SceneEditorScreen set text without selected unit")
+            assertionFailure("SceneEditorScreen set text without selected unit")
+            return
         }
         prepareSelectionUndo()
         for frameIndex in rearrangeFrames {
@@ -1163,20 +1180,25 @@ struct SceneEditorScreen: View {
                 continue
             }
             if scene.frames[frameIndex].units[index].unitType != .bubble {
-                fatalError("SceneEditorScreen unit '\(selectedUnitName)' is not bubble")
+                assertionFailure("SceneEditorScreen unit '\(selectedUnitName)' is not bubble")
+                continue
             }
             guard var bubble = scene.frames[frameIndex].units[index].bubble else {
-                fatalError("SceneEditorScreen unit '\(selectedUnitName)' bubble missing meta")
+                assertionFailure("SceneEditorScreen unit '\(selectedUnitName)' bubble missing meta")
+                continue
             }
             bubble.text = setTextDraft
-            bubble.color = Self.bubbleARGB(setTextColor)
+            if let argb = Self.bubbleARGB(setTextColor) {
+                bubble.color = argb
+            }
             scene.frames[frameIndex].units[index].bubble = bubble
         }
         showingSetText = false
     }
 
     /// Android `BubbleMeta.setColor` writes `#` + ARGB hex, for example `#ff000000`.
-    private static func bubbleARGB(_ color: Color) -> String {
+    /// Nil when the picked color cannot be read as RGB — the caller then keeps the old color.
+    private static func bubbleARGB(_ color: Color) -> String? {
         let ui = UIColor(color)
         var r: CGFloat = 0
         var g: CGFloat = 0
@@ -1188,10 +1210,12 @@ struct SceneEditorScreen: View {
                 intent: .defaultIntent,
                 options: nil
             ) else {
-                fatalError("Set text color is not RGB")
+                print("SceneEditorScreen set-text color is not RGB")
+                return nil
             }
             if !UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) {
-                fatalError("Set text color is not RGB")
+                print("SceneEditorScreen set-text converted color is not RGB")
+                return nil
             }
         }
         func byte(_ channel: CGFloat) -> Int {
@@ -1202,7 +1226,8 @@ struct SceneEditorScreen: View {
 
     private func copySelectedUnit() {
         guard let selectedUnit, let frame = scene.currentFrameOrNil else {
-            fatalError("SceneEditorScreen copy unit with no selection")
+            assertionFailure("SceneEditorScreen copy unit with no selection")
+            return
         }
         do {
             let connected = try SlavesRegistry.allConnected(of: selectedUnit, in: frame.units)
@@ -1276,10 +1301,12 @@ struct SceneEditorScreen: View {
     private func clampRange() {
         let last = scene.frames.count - 1
         if last < 0 {
-            fatalError("SceneEditorScreen clampRange empty scene")
+            assertionFailure("SceneEditorScreen clampRange empty scene")
+            return
         }
         if scene.currentIndex < 0 || scene.currentIndex > last {
-            fatalError("SceneEditorScreen currentIndex \(scene.currentIndex) out of \(scene.frames.count)")
+            assertionFailure("SceneEditorScreen currentIndex \(scene.currentIndex) out of \(scene.frames.count)")
+            return
         }
         let low = min(max(range.lowerBound, 0), last)
         let high = min(max(range.upperBound, 0), last)
@@ -1363,7 +1390,8 @@ struct SceneEditorScreen: View {
             dismiss()
             return
         }
-        if SceneSaver.documentBytes(scene: scene) == savedDocument {
+        // nil documentBytes means serialization failed; treat as dirty and offer the save.
+        if let bytes = SceneSaver.documentBytes(scene: scene), bytes == savedDocument {
             dismiss()
             return
         }
@@ -1519,7 +1547,8 @@ struct SceneEditorScreen: View {
             get: { scene.currentIndex },
             set: { newIndex in
                 if newIndex < 0 || newIndex >= scene.frames.count {
-                    fatalError("SceneEditorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                    assertionFailure("SceneEditorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                    return
                 }
                 scene.currentIndex = newIndex
                 let units = scene.frames[newIndex].units
@@ -1643,7 +1672,8 @@ struct SceneEditorScreen: View {
         let from = range.lowerBound
         let to = range.upperBound
         if to - from < 2 {
-            fatalError("SceneEditorScreen tween range \(from)..\(to) too short")
+            assertionFailure("SceneEditorScreen tween range \(from)..\(to) too short")
+            return
         }
         let rootName = rootTweenName(of: selectedUnit)
         if !canApplyTween(range: from...to) {
@@ -1715,7 +1745,8 @@ struct SceneEditorScreen: View {
                     return StickmanUnit(name: selectedUnitName ?? "", points: [], edges: [])
                 }
                 if frame.units.isEmpty {
-                    fatalError("SceneEditorScreen frame \(frame.id) has no units")
+                    assertionFailure("SceneEditorScreen frame \(frame.id) has no units")
+                    return StickmanUnit(name: selectedUnitName ?? "", points: [], edges: [])
                 }
                 if let selectedUnitName, let unit = frame.units.first(where: { $0.name == selectedUnitName }) {
                     return unit
@@ -1726,7 +1757,8 @@ struct SceneEditorScreen: View {
                 let frameIndex = scene.currentIndex
                 let units = scene.frames[frameIndex].units
                 if units.isEmpty {
-                    fatalError("SceneEditorScreen frame \(scene.frames[frameIndex].id) has no units")
+                    assertionFailure("SceneEditorScreen frame \(scene.frames[frameIndex].id) has no units")
+                    return
                 }
                 do {
                     if let index = units.firstIndex(where: { $0.name == newUnit.name }) {

@@ -334,12 +334,15 @@ struct SkeletonScreen: View {
         // PNG offsets are item-pixel units. Scene points already include unit.scale
         // (Android skeleton editor stores unscaled model coords, so getLength() is 1:1).
         let length = hypot(endPt.x - startPt.x, endPt.y - startPt.y) / unit.scale
-        let asset = assets.ensureDrawable(
+        guard let asset = assets.ensureDrawable(
             start: from,
             end: to,
             unitName: unit.name,
             length: length
-        )
+        ) else {
+            bail("cannot allocate an empty picture")
+            return
+        }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
         let drawnKey = UnitAssets.EdgeKey(
             unitName: UnitAssets.removeNumber(unit.name),
@@ -349,7 +352,8 @@ struct SkeletonScreen: View {
         )
         let nativeFlipped = assets.getDrawable(drawnKey, state: unit.assetsState)?.nativeFlipped ?? false
         let mirror = FeatureFlags.bonePaperKeepsBoneAngle && unit.flipped && !nativeFlipped
-        let onion = SkeletonOnion.worldOverlay(
+        // A failed onion preview does not block editing; the drawer opens without it.
+        let onion = try? SkeletonOnion.worldOverlay(
             unit: unit,
             assets: assets,
             excludeFrom: from,
@@ -396,7 +400,10 @@ struct SkeletonScreen: View {
         }
         prepareUndo(includeAssets: true)
         let length = UnitAssets.defaultBoneLength
-        let asset = assets.createEmptyGalleryBone(unitName: unit.name, length: length)
+        guard let asset = assets.createEmptyGalleryBone(unitName: unit.name, length: length) else {
+            bail("cannot allocate a gallery bone")
+            return
+        }
         layerEpoch += 1
         presentBonePaper(asset: asset, length: length, onion: nil, placement: nil)
     }
@@ -457,13 +464,18 @@ struct SkeletonScreen: View {
             return
         }
         prepareUndo(includeAssets: true)
-        assets.replaceBitmap(
-            bmName: bmName,
-            image: export.image,
-            buffer: export.buffer.map { UnitAssets.pngData(from: $0, name: bmName) },
-            extraLeft: export.extraLeft,
-            extraTop: export.extraTop
-        )
+        do {
+            try assets.replaceBitmap(
+                bmName: bmName,
+                image: export.image,
+                buffer: try export.buffer.map { try UnitAssets.pngData(from: $0, name: bmName) },
+                extraLeft: export.extraLeft,
+                extraTop: export.extraTop
+            )
+        } catch {
+            showToast("Could not apply the picture: \(ItemLoadError.text(error))")
+            return
+        }
         layerEpoch += 1
     }
 
@@ -514,7 +526,12 @@ struct SkeletonScreen: View {
             return
         }
         prepareUndo(includeAssets: true)
-        assets.applyShift(bmName: bmName, dx: dx, dy: dy, scale: scale, rotation: rotation)
+        do {
+            try assets.applyShift(bmName: bmName, dx: dx, dy: dy, scale: scale, rotation: rotation)
+        } catch {
+            showToast("Could not shift the picture: \(ItemLoadError.text(error))")
+            return
+        }
         layerEpoch += 1
     }
 
@@ -812,7 +829,14 @@ struct SkeletonScreen: View {
         }
         let unit = frame.units[0]
         let source = sourceZip
-        let images = SceneThumbRenderer.itemPair(unit: unit, assets: assets)
+        let images: (thumb: Data, poster: Data)
+        do {
+            images = try SceneThumbRenderer.itemPair(unit: unit, assets: assets)
+        } catch {
+            showingSave = false
+            showToast("Could not save: \(ItemLoadError.text(error))")
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 _ = try ItemSaver.save(

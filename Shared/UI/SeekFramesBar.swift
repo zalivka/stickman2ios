@@ -49,8 +49,8 @@ struct SeekFramesBar: View {
                     )
                 }
 
-                let firstVisible = layout.visible.first!
-                let lastVisible = layout.visible.last!
+                let firstVisible = layout.visible.first ?? 0
+                let lastVisible = layout.visible.last ?? 0
 
                 context.draw(
                     Text("\(currentIndex + 1)")
@@ -129,15 +129,11 @@ struct SeekFramesBar: View {
     }
 
     static func nextPage(current: Int, frameCount: Int, windowSize: Int) -> Int {
-        if windowSize < 1 {
-            fatalError("SeekFramesBar nextPage windowSize \(windowSize)")
+        let windowSize = max(windowSize, 1)
+        guard frameCount >= 1 else {
+            return 0
         }
-        if frameCount < 1 {
-            fatalError("SeekFramesBar nextPage frameCount \(frameCount)")
-        }
-        if current < 0 || current >= frameCount {
-            fatalError("SeekFramesBar nextPage current \(current) out of \(frameCount)")
-        }
+        let current = min(max(current, 0), frameCount - 1)
         let nextStart = (current / windowSize + 1) * windowSize
         if nextStart >= frameCount {
             return frameCount - 1
@@ -154,12 +150,11 @@ struct SeekFramesBar: View {
     }
 
     private static func layout(frameCount: Int, currentIndex: Int, height: CGFloat) -> (windowSize: Int, visible: Range<Int>) {
-        if frameCount < 1 {
-            fatalError("SeekFramesBar frameCount must be >= 1, got \(frameCount)")
+        // The bound index can momentarily outrun a shrinking frame count during edits.
+        guard frameCount >= 1 else {
+            return (1, 0..<0)
         }
-        if currentIndex < 0 || currentIndex >= frameCount {
-            fatalError("SeekFramesBar currentIndex \(currentIndex) out of range 0..<\(frameCount)")
-        }
+        let currentIndex = min(max(currentIndex, 0), frameCount - 1)
         let windowSize = windowSize(height: height)
         let windowStart = (currentIndex / windowSize) * windowSize
         let windowEnd = min(windowStart + windowSize, frameCount)

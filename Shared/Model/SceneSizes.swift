@@ -70,17 +70,20 @@ enum SceneSizes {
     }
 
     static func noInterpPeriodMs(tick: Int) -> Int {
-        if tick < 0 || tick >= noInterpTicks.count {
-            fatalError("SceneSizes no-interp tick \(tick) out of 0..<\(noInterpTicks.count)")
-        }
+        let tick = clampedTick(tick)
         return noInterpTicks[tick] * 1000 / fps
     }
 
     static func storedNoInterpFrames(tick: Int) -> Int {
-        if tick < 0 || tick >= noInterpTicks.count {
-            fatalError("SceneSizes no-interp tick \(tick) out of 0..<\(noInterpTicks.count)")
-        }
+        let tick = clampedTick(tick)
         return noInterpTicks[tick] - 2
+    }
+
+    private static func clampedTick(_ tick: Int) -> Int {
+        if tick < 0 || tick >= noInterpTicks.count {
+            assertionFailure("SceneSizes no-interp tick \(tick) out of 0..<\(noInterpTicks.count) — clamped")
+        }
+        return min(max(tick, 0), noInterpTicks.count - 1)
     }
 
     static func tick(storedNoInterpFrames: Int) -> Int {

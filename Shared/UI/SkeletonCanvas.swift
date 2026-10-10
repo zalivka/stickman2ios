@@ -10,8 +10,12 @@ struct SkeletonLayout {
 
     static func fit(sceneWidth: CGFloat, sceneHeight: CGFloat, in size: CGSize) -> SkeletonLayout {
         if sceneWidth <= 0 || sceneHeight <= 0 {
-            fatalError("SkeletonLayout scene size \(sceneWidth)x\(sceneHeight)")
+            assertionFailure("SkeletonLayout scene size \(sceneWidth)x\(sceneHeight)")
         }
+        // SceneXML.parse rejects non-positive sizes at load; this clamp only keeps release draws
+        // alive if that ever stops being true.
+        let sceneWidth = max(sceneWidth, 1)
+        let sceneHeight = max(sceneHeight, 1)
         let pad: CGFloat = 24
         let availW = max(size.width - pad * 2, 1)
         let availH = max(size.height - pad * 2, 1)
@@ -25,7 +29,8 @@ struct SkeletonLayout {
             scale = containScale
         }
         if scale <= 0 {
-            fatalError("SkeletonLayout scale is \(scale)")
+            assertionFailure("SkeletonLayout scale is \(scale)")
+            return SkeletonLayout(minX: 0, minY: 0, scale: 1, originX: 0, originY: 0)
         }
         return SkeletonLayout(
             minX: 0,
@@ -52,7 +57,8 @@ struct SkeletonLayout {
 
     func pinched(around focus: CGPoint, factor: CGFloat, minScale: CGFloat, maxScale: CGFloat) -> SkeletonLayout {
         if factor <= 0 {
-            fatalError("SkeletonLayout pinch factor is \(factor)")
+            assertionFailure("SkeletonLayout pinch factor is \(factor)")
+            return self
         }
         let graph = graphPoint(screen: focus)
         let next = min(max(scale * factor, minScale), maxScale)
@@ -86,6 +92,7 @@ private enum HandlerArtwork {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "handlers")
             ?? Bundle.main.url(forResource: name, withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("SkeletonCanvas missing handlers/\(name).png")
         }
         do {
@@ -98,10 +105,12 @@ private enum HandlerArtwork {
                     intent: .defaultIntent
                   )
             else {
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("SkeletonCanvas '\(name).png' is not a PNG")
             }
             return image
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("SkeletonCanvas could not read \(url.path): \(error)")
         }
     }
@@ -257,15 +266,21 @@ struct SkeletonCanvas: View {
                     drawScene(context: &context, layout: layout)
                     drawSceneBound(context: &context, layout: layout)
                     for drawn in unitsToDraw {
-                        drawUnit(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout)
                     }
                     drawAttachExpose(context: &context, layout: layout)
+                    for drawn in unitsToDraw {
+                        drawUnitSkeleton(drawn, context: &context, layout: layout)
+                    }
                     drawCameraRectangle(context: &context, layout: layout)
                     drawHandlers(context: &context, layout: layout)
                     drawTouchPoint(context: &context)
                 case .skeleton:
                     for drawn in unitsToDraw {
-                        drawUnit(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout)
+                    }
+                    for drawn in unitsToDraw {
+                        drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
                     drawBoneCreatePreview(context: &context, layout: layout)
                     if exposeVacantPoints {
@@ -281,11 +296,17 @@ struct SkeletonCanvas: View {
                     drawScene(context: &context, layout: layout)
                     drawSceneBound(context: &context, layout: layout)
                     for drawn in unitsToDraw {
-                        drawUnit(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout)
+                    }
+                    for drawn in unitsToDraw {
+                        drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
                 case .itemPoster:
                     for drawn in unitsToDraw {
-                        drawUnit(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout)
+                    }
+                    for drawn in unitsToDraw {
+                        drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
                 }
             }
@@ -389,14 +410,16 @@ struct SkeletonCanvas: View {
 
     private var cameraChangeHandler: (PictureMove) -> Void {
         guard let onCameraChange else {
-            fatalError("SkeletonCanvas camera mode missing onCameraChange")
+            assertionFailure("SkeletonCanvas camera mode missing onCameraChange")
+            return { _ in }
         }
         return onCameraChange
     }
 
     private var backgroundChangeHandler: (PictureMove) -> Void {
         guard let onBackgroundChange else {
-            fatalError("SkeletonCanvas background mode missing onBackgroundChange")
+            assertionFailure("SkeletonCanvas background mode missing onBackgroundChange")
+            return { _ in }
         }
         return onBackgroundChange
     }
@@ -425,19 +448,23 @@ struct SkeletonCanvas: View {
     private var liveUnit: StickmanUnit {
         get {
             guard let unit else {
-                fatalError("SkeletonCanvas missing unit")
+                assertionFailure("SkeletonCanvas missing unit")
+                return StickmanUnit(name: "", points: [], edges: [])
             }
             return unit.wrappedValue
         }
         nonmutating set {
             guard let unit else {
-                fatalError("SkeletonCanvas missing unit")
+                assertionFailure("SkeletonCanvas missing unit")
+                return
             }
             unit.wrappedValue = newValue
         }
     }
 
-    private func drawUnit(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+    /// Bitmaps / bubble text of one unit. Android draws every unit's content before
+    /// any skeleton, so this never paints a skeleton itself — see `drawUnitSkeleton`.
+    private func drawUnitContent(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
         if drawn.unitType == .bubble {
             if drawn.alpha < 1 {
                 context.drawLayer { layer in
@@ -461,17 +488,20 @@ struct SkeletonCanvas: View {
                 drawBitmaps(drawn, context: &context, layout: layout, assets: assets)
             }
         }
-        if showSkeleton {
-            drawSkeleton(drawn, context: &context, layout: layout)
-            if DevFlags.debugDrawTouchCapture {
-                drawTouchCapture(drawn, context: &context, layout: layout)
-            }
+    }
+
+    private func drawUnitSkeleton(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard showSkeleton else { return }
+        drawSkeleton(drawn, context: &context, layout: layout)
+        if DevFlags.debugDrawTouchCapture {
+            drawTouchCapture(drawn, context: &context, layout: layout)
         }
     }
 
     private func drawBubbleText(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
         guard let bubble = drawn.bubble else {
-            fatalError("SkeletonCanvas unit '\(drawn.name)' type=bubble missing meta")
+            assertionFailure("SkeletonCanvas unit '\(drawn.name)' type=bubble missing meta")
+            return
         }
         guard let start = drawn.point(optionalId: 1), let end = drawn.point(optionalId: 2) else { return }
         let angle = atan2(end.y - start.y, end.x - start.x)
@@ -869,7 +899,10 @@ struct SkeletonCanvas: View {
                 drawSceneContent(context: &bg)
             }
             for drawn in unitsToDraw {
-                drawUnit(drawn, context: &layer, layout: .sceneSpace)
+                drawUnitContent(drawn, context: &layer, layout: .sceneSpace)
+            }
+            for drawn in unitsToDraw {
+                drawUnitSkeleton(drawn, context: &layer, layout: .sceneSpace)
             }
         }
     }
@@ -896,11 +929,18 @@ struct SkeletonCanvas: View {
         if let name = bgName, name.hasPrefix("usermade:") {
             let _ = backgroundRevision
             guard let backgrounds else {
-                fatalError("SkeletonCanvas missing BackgroundAssets for '\(name)'")
+                assertionFailure("SkeletonCanvas missing BackgroundAssets for '\(name)'")
+                context.fill(Path(rect), with: .color(sceneFill))
+                return
+            }
+            guard let image = backgrounds.image(for: name) else {
+                // A scene that references a background which never installed draws the fill.
+                context.fill(Path(rect), with: .color(sceneFill))
+                return
             }
             context.concatenate(bgMove.toTransform())
             context.draw(
-                Image(decorative: backgrounds.image(for: name), scale: 1),
+                Image(decorative: image, scale: 1),
                 at: .zero,
                 anchor: .topLeading
             )
@@ -922,7 +962,8 @@ struct SkeletonCanvas: View {
         }
         let transform = cameraMove.toTransform()
         if transform.a * transform.d - transform.b * transform.c == 0 {
-            fatalError("SkeletonCanvas camera transform is not invertible")
+            assertionFailure("SkeletonCanvas camera transform is not invertible")
+            return
         }
         let inverse = transform.inverted()
         let corners = [
@@ -1093,7 +1134,7 @@ struct SkeletonCanvas: View {
                 } else {
                     capturedUnitName.wrappedValue = nil
                 }
-                let holdingBase = dragRef.nodeId.map { liveUnit.point(optionalId: $0)?.isBase } ?? false
+                let holdingBase = dragRef.nodeId.flatMap { liveUnit.point(optionalId: $0) }?.isBase ?? false
                 if dragRef.handler == .move || holdingBase {
                     attachHold = SlavesRegistry.isStraying(liveUnit)
                 } else {
@@ -1210,11 +1251,12 @@ struct SkeletonCanvas: View {
         }
         if didPoseEdit {
             if editedStray {
-                guard let sceneScale, sceneScale > 0 else {
-                    fatalError("SkeletonCanvas attach without layout scale")
-                }
-                if onTryAttach?(sceneScale) == true {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                if let sceneScale, sceneScale > 0 {
+                    if onTryAttach?(sceneScale) == true {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                } else {
+                    assertionFailure("SkeletonCanvas attach without layout scale")
                 }
             }
             onPoseEditEnded?()
@@ -1277,7 +1319,8 @@ struct SkeletonCanvas: View {
             return
         }
         guard let onApplyBoneShift else {
-            fatalError("SkeletonCanvas shift apply missing onApplyBoneShift")
+            assertionFailure("SkeletonCanvas shift apply missing onApplyBoneShift")
+            return
         }
         let rotation = bakedRotation(shift.rotation, edge: edge)
         onApplyBoneShift(edge.from, edge.to, shift.dx, shift.dy, shift.scale, rotation)
@@ -1289,7 +1332,8 @@ struct SkeletonCanvas: View {
             return 0
         }
         guard let assets else {
-            fatalError("SkeletonCanvas shift apply missing assets")
+            assertionFailure("SkeletonCanvas shift apply missing assets")
+            return rotation
         }
         let key = UnitAssets.EdgeKey(
             unitName: UnitAssets.removeNumber(liveUnit.name),
@@ -1298,7 +1342,8 @@ struct SkeletonCanvas: View {
             flipped: liveUnit.flipped
         )
         guard let asset = assets.getDrawable(key, state: liveUnit.assetsState) else {
-            fatalError("SkeletonCanvas shift apply missing bitmap \(key)")
+            assertionFailure("SkeletonCanvas shift apply missing bitmap \(key)")
+            return rotation
         }
         let mirror = liveUnit.flipped && !asset.nativeFlipped
         return mirror ? -rotation : rotation
@@ -1483,7 +1528,8 @@ private struct CameraTouchOverlay: UIViewRepresentable {
                     return
                 }
                 if layoutScale <= 0 {
-                    fatalError("CameraTouchOverlay layoutScale is \(layoutScale)")
+                    assertionFailure("CameraTouchOverlay layoutScale is \(layoutScale)")
+                    return
                 }
                 let delta = gesture.translation(in: gesture.view)
                 gesture.setTranslation(.zero, in: gesture.view)
@@ -1516,7 +1562,8 @@ private struct CameraTouchOverlay: UIViewRepresentable {
                 let factor = gesture.scale
                 gesture.scale = 1
                 if factor <= 0 {
-                    fatalError("CameraTouchOverlay pinch factor is \(factor)")
+                    assertionFailure("CameraTouchOverlay pinch factor is \(factor)")
+                    return
                 }
                 mutate { move in
                     let oldScale = move.scale
@@ -1576,7 +1623,8 @@ private struct CameraTouchOverlay: UIViewRepresentable {
 
         private func mutate(_ body: (inout PictureMove) -> Void) {
             guard var move = working else {
-                fatalError("CameraTouchOverlay mutate with no working move")
+                assertionFailure("CameraTouchOverlay mutate with no working move")
+                return
             }
             body(&move)
             working = move
@@ -1584,7 +1632,8 @@ private struct CameraTouchOverlay: UIViewRepresentable {
 
         private func publish() {
             guard let move = working else {
-                fatalError("CameraTouchOverlay publish with no working move")
+                assertionFailure("CameraTouchOverlay publish with no working move")
+                return
             }
             onChange(
                 PictureMove(

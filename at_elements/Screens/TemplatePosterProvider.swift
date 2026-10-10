@@ -7,7 +7,10 @@ struct TemplatePosterProvider: ImageDataProvider {
 
     init(item: Item) {
         fullName = item.makeFullName()
-        cacheKey = "\(AssetTemplates.packName):\(AssetTemplates.revision()):\(item.systemName)"
+        // A stat failure only degrades the Kingfisher cache key; the poster load
+        // itself still reports through `data(handler:)`.
+        let revision = (try? AssetTemplates.revision()) ?? "unknown"
+        cacheKey = "\(AssetTemplates.packName):\(revision):\(item.systemName)"
     }
 
     func data(handler: @escaping @Sendable (Result<Data, any Error>) -> Void) {

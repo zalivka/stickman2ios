@@ -120,7 +120,7 @@ struct StickmanUnit {
         if target.isBase {
             throw SceneLoadError(message: "StickmanUnit '\(name)' cannot delete base \(id)")
         }
-        let remove = Set([id] + try descendants(of: id))
+        let remove = Set([id] + (try descendants(of: id)))
         points.removeAll { remove.contains($0.id) }
         try link()
     }
@@ -265,7 +265,7 @@ struct StickmanUnit {
             .translatedBy(x: parent.x, y: parent.y)
             .rotated(by: dAngle)
             .translatedBy(x: -parent.x, y: -parent.y)
-        for rotateId in [id] + try descendants(of: id) {
+        for rotateId in [id] + (try descendants(of: id)) {
             guard let index = points.firstIndex(where: { $0.id == rotateId }) else {
                 throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(rotateId)")
             }
@@ -276,8 +276,9 @@ struct StickmanUnit {
     }
 
     mutating func drag(id: Int, destX: CGFloat, destY: CGFloat) throws {
-        if try point(id: id).isBase {
-            translateAll(dx: destX - try point(id: id).x, dy: destY - try point(id: id).y)
+        let grabbed = try point(id: id)
+        if grabbed.isBase {
+            translateAll(dx: destX - grabbed.x, dy: destY - grabbed.y)
         } else {
             try rotateAroundParent(id: id, destX: destX, destY: destY)
         }
@@ -290,7 +291,7 @@ struct StickmanUnit {
         }
         let dx = destX - grabbed.x
         let dy = destY - grabbed.y
-        for moveId in [id] + try descendants(of: id) {
+        for moveId in [id] + (try descendants(of: id)) {
             guard let index = points.firstIndex(where: { $0.id == moveId }) else {
                 throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(moveId)")
             }

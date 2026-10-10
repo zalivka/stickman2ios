@@ -19,7 +19,9 @@ nonisolated enum PackAlias {
         let pack = String(core[..<colon])
         let own = String(core[core.index(after: colon)...])
         if own.isEmpty {
-            fatalError("PackAlias unit name '\(name)' has empty own name")
+            // File-supplied names must resolve without trapping; the unresolved
+            // name misses every lookup and surfaces as a normal load error.
+            return name
         }
         let mapped = resolvePack(pack)
         if mapped == pack {

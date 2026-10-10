@@ -63,7 +63,9 @@ struct CustomItemsListScreen: View {
         .onAppear {
             items = CustomItems.collect()
             Task {
-                templates = await Manifest.shared.schedule { AssetTemplates.list() }
+                // Bundled pack missing here means the boot reload skipped it; obtainBundlePack
+                // already trapped in debug. Release shows an empty templates row.
+                templates = await Manifest.shared.schedule { (try? AssetTemplates.list()) ?? [] }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .customItemsDidChange)) { _ in

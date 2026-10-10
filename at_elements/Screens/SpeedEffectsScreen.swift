@@ -118,19 +118,23 @@ struct SpeedEffectsScreen: View {
         Binding(
             get: {
                 guard let movie else {
-                    fatalError("SpeedEffectsScreen seek with no movie")
+                    assertionFailure("SpeedEffectsScreen seek with no movie")
+                    return 0
                 }
                 if movie.frames.isEmpty {
-                    fatalError("SpeedEffectsScreen movie has no frames")
+                    assertionFailure("SpeedEffectsScreen movie has no frames")
+                    return 0
                 }
                 return Double(movie.currentIndex) / Double(movie.frames.count)
             },
             set: { value in
                 guard var playing = movie else {
-                    fatalError("SpeedEffectsScreen seek with no movie")
+                    assertionFailure("SpeedEffectsScreen seek with no movie")
+                    return
                 }
                 if playing.frames.isEmpty {
-                    fatalError("SpeedEffectsScreen movie has no frames")
+                    assertionFailure("SpeedEffectsScreen movie has no frames")
+                    return
                 }
                 let index = Int(Double(playing.frames.count) * value)
                 playing.currentIndex = min(max(index, 0), playing.frames.count - 1)
@@ -153,7 +157,7 @@ struct SpeedEffectsScreen: View {
                     return first
                 },
                 set: { _ in
-                    fatalError("SpeedEffectsScreen canvas is not interactive")
+                    assertionFailure("SpeedEffectsScreen canvas is not interactive")
                 }
             ),
             frameUnits: frame?.units ?? [],
@@ -198,7 +202,9 @@ struct SpeedEffectsScreen: View {
 
     private func open() {
         if scene.frames.count < 3 {
-            fatalError("SpeedEffectsScreen needs 3 frames, got \(scene.frames.count)")
+            assertionFailure("SpeedEffectsScreen needs 3 frames, got \(scene.frames.count)")
+            dismiss()
+            return
         }
         if scene.speedModifier.isEmpty {
             scene.speedModifier.resetFor(frameCount: scene.frames.count)
@@ -209,7 +215,8 @@ struct SpeedEffectsScreen: View {
 
     private func applyCurve(_ points: [SpeedPoint]) {
         if points.count < 2 {
-            fatalError("SpeedEffectsScreen curve has \(points.count) points")
+            assertionFailure("SpeedEffectsScreen curve has \(points.count) points")
+            return
         }
         scene.speedModifier.setPoints(points)
         if undoStack.last != scene.speedModifier {
@@ -227,7 +234,8 @@ struct SpeedEffectsScreen: View {
         }
         undoStack.removeLast()
         guard let previous = undoStack.last else {
-            fatalError("SpeedEffectsScreen undo empty")
+            assertionFailure("SpeedEffectsScreen undo empty")
+            return
         }
         scene.speedModifier = previous.copy()
         needsApply = true
@@ -298,10 +306,12 @@ struct SpeedEffectsScreen: View {
     /// Android `doStartPlayback(..., fromStart: false)`: resume unless already on the last frame.
     private func startPlaying() {
         guard var playing = movie else {
-            fatalError("SpeedEffectsScreen play with no movie")
+            assertionFailure("SpeedEffectsScreen play with no movie")
+            return
         }
         if playing.frames.isEmpty {
-            fatalError("SpeedEffectsScreen play with no frames")
+            assertionFailure("SpeedEffectsScreen play with no frames")
+            return
         }
         if playing.currentIndex >= playing.frames.count - 1 {
             playing.currentIndex = 0
@@ -325,11 +335,13 @@ struct SpeedEffectsScreen: View {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: name, withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("SpeedEffectsScreen missing chrome/\(name).png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/\(name).png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("SpeedEffectsScreen could not read \(url.path): \(error)")
         }
     }

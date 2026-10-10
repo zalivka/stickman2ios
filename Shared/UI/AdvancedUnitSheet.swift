@@ -9,12 +9,13 @@ struct AdvancedUnitSheet: View {
     @State private var number: Int
 
     init(currentNumber: Int, onApply: @escaping (Int) -> Bool) {
-        if currentNumber < 0 || currentNumber > 9 {
-            fatalError("AdvancedUnitSheet number \(currentNumber) out of 0...9")
+        let clamped = min(max(currentNumber, 0), 9)
+        if clamped != currentNumber {
+            assertionFailure("AdvancedUnitSheet number \(currentNumber) out of 0...9 — clamped")
         }
-        self.currentNumber = currentNumber
+        self.currentNumber = clamped
         self.onApply = onApply
-        _number = State(initialValue: currentNumber)
+        _number = State(initialValue: clamped)
     }
 
     var body: some View {

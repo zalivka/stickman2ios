@@ -83,7 +83,8 @@ final class SceneUndo: ObservableObject {
         cameraTweens: CameraTweenStorage
     ) {
         if ids.isEmpty {
-            fatalError("SceneUndo commitFramesInserted empty")
+            assertionFailure("SceneUndo commitFramesInserted empty")
+            return
         }
         push(.inserted(
             ids: ids,
@@ -103,7 +104,8 @@ final class SceneUndo: ObservableObject {
         cameraTweens: CameraTweenStorage
     ) {
         if frames.isEmpty {
-            fatalError("SceneUndo commitFramesDeleted empty")
+            assertionFailure("SceneUndo commitFramesDeleted empty")
+            return
         }
         push(.deleted(
             frames: frames,
@@ -217,11 +219,13 @@ final class SceneUndo: ObservableObject {
 
     private static func cloneFrames(_ scene: StickmanScene, indices: [Int]) throws -> [StickmanFrame] {
         if indices.isEmpty {
-            fatalError("SceneUndo selection empty")
+            assertionFailure("SceneUndo selection empty")
+            return []
         }
-        return try indices.map { index in
+        return try indices.compactMap { index in
             if index < 0 || index >= scene.frames.count {
-                fatalError("SceneUndo selection \(index) out of \(scene.frames.count)")
+                assertionFailure("SceneUndo selection \(index) out of \(scene.frames.count)")
+                return nil
             }
             return try scene.frames[index].clone()
         }

@@ -62,7 +62,9 @@ struct BgChooserSheet: View {
         .sheet(isPresented: $showingColor) {
             FlexColorPickerSheet(initial: colorInitial) { color in
                 showingColor = false
-                onPick(SolidBackgrounds.hex(from: color))
+                if let hex = SolidBackgrounds.hex(from: color) {
+                    onPick(hex)
+                }
             }
         }
     }

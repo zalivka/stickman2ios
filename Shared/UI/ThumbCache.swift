@@ -20,26 +20,6 @@ enum ThumbCache {
         }
     }()
 
-    static func image(_ key: String, make: () -> CGImage) -> CGImage {
-        _ = observer
-        lock.lock()
-        if let cached = images[key] {
-            lock.unlock()
-            return cached
-        }
-        let seen = customsGeneration
-        lock.unlock()
-        let made = make()
-        lock.lock()
-        let customsStale = key.hasPrefix("chooser:@:") && customsGeneration != seen
-        if !customsStale, images[key] == nil {
-            images[key] = made
-        }
-        let stored = images[key] ?? made
-        lock.unlock()
-        return stored
-    }
-
     /// Item thumbs. A bad archive toasts once and leaves the cell empty.
     static func imageIfPresent(_ key: String, make: () throws -> CGImage) -> CGImage? {
         _ = observer
