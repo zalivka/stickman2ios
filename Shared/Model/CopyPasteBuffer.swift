@@ -13,47 +13,57 @@ final class CopyPasteBuffer: ObservableObject {
 
     func copyUnits(_ structure: [StickmanUnit]) {
         if structure.isEmpty {
-            fatalError("CopyPasteBuffer copyUnits empty")
+            assertionFailure("CopyPasteBuffer copyUnits empty")
+            return
         }
         units = structure
     }
 
-    func copyFrames(from scene: StickmanScene, indices: [Int]) {
+    func copyFrames(from scene: StickmanScene, indices: [Int]) throws {
         if indices.isEmpty {
-            fatalError("CopyPasteBuffer copyFrames empty")
+            assertionFailure("CopyPasteBuffer copyFrames empty")
+            return
         }
         var copied: [StickmanFrame] = []
         copied.reserveCapacity(indices.count)
         for index in indices {
             if index < 0 || index >= scene.frames.count {
-                fatalError("CopyPasteBuffer copyFrames \(index) out of \(scene.frames.count)")
+                assertionFailure("CopyPasteBuffer copyFrames \(index) out of \(scene.frames.count)")
+                continue
             }
-            copied.append(scene.frames[index].clone())
+            copied.append(try scene.frames[index].clone())
+        }
+        guard !copied.isEmpty else {
+            return
         }
         frames = copied
         animations = Self.animations(from: scene, copied: copied)
     }
 
     @discardableResult
-    func pasteFrames(into scene: inout StickmanScene) -> [Int] {
+    func pasteFrames(into scene: inout StickmanScene) throws -> [Int] {
         if frames.isEmpty {
-            fatalError("CopyPasteBuffer pasteFrames empty")
+            assertionFailure("CopyPasteBuffer pasteFrames empty")
+            return []
         }
-        return scene.pasteFrames(frames, animations: animations)
+        return try scene.pasteFrames(frames, animations: animations)
     }
 
-    func pasteUnits(into scene: inout StickmanScene, at indices: [Int]) {
+    func pasteUnits(into scene: inout StickmanScene, at indices: [Int]) throws {
         if units.isEmpty {
-            fatalError("CopyPasteBuffer pasteUnits empty")
+            assertionFailure("CopyPasteBuffer pasteUnits empty")
+            return
         }
         if indices.isEmpty {
-            fatalError("CopyPasteBuffer pasteUnits no frames")
+            assertionFailure("CopyPasteBuffer pasteUnits no frames")
+            return
         }
         for index in indices {
             if index < 0 || index >= scene.frames.count {
-                fatalError("CopyPasteBuffer pasteUnits \(index) out of \(scene.frames.count)")
+                assertionFailure("CopyPasteBuffer pasteUnits \(index) out of \(scene.frames.count)")
+                continue
             }
-            scene.frames[index].pasteStructure(units)
+            try scene.frames[index].pasteStructure(units)
         }
     }
 

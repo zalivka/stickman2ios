@@ -93,12 +93,14 @@ struct BonesGalleryPanel: View {
         guard let url = Bundle.main.url(forResource: "plus_icon", withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: "plus_icon", withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("chrome missing plus_icon.png")
         }
         do {
             let data = try Data(contentsOf: url)
             return PNGImage.cgImage(from: data, name: "chrome/plus_icon.png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("chrome could not read \(url.path): \(error)")
         }
     }()

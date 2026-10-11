@@ -50,11 +50,13 @@ struct ShipBoilScreen: View {
     private static func image(_ copy: Int) -> CGImage {
         let name = "ship_\(copy)"
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "testdata/ship") else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ShipBoilScreen missing testdata/ship/\(name).png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "testdata/ship/\(name).png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ShipBoilScreen could not read \(url.path): \(error)")
         }
     }

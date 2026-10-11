@@ -102,11 +102,13 @@ struct BoilDemoScreen: View {
 
     fileprivate static func image(_ name: String, _ directory: String) -> CGImage {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: directory) else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("BoilDemoScreen missing \(directory)/\(name).png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "\(directory)/\(name).png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("BoilDemoScreen could not read \(url.path): \(error)")
         }
     }
@@ -130,6 +132,7 @@ private struct TrexWalk: Decodable {
         func image(_ boil: Int?) -> CGImage {
             let index = boil.map { $0 + 1 } ?? 0
             if index < 0 || index >= images.count {
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("TrexWalk part \(name) has no image \(index)")
             }
             return images[index]
@@ -146,6 +149,7 @@ private struct TrexWalk: Decodable {
 
         func point(_ id: Int) -> CGPoint {
             guard let row = pts.first(where: { Int($0[0]) == id }), row.count == 3 else {
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("TrexWalk pose has no point \(id)")
             }
             return CGPoint(x: row[1], y: row[2])
@@ -159,21 +163,25 @@ private struct TrexWalk: Decodable {
 
     static func load() -> TrexWalk {
         guard let url = Bundle.main.url(forResource: "walk", withExtension: "json", subdirectory: "testdata/boil/trex") else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("BoilDemoScreen missing testdata/boil/trex/walk.json")
         }
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("BoilDemoScreen could not read \(url.path): \(error)")
         }
         let decoded: TrexWalk
         do {
             decoded = try JSONDecoder().decode(TrexWalk.self, from: data)
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("BoilDemoScreen walk.json: \(error)")
         }
         if decoded.poses.isEmpty || decoded.parts.isEmpty {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("BoilDemoScreen walk.json has no poses or parts")
         }
         var walk = decoded

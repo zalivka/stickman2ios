@@ -14,6 +14,7 @@ nonisolated enum CustomItems {
 
     static func directory() -> URL {
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            // platform precondition: Application Support always resolves on a real device
             fatalError("CustomItems has no Application Support")
         }
         return root
@@ -27,7 +28,8 @@ nonisolated enum CustomItems {
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         } catch {
-            fatalError("CustomItems could not create \(dir.path): \(error)")
+            print("CustomItems could not create \(dir.path): \(error)")
+            return []
         }
         let urls: [URL]
         do {
@@ -37,7 +39,8 @@ nonisolated enum CustomItems {
                 options: [.skipsHiddenFiles]
             )
         } catch {
-            fatalError("CustomItems could not list \(dir.path): \(error)")
+            print("CustomItems could not list \(dir.path): \(error)")
+            return []
         }
         let items = urls.compactMap { url -> Item? in
             if url.pathExtension.lowercased() != ext {
@@ -92,30 +95,24 @@ nonisolated enum CustomItems {
 
     static func file(systemName: String) -> URL {
         if systemName.isEmpty {
-            fatalError("CustomItems empty systemName")
+            assertionFailure("CustomItems empty systemName")
         }
         return directory().appendingPathComponent("\(systemName).\(ext)")
     }
 
-    static func zipData(systemName: String) -> Data {
-        let url = file(systemName: systemName)
-        do {
-            return try Data(contentsOf: url)
-        } catch {
-            fatalError("CustomItems could not read \(url.path): \(error)")
-        }
-    }
-
-    static func delete(_ item: Item) {
+    @discardableResult
+    static func delete(_ item: Item) -> Bool {
         do {
             try FileManager.default.removeItem(at: item.url)
         } catch {
-            fatalError("CustomItems delete \(item.url.lastPathComponent): \(error)")
+            print("CustomItems delete \(item.url.lastPathComponent): \(error)")
+            return false
         }
         // Manifest caches the customs list. Every mutation must announce itself
         // so the cached `@` pack is reloaded; otherwise itemZip keeps serving
         // the deleted file and dies reading it.
         NotificationCenter.default.post(name: .customItemsDidChange, object: nil)
+        return true
     }
 
     static func copy(_ item: Item, as rawName: String) throws {

@@ -31,10 +31,10 @@ struct RangePicker: View {
         onApply: @escaping (ClosedRange<Int>) -> Void
     ) {
         if frameCount < 1 {
-            fatalError("RangePicker frameCount must be >= 1, got \(frameCount)")
+            assertionFailure("RangePicker frameCount must be >= 1, got \(frameCount)")
         }
         if initialRange.lowerBound < 0 || initialRange.upperBound >= frameCount {
-            fatalError("RangePicker initialRange \(initialRange) out of \(frameCount)")
+            assertionFailure("RangePicker initialRange \(initialRange) out of \(frameCount)")
         }
         self.title = title
         self.frameCount = frameCount
@@ -52,12 +52,14 @@ struct RangePicker: View {
     /// Current plus next 10 if they fit; else current minus previous 10; else all frames.
     static func suggestedTweenRange(current: Int, frameCount: Int) -> ClosedRange<Int> {
         if frameCount < 1 {
-            fatalError("RangePicker suggestedTweenRange frameCount \(frameCount)")
-        }
-        if current < 0 || current >= frameCount {
-            fatalError("RangePicker suggestedTweenRange current \(current) out of \(frameCount)")
+            assertionFailure("RangePicker suggestedTweenRange frameCount \(frameCount)")
+            return 0...0
         }
         let last = frameCount - 1
+        if current < 0 || current > last {
+            assertionFailure("RangePicker suggestedTweenRange current \(current) out of \(frameCount)")
+        }
+        let current = min(max(current, 0), last)
         if current + 10 <= last {
             return current...(current + 10)
         }
@@ -233,25 +235,30 @@ struct RangeFramePreview: View {
     var backgrounds: BackgroundAssets
 
     var body: some View {
-        makeCanvas()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if let canvas = makeCanvas() {
+            canvas.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            EmptyView()
+        }
     }
 
-    private func makeCanvas() -> SkeletonCanvas {
-        if index < 0 || index >= scene.frames.count {
-            fatalError("RangeFramePreview index \(index) out of \(scene.frames.count)")
+    private func makeCanvas() -> SkeletonCanvas? {
+        guard index >= 0, index < scene.frames.count else {
+            assertionFailure("RangeFramePreview index \(index) out of \(scene.frames.count)")
+            return nil
         }
         let frame = scene.frames[index]
         return SkeletonCanvas(
             unit: frame.units.isEmpty ? nil : Binding(
                 get: {
                     guard let first = frame.units.first else {
-                        fatalError("RangeFramePreview empty frame read unit")
+                        assertionFailure("RangeFramePreview empty frame read unit")
+                        return StickmanUnit(name: "", points: [], edges: [])
                     }
                     return first
                 },
                 set: { _ in
-                    fatalError("RangeFramePreview canvas is not interactive")
+                    assertionFailure("RangeFramePreview canvas is not interactive")
                 }
             ),
             frameUnits: frame.units,

@@ -17,9 +17,8 @@ struct BoneShiftPreview: Equatable {
 
     /// Factor is the increment since the last pinch event.
     mutating func pinch(_ factor: CGFloat) {
-        if factor <= 0 {
-            fatalError("BoneShiftPreview pinch factor \(factor)")
-        }
+        // UIKit can hand out a degenerate 0/NaN increment on gesture cancellation.
+        guard factor > 0, factor.isFinite else { return }
         scale = min(max(scale * factor, 0.25), 4)
     }
 
@@ -30,8 +29,9 @@ struct BoneShiftPreview: Equatable {
 
     /// Project a scene-space drag onto the bone and its perpendicular, in item pixels.
     mutating func addDrag(move: CGPoint, edgeFrom: CGPoint, edgeTo: CGPoint, unitScale: CGFloat) {
-        if unitScale <= 0 {
-            fatalError("BoneShiftPreview unit scale \(unitScale)")
+        guard unitScale > 0, unitScale.isFinite else {
+            assertionFailure("BoneShiftPreview unit scale \(unitScale)")
+            return
         }
         let edgeVec = CGPoint(x: edgeTo.x - edgeFrom.x, y: edgeTo.y - edgeFrom.y)
         let edgeLen2 = edgeVec.x * edgeVec.x + edgeVec.y * edgeVec.y

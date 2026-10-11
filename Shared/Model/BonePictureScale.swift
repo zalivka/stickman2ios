@@ -14,8 +14,8 @@ enum BonePictureScale {
         aroundX: CGFloat,
         y aroundY: CGFloat,
         factor: CGFloat
-    ) -> Result {
-        transform(image, aroundX: aroundX, y: aroundY, factor: factor, radians: 0)
+    ) throws -> Result {
+        try transform(image, aroundX: aroundX, y: aroundY, factor: factor, radians: 0)
     }
 
     /// Scale, then rotate around the joint. Positive radians are counterclockwise, matching a Shift twist.
@@ -25,14 +25,14 @@ enum BonePictureScale {
         y aroundY: CGFloat,
         factor: CGFloat,
         radians: CGFloat
-    ) -> Result {
+    ) throws -> Result {
         if factor <= 0 {
-            fatalError("BonePictureScale factor \(factor)")
+            throw SceneLoadError(message: "BonePictureScale factor \(factor)")
         }
         let width = CGFloat(image.width)
         let height = CGFloat(image.height)
         if width < 1 || height < 1 {
-            fatalError("BonePictureScale image size \(image.width)x\(image.height)")
+            throw SceneLoadError(message: "BonePictureScale image size \(image.width)x\(image.height)")
         }
         let cosR = cos(radians)
         let sinR = sin(radians)
@@ -55,12 +55,12 @@ enum BonePictureScale {
               let maxX = corners.map(\.x).max(),
               let maxY = corners.map(\.y).max()
         else {
-            fatalError("BonePictureScale image has no corners")
+            throw SceneLoadError(message: "BonePictureScale image has no corners")
         }
         let pixelW = Int(ceil(maxX - minX))
         let pixelH = Int(ceil(maxY - minY))
         if pixelW < 1 || pixelH < 1 {
-            fatalError("BonePictureScale image became \(pixelW)x\(pixelH)")
+            throw SceneLoadError(message: "BonePictureScale image became \(pixelW)x\(pixelH)")
         }
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -79,7 +79,7 @@ enum BonePictureScale {
             UIImage(cgImage: image).draw(in: CGRect(x: 0, y: 0, width: width, height: height))
         }
         guard let cg = drawn.cgImage else {
-            fatalError("BonePictureScale produced no bitmap")
+            throw SceneLoadError(message: "BonePictureScale produced no bitmap")
         }
         return Result(image: cg, jointX: aroundX - minX, jointY: aroundY - minY)
     }

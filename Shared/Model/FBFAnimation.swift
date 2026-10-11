@@ -13,17 +13,19 @@ nonisolated struct FBFAnimation: Codable, Sendable {
     var endFrameId: Int
 
     static func period(speed: Int) -> Int {
-        if speed < 0 || speed > speedMax {
-            fatalError("FBFAnimation speed \(speed) out of 0...\(speedMax)")
+        let clamped = min(max(speed, 0), speedMax)
+        if clamped != speed {
+            assertionFailure("FBFAnimation speed \(speed) out of 0...\(speedMax) — clamped")
         }
-        return maxPeriod - speed * 5
+        return maxPeriod - clamped * 5
     }
 
     static func speed(period: Int) -> Int {
-        if period < minPeriod || period > maxPeriod {
-            fatalError("FBFAnimation period \(period) out of \(minPeriod)...\(maxPeriod)")
+        let clamped = min(max(period, minPeriod), maxPeriod)
+        if clamped != period {
+            assertionFailure("FBFAnimation period \(period) out of \(minPeriod)...\(maxPeriod) — clamped")
         }
-        return speedMax - (period - minPeriod) / 5
+        return speedMax - (clamped - minPeriod) / 5
     }
 
     var hasNoRange: Bool {
@@ -36,30 +38,24 @@ nonisolated struct FBFAnimation: Codable, Sendable {
         return index >= span.start && index <= span.end
     }
 
-    mutating func setIdsFromIndices(scene: StickmanScene, start: Int, end: Int) {
-        if start < 0 || end >= scene.frames.count || start > end {
-            fatalError("FBFAnimation '\(unitname)' range \(start)...\(end) out of \(scene.frames.count)")
-        }
-        startFrameId = scene.frames[start].id
-        endFrameId = scene.frames[end].id
-    }
-
     func toIndices(scene: StickmanScene) -> (start: Int, end: Int) {
-        if period < 1 {
-            fatalError("FBFAnimation '\(unitname)' period is \(period)")
+        guard !scene.frames.isEmpty else {
+            assertionFailure("FBFAnimation '\(unitname)' scene has no frames")
+            return (0, 0)
         }
-        if scene.frames.isEmpty {
-            fatalError("FBFAnimation '\(unitname)' scene has no frames")
-        }
+        let last = scene.frames.count - 1
         if hasNoRange {
-            return (0, scene.frames.count - 1)
+            return (0, last)
         }
-        return (indexOf(startFrameId, scene: scene, label: "start"), indexOf(endFrameId, scene: scene, label: "end"))
+        let start = indexOf(startFrameId, scene: scene, label: "start") ?? 0
+        let end = indexOf(endFrameId, scene: scene, label: "end") ?? last
+        return (min(start, end), max(start, end))
     }
 
-    private func indexOf(_ frameId: Int, scene: StickmanScene, label: String) -> Int {
+    private func indexOf(_ frameId: Int, scene: StickmanScene, label: String) -> Int? {
         guard let index = scene.frames.firstIndex(where: { $0.id == frameId }) else {
-            fatalError("FBFAnimation '\(unitname)' \(label) frame id \(frameId) is not in the scene")
+            print("FBFAnimation '\(unitname)' \(label) frame id \(frameId) is not in the scene")
+            return nil
         }
         return index
     }

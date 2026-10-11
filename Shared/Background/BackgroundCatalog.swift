@@ -14,6 +14,7 @@ enum BackgroundCatalog {
         var folders: [Folder] = []
         for url in ExternalPack.bundleArchives() {
             let packName = url.deletingPathExtension().lastPathComponent
+            // Bundled pack: an unreadable archive is a broken IPA, same as obtainBundlePack.
             let entries = packEntries(packName: packName, zip: ExternalPack.mappedZip(url))
             if entries.isEmpty {
                 continue
@@ -29,11 +30,9 @@ enum BackgroundCatalog {
         var entries: [BackgroundEntry] = []
         for url in BackgroundStore.userArchives() {
             let own = url.deletingPathExtension().lastPathComponent
-            let archive: Data
-            do {
-                archive = try Data(contentsOf: url, options: .mappedIfSafe)
-            } catch {
-                fatalError("BackgroundCatalog cannot read \(url.path): \(error)")
+            // The file can vanish or be mid-write; skip it, the list survives.
+            guard let archive = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                continue
             }
             if BackgroundStore.rasterEntry(in: archive) == nil {
                 continue
@@ -53,17 +52,21 @@ enum BackgroundCatalog {
     static func packArchive(packName: String, ownName: String) throws -> Data {
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
         let entry = "bgs/\(ownName).\(BackgroundStore.ext)"
-        if !ZipStore.contains(entry, in: zip) {
+        do {
+            return try ZipStore.dataThrowing(named: entry, in: zip)
+        } catch {
             throw BackgroundStore.Failure.missingArchive("\(packName):\(ownName)")
         }
-        return ZipStore.data(named: entry, in: zip)
     }
 
     private static func packEntries(packName: String, zip: Data) -> [BackgroundEntry] {
         let prefix = "bgs/"
         let suffix = ".\(BackgroundStore.ext)"
+        guard let names = try? ZipStore.namesThrowing(in: zip) else {
+            return []
+        }
         var entries: [BackgroundEntry] = []
-        for name in ZipStore.names(in: zip).sorted() {
+        for name in names.sorted() {
             guard name.hasPrefix(prefix), name.hasSuffix(suffix) else {
                 continue
             }
@@ -71,7 +74,9 @@ enum BackgroundCatalog {
             if own.isEmpty || own.contains("/") {
                 continue
             }
-            let nested = ZipStore.data(named: name, in: zip)
+            guard let nested = try? ZipStore.dataThrowing(named: name, in: zip) else {
+                continue
+            }
             if BackgroundStore.rasterEntry(in: nested) == nil {
                 continue
             }
@@ -84,9 +89,9 @@ enum BackgroundCatalog {
     }
 
     private static func thumb(in nested: Data) -> CGImage? {
-        if !ZipStore.contains("thumb.png", in: nested) {
+        guard let data = try? ZipStore.dataThrowing(named: "thumb.png", in: nested) else {
             return nil
         }
-        return BackgroundAssets.tryDecode(ZipStore.data(named: "thumb.png", in: nested))
+        return BackgroundAssets.tryDecode(data)
     }
 }

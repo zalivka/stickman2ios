@@ -193,9 +193,13 @@ class Hand:
         self.t = samples[-1][2]
         self.last = (samples[-1][:2], color, "stroke")
 
-    def fill(self, at, color):
-        x = at[0] + self.rng.uniform(-3, 3)
-        y = at[1] + self.rng.uniform(-3, 3)
+    def fill(self, at, color, wander=3):
+        # wander 0 stays on a thin colour the ±3 px jitter would step off of.
+        if wander:
+            x = at[0] + self.rng.uniform(-wander, wander)
+            y = at[1] + self.rng.uniform(-wander, wander)
+        else:
+            x, y = at
         self.t += self._pause((x, y), color, "fill")
         self.ops.append({
             "op": "fill", "input": "finger", "color": color, "opacity": self.opacity, "zoom": 0.715,

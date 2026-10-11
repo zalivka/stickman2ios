@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 nonisolated enum ManifestXML {
-    static func parse(_ data: Data, packName: String, translations: [String: String], archive: Data) -> (
+    static func parse(_ data: Data, packName: String, translations: [String: String], archive: Data) throws -> (
         defScale: CGFloat,
         editableItems: Bool,
         useCommonBg: Bool,
@@ -13,7 +13,10 @@ nonisolated enum ManifestXML {
         parser.delegate = sink
         if !parser.parse() {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
-            fatalError("ManifestXML '\(packName)' parse failed: \(detail)")
+            throw ZipError(message: "ManifestXML '\(packName)' parse failed: \(detail)")
+        }
+        if let error = sink.error {
+            throw ZipError(message: "ManifestXML '\(packName)' \(error)")
         }
         return (sink.defScale, sink.editableItems, sink.useCommonBg, sink.items)
     }
@@ -26,16 +29,17 @@ nonisolated enum ManifestXML {
         var editableItems = false
         var useCommonBg = true
         var items: [Item] = []
+        private(set) var error: String?
 
         init(packName: String, translations: [String: String], archive: Data) {
             self.packName = packName
             self.translations = translations
-            atiFiles = Set(
-                ZipStore.names(in: archive).compactMap { name -> String? in
+            atiFiles = (try? ZipStore.namesThrowing(in: archive))
+                .flatMap { names in Set(names.compactMap { name -> String? in
                     let file = (name as NSString).lastPathComponent
                     return file.hasSuffix(".ati") ? file : nil
-                }
-            )
+                }) }
+                ?? []
         }
 
         func parser(
@@ -49,7 +53,8 @@ nonisolated enum ManifestXML {
             case "manifest":
                 if let text = attributes["def_scale"], !text.isEmpty {
                     guard let value = Double(text) else {
-                        fatalError("ManifestXML '\(packName)' def_scale '\(text)'")
+                        error = "def_scale '\(text)'"
+                        return
                     }
                     defScale = CGFloat(value)
                 }
@@ -59,20 +64,24 @@ nonisolated enum ManifestXML {
                 }
             case "item":
                 guard let sname = attributes["sname"], !sname.isEmpty else {
-                    fatalError("ManifestXML '\(packName)' item missing sname")
+                    error = "item missing sname"
+                    return
                 }
                 if !atiFiles.contains("\(sname).ati") {
-                    fatalError("ManifestXML '\(packName)' missing items/\(sname).ati")
+                    error = "missing items/\(sname).ati"
+                    return
                 }
                 let setName = attributes["set"] ?? ""
                 let computed = packName + ":" + sname
                 if let attr = attributes["fullname"], !attr.isEmpty, attr != computed {
-                    fatalError("ManifestXML '\(packName)' item '\(sname)' fullname '\(attr)' != '\(computed)'")
+                    error = "item '\(sname)' fullname '\(attr)' != '\(computed)'"
+                    return
                 }
                 var scale = defScale
                 if let text = attributes["scale"], !text.isEmpty {
                     guard let value = Double(text) else {
-                        fatalError("ManifestXML '\(packName)' item '\(sname)' scale '\(text)'")
+                        error = "item '\(sname)' scale '\(text)'"
+                        return
                     }
                     scale = CGFloat(value)
                 }

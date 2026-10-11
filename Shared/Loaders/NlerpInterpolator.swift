@@ -12,12 +12,12 @@ enum NlerpInterpolator {
         duration: Int,
         scene: StickmanScene? = nil,
         originIndex: Int? = nil
-    ) -> [StickmanFrame] {
+    ) throws -> [StickmanFrame] {
         if duration <= 0 {
-            fatalError("NlerpInterpolator duration must be > 0, got \(duration)")
+            throw SceneLoadError(message: "NlerpInterpolator duration must be > 0, got \(duration)")
         }
         if (scene == nil) != (originIndex == nil) {
-            fatalError("NlerpInterpolator scene and originIndex must be provided together")
+            throw SceneLoadError(message: "NlerpInterpolator scene and originIndex must be provided together")
         }
         let excluded = exclude(frame1, frame2)
         var frames: [StickmanFrame] = []
@@ -33,7 +33,7 @@ enum NlerpInterpolator {
                 }
                 if let scene, let originIndex {
                     units.append(
-                        UnitStateInterpolator.inbetween(
+                        try UnitStateInterpolator.inbetween(
                             scene: scene,
                             originIndex: originIndex,
                             unit1: unit1,
@@ -43,7 +43,7 @@ enum NlerpInterpolator {
                         )
                     )
                 } else {
-                    units.append(inbetween(unit1: unit1, unit2: unit2, t: t))
+                    units.append(try inbetween(unit1: unit1, unit2: unit2, t: t))
                 }
             }
             let cameraMove: PictureMove
@@ -67,21 +67,21 @@ enum NlerpInterpolator {
                 bgMove: frame1.bgMove,
                 cameraMove: cameraMove
             )
-            adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)
+            try adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)
             frames.append(generated)
         }
         frames.append(frame2)
         if frames.count != duration + 1 {
-            fatalError("NlerpInterpolator expected \(duration + 1) frames, got \(frames.count)")
+            throw SceneLoadError(message: "NlerpInterpolator expected \(duration + 1) frames, got \(frames.count)")
         }
         return frames
     }
 
-    static func inbetween(unit1: StickmanUnit, unit2: StickmanUnit, t: CGFloat) -> StickmanUnit {
-        let scale1 = validScale(unit1)
-        let scale2 = validScale(unit2)
-        let base1 = unit1.basePoint()
-        let base2 = unit2.basePoint()
+    static func inbetween(unit1: StickmanUnit, unit2: StickmanUnit, t: CGFloat) throws -> StickmanUnit {
+        let scale1 = try validScale(unit1)
+        let scale2 = try validScale(unit2)
+        let base1 = try unit1.basePoint()
+        let base2 = try unit2.basePoint()
         let xVal = lerp(base1.x, base2.x, t)
         let yVal = lerp(base1.y, base2.y, t)
         let scaleVal = lerp(unit1.scale, unit2.scale, t)
@@ -90,8 +90,8 @@ enum NlerpInterpolator {
         if unit1.edges.isEmpty {
             var result = unit1
             result.translateAll(dx: xVal - base1.x, dy: yVal - base1.y)
-            let moved = result.basePoint()
-            result.scaleAt(pivotX: moved.x, pivotY: moved.y, target: scaleVal)
+            let moved = try result.basePoint()
+            try result.scaleAt(pivotX: moved.x, pivotY: moved.y, target: scaleVal)
             result.alpha = alphaVal
             return result
         }
@@ -101,19 +101,19 @@ enum NlerpInterpolator {
             guard unit2.edges.contains(where: {
                 ($0.from == edge.from && $0.to == edge.to) || ($0.from == edge.to && $0.to == edge.from)
             }) else {
-                fatalError("NlerpInterpolator unit '\(unit1.name)' missing edge \(edge.from)->\(edge.to)")
+                throw SceneLoadError(message: "NlerpInterpolator unit '\(unit1.name)' missing edge \(edge.from)->\(edge.to)")
             }
-            let start1 = unit1.point(id: edge.from)
-            let end1 = unit1.point(id: edge.to)
-            let start2 = unit2.point(id: edge.from)
-            let end2 = unit2.point(id: edge.to)
+            let start1 = try unit1.point(id: edge.from)
+            let end1 = try unit1.point(id: edge.to)
+            let start2 = try unit2.point(id: edge.from)
+            let end2 = try unit2.point(id: edge.to)
 
             var startPoint: StickmanPoint
             if start1.isBase {
                 startPoint = start1
             } else {
                 guard let parent = written[edge.from] else {
-                    fatalError("NlerpInterpolator unit '\(unit1.name)' missing parent \(edge.from)")
+                    throw SceneLoadError(message: "NlerpInterpolator unit '\(unit1.name)' missing parent \(edge.from)")
                 }
                 startPoint = parent
             }
@@ -148,9 +148,9 @@ enum NlerpInterpolator {
             written[endPoint.id] = endPoint
         }
 
-        let points = unit1.points.map { point -> StickmanPoint in
+        let points = try unit1.points.map { point -> StickmanPoint in
             guard let writtenPoint = written[point.id] else {
-                fatalError("NlerpInterpolator unit '\(unit1.name)' dropped point \(point.id)")
+                throw SceneLoadError(message: "NlerpInterpolator unit '\(unit1.name)' dropped point \(point.id)")
             }
             return writtenPoint
         }
@@ -166,13 +166,9 @@ enum NlerpInterpolator {
             unitType: unit1.unitType,
             bubble: unit1.bubble
         )
-        do {
-            try result.link()
-        } catch {
-            fatalError("\(error)")
-        }
-        let base = result.basePoint()
-        result.scaleAt(pivotX: base.x, pivotY: base.y, target: scaleVal)
+        try result.link()
+        let base = try result.basePoint()
+        try result.scaleAt(pivotX: base.x, pivotY: base.y, target: scaleVal)
         result.alpha = alphaVal
         return result
     }
@@ -219,9 +215,9 @@ enum NlerpInterpolator {
         max(hypot(to.x - from.x, to.y - from.y) / scale, minEdgeLength)
     }
 
-    private static func validScale(_ unit: StickmanUnit) -> CGFloat {
+    private static func validScale(_ unit: StickmanUnit) throws -> CGFloat {
         if unit.scale <= 0 {
-            fatalError("NlerpInterpolator unit '\(unit.name)' scale is \(unit.scale)")
+            throw SceneLoadError(message: "NlerpInterpolator unit '\(unit.name)' scale is \(unit.scale)")
         }
         return unit.scale
     }
@@ -247,22 +243,22 @@ enum NlerpInterpolator {
         return excluded
     }
 
-    private static func adjustSlavesPositions(frame1: StickmanFrame, frame2: StickmanFrame, generated: inout StickmanFrame) {
+    private static func adjustSlavesPositions(frame1: StickmanFrame, frame2: StickmanFrame, generated: inout StickmanFrame) throws {
         let enslaved = generated.units
             .filter { SlavesRegistry.attachment(of: $0) != nil }
             .sorted { SlavesRegistry.slaveDepth($0, in: generated.units) < SlavesRegistry.slaveDepth($1, in: generated.units) }
         for unit in enslaved {
-            let attachment1 = SlavesRegistry.attachment(of: frame1.unit(named: unit.name))
-            let attachment2 = SlavesRegistry.attachment(of: frame2.unit(named: unit.name))
+            let attachment1 = SlavesRegistry.attachment(of: try frame1.unit(named: unit.name))
+            let attachment2 = SlavesRegistry.attachment(of: try frame2.unit(named: unit.name))
             if attachment1 != attachment2 {
                 guard let index = generated.units.firstIndex(where: { $0.name == unit.name }) else {
-                    fatalError("NlerpInterpolator missing generated unit '\(unit.name)'")
+                    throw SceneLoadError(message: "NlerpInterpolator missing generated unit '\(unit.name)'")
                 }
-                generated.units[index].stripAttachment()
+                try generated.units[index].stripAttachment()
             } else {
-                generated.moveUnitToMaster(named: unit.name)
+                try generated.moveUnitToMaster(named: unit.name)
             }
         }
-        generated.refreshAttachments()
+        try generated.refreshAttachments()
     }
 }

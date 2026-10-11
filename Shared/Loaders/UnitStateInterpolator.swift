@@ -10,9 +10,9 @@ enum UnitStateInterpolator {
         strength: Float,
         frequency: Float,
         effectT: Float
-    ) -> StickmanUnit {
-        var pose = NlerpInterpolator.inbetween(unit1: unit1, unit2: unit2, t: CGFloat(t))
-        UnitTweenEffects.apply(
+    ) throws -> StickmanUnit {
+        var pose = try NlerpInterpolator.inbetween(unit1: unit1, unit2: unit2, t: CGFloat(t))
+        try UnitTweenEffects.apply(
             &pose,
             start: unit1,
             end: unit2,
@@ -31,12 +31,12 @@ enum UnitStateInterpolator {
         unit2: StickmanUnit,
         step: Int,
         framesNumber: Int
-    ) -> StickmanUnit {
+    ) throws -> StickmanUnit {
         if framesNumber <= 0 {
-            fatalError("UnitStateInterpolator framesNumber must be > 0, got \(framesNumber)")
+            throw SceneLoadError(message: "UnitStateInterpolator framesNumber must be > 0, got \(framesNumber)")
         }
         if step < 0 || step >= framesNumber {
-            fatalError("UnitStateInterpolator step \(step) out of \(framesNumber)")
+            throw SceneLoadError(message: "UnitStateInterpolator step \(step) out of \(framesNumber)")
         }
         let localProgress = Float(step + 1) / Float(framesNumber + 1)
         if let span = scene.unitTweens.findForSpan(
@@ -51,7 +51,7 @@ enum UnitStateInterpolator {
                 let raw = (sourcePosition - Float(span.fromFrame)) / Float(span.toFrame - span.fromFrame)
                 let spanProgress = min(max(raw, 0), 1)
                 let eased = Easing.sample(span.easingType, t: spanProgress, strength: span.easingStrength)
-                return inbetweenStatesAt(
+                return try inbetweenStatesAt(
                     unit1: start,
                     unit2: end,
                     t: eased,
@@ -62,6 +62,6 @@ enum UnitStateInterpolator {
                 )
             }
         }
-        return NlerpInterpolator.inbetween(unit1: unit1, unit2: unit2, t: CGFloat(localProgress))
+        return try NlerpInterpolator.inbetween(unit1: unit1, unit2: unit2, t: CGFloat(localProgress))
     }
 }

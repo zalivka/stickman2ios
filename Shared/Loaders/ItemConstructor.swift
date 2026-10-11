@@ -37,7 +37,8 @@ enum ItemConstructor {
         do {
             try unit.link()
         } catch {
-            fatalError("\(error)")
+            // Hand-built constants: a failure here is a bug in the table above.
+            assertionFailure("ItemConstructor spider link: \(error)")
         }
         return unit
     }
@@ -54,7 +55,8 @@ enum ItemConstructor {
         do {
             try unit.link()
         } catch {
-            fatalError("\(error)")
+            // Hand-built constants: a failure here is a bug in the table above.
+            assertionFailure("ItemConstructor blank link: \(error)")
         }
         return unit
     }
@@ -62,13 +64,14 @@ enum ItemConstructor {
     static let sceneWidth: CGFloat = 640
     static let sceneHeight: CGFloat = 480
 
-    static func scene(unit: StickmanUnit, scale: CGFloat = 1, frameCount: Int = 1) -> StickmanScene {
+    static func scene(unit: StickmanUnit, scale: CGFloat = 1, frameCount: Int = 1) throws -> StickmanScene {
         if frameCount < 1 {
-            fatalError("ItemConstructor scene frameCount must be >= 1, got \(frameCount)")
+            assertionFailure("ItemConstructor scene frameCount must be >= 1, got \(frameCount)")
         }
-        let frames = (0..<frameCount).map { index in
+        let frameCount = max(frameCount, 1)
+        let frames = try (0..<frameCount).map { index -> StickmanFrame in
             var copy = unit
-            copy.placeInScene(width: sceneWidth, height: sceneHeight, scale: scale)
+            try copy.placeInScene(width: sceneWidth, height: sceneHeight, scale: scale)
             return StickmanFrame(id: index, units: [copy])
         }
         return StickmanScene(

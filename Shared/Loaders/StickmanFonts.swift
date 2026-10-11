@@ -25,6 +25,7 @@ enum StickmanFonts {
             guard let url = Bundle.main.url(forResource: file, withExtension: "ttf", subdirectory: "fonts")
                 ?? Bundle.main.url(forResource: file, withExtension: "ttf")
             else {
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("StickmanFonts missing fonts/\(file).ttf")
             }
             register(url: url, key: key)
@@ -49,7 +50,10 @@ enum StickmanFonts {
             return .system(size: size)
         }
         guard let name = postScript[key] else {
-            fatalError("StickmanFonts unknown font '\(key)'")
+            // Callers validate with contains(key) first; an unknown key is a
+            // programming slip, not user input — render with the system font.
+            assertionFailure("StickmanFonts unknown font '\(key)'")
+            return .system(size: size)
         }
         return .custom(name, size: size)
     }
@@ -87,7 +91,9 @@ enum StickmanFonts {
                 }
                 seen.insert(key)
                 guard let stored = customBytes[key] else {
-                    fatalError("StickmanFonts missing bytes for '\(key)'")
+                    // isCustom(key) above reads the same map; unreachable unless it mutates mid-loop.
+                    assertionFailure("StickmanFonts missing bytes for '\(key)'")
+                    continue
                 }
                 result.append(stored)
             }
@@ -108,17 +114,20 @@ enum StickmanFonts {
         if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
             guard alreadyRegistered(error) else {
                 let detail = error.map { String(describing: $0.takeRetainedValue()) } ?? "unknown"
+                // bundled resource: a failure here ships broken, fires on first debug run
                 fatalError("StickmanFonts could not register '\(key)': \(detail)")
             }
         }
         guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor],
               let descriptor = descriptors.first
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("StickmanFonts '\(key)' has no descriptors")
         }
         do {
             try remember(CTFontCreateWithFontDescriptor(descriptor, 0, nil), key: key)
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("\(error)")
         }
     }

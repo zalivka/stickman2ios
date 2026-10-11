@@ -56,7 +56,7 @@ struct FullscreenPreviewScreen: View {
         }
         .overlay(alignment: .bottomLeading) {
             if let movie, phase != .generating {
-                originFrameBadge(current: movie.currentFrame.originFrameIndex + 1)
+                originFrameBadge(current: (movie.currentFrameOrNil?.originFrameIndex ?? -1) + 1)
                     .padding(.leading, 16)
                     .padding(.bottom, 20)
                     .allowsHitTesting(false)
@@ -73,20 +73,23 @@ struct FullscreenPreviewScreen: View {
 
     private func originFrameBadge(current: Int) -> some View {
         if source.frames.isEmpty {
-            fatalError("FullscreenPreviewScreen origin badge has no source frames")
+            assertionFailure("FullscreenPreviewScreen origin badge has no source frames")
+            return AnyView(EmptyView())
         }
         let digits = String(source.frames.count).count
         let probe = String(repeating: "8", count: digits)
-        return ZStack {
-            Text(probe)
-                .hidden()
-            Text("\(current)")
-        }
-        .font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
-        .foregroundStyle(Self.frameNumber)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Self.frameNumberBack, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        return AnyView(
+            ZStack {
+                Text(probe)
+                    .hidden()
+                Text("\(current)")
+            }
+            .font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
+            .foregroundStyle(Self.frameNumber)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Self.frameNumberBack, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        )
     }
 
     private var overlayText: String {
@@ -104,19 +107,23 @@ struct FullscreenPreviewScreen: View {
         Binding(
             get: {
                 guard let movie else {
-                    fatalError("FullscreenPreviewScreen seek with no movie")
+                    assertionFailure("FullscreenPreviewScreen seek with no movie")
+                    return 0
                 }
                 if movie.frames.isEmpty {
-                    fatalError("FullscreenPreviewScreen movie has no frames")
+                    assertionFailure("FullscreenPreviewScreen movie has no frames")
+                    return 0
                 }
                 return Double(movie.currentIndex) / Double(movie.frames.count)
             },
             set: { value in
                 guard var playing = movie else {
-                    fatalError("FullscreenPreviewScreen seek with no movie")
+                    assertionFailure("FullscreenPreviewScreen seek with no movie")
+                    return
                 }
                 if playing.frames.isEmpty {
-                    fatalError("FullscreenPreviewScreen movie has no frames")
+                    assertionFailure("FullscreenPreviewScreen movie has no frames")
+                    return
                 }
                 let index = Int(Double(playing.frames.count) * value)
                 playing.currentIndex = min(max(index, 0), playing.frames.count - 1)
@@ -129,22 +136,22 @@ struct FullscreenPreviewScreen: View {
     }
 
     private func canvas(_ movie: StickmanScene) -> some View {
-        let units = movie.currentFrame.units
+        let units = movie.currentFrameOrNil?.units ?? []
         return SkeletonCanvas(
             unit: units.first.map { first in
                 Binding(
                     get: { first },
                     set: { _ in
-                        fatalError("FullscreenPreviewScreen canvas is not interactive")
+                        assertionFailure("FullscreenPreviewScreen canvas is not interactive")
                     }
                 )
             },
             frameUnits: units,
             assets: assets,
             backgrounds: backgrounds,
-            bgName: movie.currentFrame.bgName,
-            bgMove: movie.currentFrame.bgMove,
-            cameraMove: movie.currentFrame.cameraMove,
+            bgName: movie.currentFrameOrNil?.bgName,
+            bgMove: movie.currentFrameOrNil?.bgMove ?? .identity,
+            cameraMove: movie.currentFrameOrNil?.cameraMove ?? .identity,
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,
@@ -167,6 +174,12 @@ struct FullscreenPreviewScreen: View {
             progress: { value in
                 guard generation == token else { return }
                 percent = value
+            },
+            failure: { error in
+                guard generation == token else { return }
+                print("FullscreenPreviewScreen: \(error)")
+                ToastCenter.show(ItemLoadError.text(error))
+                dismiss()
             },
             completion: { generated in
                 guard generation == token else { return }
@@ -200,7 +213,8 @@ struct FullscreenPreviewScreen: View {
 
     private func startPlaying() {
         guard var playing = movie else {
-            fatalError("FullscreenPreviewScreen play with no movie")
+            assertionFailure("FullscreenPreviewScreen play with no movie")
+            return
         }
         playing.currentIndex = 0
         movie = playing

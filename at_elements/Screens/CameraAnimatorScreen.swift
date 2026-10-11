@@ -17,7 +17,7 @@ struct CameraAnimatorScreen: View {
 
     init(scene: Binding<StickmanScene>, assets: UnitAssets, backgrounds: BackgroundAssets) {
         if scene.wrappedValue.frames.isEmpty {
-            fatalError("CameraAnimatorScreen has no frames")
+            assertionFailure("CameraAnimatorScreen has no frames")
         }
         _scene = scene
         self.assets = assets
@@ -49,19 +49,19 @@ struct CameraAnimatorScreen: View {
                     tweenEnabled: scene.frames.count >= 2
                 )
                 SkeletonCanvas(
-                    unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
-                    frameUnits: scene.currentFrame.units,
+                    unit: (scene.currentFrameOrNil?.units.isEmpty == false) ? unitBinding : nil,
+                    frameUnits: scene.currentFrameOrNil?.units ?? [],
                     assets: assets,
                     backgrounds: backgrounds,
-                    bgName: scene.currentFrame.bgName,
-                    bgMove: scene.currentFrame.bgMove,
-                    cameraMove: scene.currentFrame.cameraMove,
+                    bgName: scene.currentFrameOrNil?.bgName,
+                    bgMove: scene.currentFrameOrNil?.bgMove ?? .identity,
+                    cameraMove: scene.currentFrameOrNil?.cameraMove ?? .identity,
                     sceneWidth: scene.width,
                     sceneHeight: scene.height,
                     currentIndex: scene.currentIndex,
                     mode: .camera,
                     showSkeleton: false,
-                    onPrepareUndo: { undo.commitTimeline(from: scene) },
+                    onPrepareUndo: commitTimeline,
                     onLockedEdit: { showToast("Locked") },
                     onCameraChange: applyCamera,
                     canMutateCamera: canMutateCamera
@@ -76,7 +76,13 @@ struct CameraAnimatorScreen: View {
                 currentIndex: currentIndexBinding,
                 range: $range,
                 mode: $navMode,
-                onNextAtEnd: { scene.addFrame() },
+                onNextAtEnd: {
+                    do {
+                        try scene.addFrame()
+                    } catch {
+                        bail(error)
+                    }
+                },
                 stickStyle: tweenStickStyle
             )
         }
@@ -112,6 +118,7 @@ struct CameraAnimatorScreen: View {
         .modifier(StatusBarClearance())
         .overlay(alignment: .topLeading) {
             FullscreenBackButton()
+                .offsetLeadingIsland()
         }
         .overlay {
             if !toast.isEmpty {
@@ -202,13 +209,15 @@ struct CameraAnimatorScreen: View {
         case .frames:
             let index = scene.currentIndex
             if index < 0 || index >= scene.frames.count {
-                fatalError("CameraAnimatorScreen currentIndex \(index) out of \(scene.frames.count)")
+                assertionFailure("CameraAnimatorScreen currentIndex \(index) out of \(scene.frames.count)")
+                return
             }
             scene.frames[index].cameraMove = move
             scene.retweenCameraEndpoints(frames: [index])
         case .range:
             if range.lowerBound < 0 || range.upperBound >= scene.frames.count {
-                fatalError("CameraAnimatorScreen range \(range) out of \(scene.frames.count)")
+                assertionFailure("CameraAnimatorScreen range \(range) out of \(scene.frames.count)")
+                return
             }
             for index in range {
                 scene.frames[index].cameraMove = move
@@ -224,10 +233,10 @@ struct CameraAnimatorScreen: View {
                 deleteCurrentTween()
                 return
             }
-            if scene.currentFrame.cameraMove.isZero {
+            if scene.currentFrameOrNil?.cameraMove.isZero ?? true {
                 return
             }
-            undo.commitTimeline(from: scene)
+            commitTimeline()
             scene.frames[scene.currentIndex].cameraMove = .identity
         case .range:
             resetRangeMode()
@@ -243,7 +252,7 @@ struct CameraAnimatorScreen: View {
             }
         }
         if deleted {
-            undo.commitTimeline(from: scene)
+            commitTimeline()
             for index in range {
                 _ = scene.removeCameraTweenContaining(frameIndex: index)
             }
@@ -254,7 +263,7 @@ struct CameraAnimatorScreen: View {
             showToast("Locked")
             return
         }
-        undo.commitTimeline(from: scene)
+        commitTimeline()
         for index in range {
             scene.frames[index].cameraMove = .identity
         }
@@ -309,12 +318,13 @@ struct CameraAnimatorScreen: View {
         let from = range.lowerBound
         let to = range.upperBound
         if to - from < 2 {
-            fatalError("CameraAnimatorScreen tween range \(from)..\(to) too short")
+            assertionFailure("CameraAnimatorScreen tween range \(from)..\(to) too short")
+            return
         }
         if !canApplyTween(range: from...to) {
             return
         }
-        undo.commitTimeline(from: scene)
+        commitTimeline()
         CameraInbetweener.propagate(
             scene: &scene,
             from: from,
@@ -332,7 +342,7 @@ struct CameraAnimatorScreen: View {
         if scene.cameraTweens.findContaining(frameIndex: scene.currentIndex) == nil {
             return
         }
-        undo.commitTimeline(from: scene)
+        commitTimeline()
         if scene.removeCameraTweenContaining(frameIndex: scene.currentIndex) != nil {
             showToast("Tweening removed")
         }
@@ -342,17 +352,24 @@ struct CameraAnimatorScreen: View {
         if !undo.canUndo {
             return
         }
-        undo.restore(into: &scene)
+        do {
+            try undo.restore(into: &scene)
+        } catch {
+            bail(error)
+            return
+        }
         clampRange()
     }
 
     private func clampRange() {
         let last = scene.frames.count - 1
         if last < 0 {
-            fatalError("CameraAnimatorScreen clampRange empty scene")
+            assertionFailure("CameraAnimatorScreen clampRange empty scene")
+            return
         }
         if scene.currentIndex < 0 || scene.currentIndex > last {
-            fatalError("CameraAnimatorScreen currentIndex \(scene.currentIndex) out of \(scene.frames.count)")
+            assertionFailure("CameraAnimatorScreen currentIndex \(scene.currentIndex) out of \(scene.frames.count)")
+            return
         }
         let low = min(max(range.lowerBound, 0), last)
         let high = min(max(range.upperBound, 0), last)
@@ -369,12 +386,26 @@ struct CameraAnimatorScreen: View {
         }
     }
 
+    private func bail(_ error: Error) {
+        print("CameraAnimatorScreen: \(error)")
+        showToast(ItemLoadError.text(error))
+    }
+
+    private func commitTimeline() {
+        do {
+            try undo.commitTimeline(from: scene)
+        } catch {
+            bail(error)
+        }
+    }
+
     private var currentIndexBinding: Binding<Int> {
         Binding(
             get: { scene.currentIndex },
             set: { newIndex in
                 if newIndex < 0 || newIndex >= scene.frames.count {
-                    fatalError("CameraAnimatorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                    assertionFailure("CameraAnimatorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                    return
                 }
                 scene.currentIndex = newIndex
             }
@@ -384,14 +415,14 @@ struct CameraAnimatorScreen: View {
     private var unitBinding: Binding<StickmanUnit> {
         Binding(
             get: {
-                let frame = scene.currentFrame
-                guard let first = frame.units.first else {
-                    fatalError("CameraAnimatorScreen frame \(frame.id) read unit")
+                guard let first = scene.currentFrameOrNil?.units.first else {
+                    bail(SceneLoadError(message: "CameraAnimatorScreen frame has no units"))
+                    return StickmanUnit(name: "", points: [], edges: [])
                 }
                 return first
             },
             set: { _ in
-                fatalError("CameraAnimatorScreen canvas is not an editor")
+                assertionFailure("CameraAnimatorScreen canvas is not an editor")
             }
         )
     }

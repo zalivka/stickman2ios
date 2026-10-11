@@ -61,10 +61,12 @@ struct CameraTweenStorage: Equatable {
         let from = min(fromFrame, toFrame)
         let to = max(fromFrame, toFrame)
         if from < 0 || to >= frameCount {
-            fatalError("Camera tween range \(from)..\(to) out of \(frameCount)")
+            assertionFailure("Camera tween range \(from)..\(to) out of \(frameCount)")
+            return
         }
         if from >= to {
-            fatalError("Camera tween range must cover at least 2 frames")
+            assertionFailure("Camera tween range must cover at least 2 frames")
+            return
         }
         ranges.removeAll { $0.intersects(from: from, to: to) }
         let segment = nextSegmentNumber
@@ -140,10 +142,12 @@ struct CameraTweenStorage: Equatable {
 
     mutating func reconcileInsert(at index: Int, oldFrameCount: Int) -> [CameraAutoTweenRange] {
         if oldFrameCount < 1 {
-            fatalError("CameraTweenStorage insert oldFrameCount \(oldFrameCount)")
+            assertionFailure("CameraTweenStorage insert oldFrameCount \(oldFrameCount)")
+            return []
         }
         if index < 0 || index > oldFrameCount {
-            fatalError("CameraTweenStorage insert \(index) out of \(oldFrameCount)")
+            assertionFailure("CameraTweenStorage insert \(index) out of \(oldFrameCount)")
+            return []
         }
         var retween: [CameraAutoTweenRange] = []
         var next: [CameraAutoTweenRange] = []
@@ -166,7 +170,8 @@ struct CameraTweenStorage: Equatable {
 
     mutating func reconcileDelete(deleted: [Int], oldFrameCount: Int) -> [CameraAutoTweenRange] {
         if oldFrameCount < 1 {
-            fatalError("CameraTweenStorage delete oldFrameCount \(oldFrameCount)")
+            assertionFailure("CameraTweenStorage delete oldFrameCount \(oldFrameCount)")
+            return []
         }
         let deletedSet = Set(deleted)
         var retween: [CameraAutoTweenRange] = []
@@ -194,7 +199,7 @@ struct CameraTweenStorage: Equatable {
         return retween
     }
 
-    func encodeArchive(scene: StickmanScene) -> Data {
+    func encodeArchive(scene: StickmanScene) throws -> Data {
         let spans = ranges.compactMap { span -> PersistedSpan? in
             if span.fromFrame < 0 || span.toFrame >= scene.frames.count {
                 return nil
@@ -213,7 +218,7 @@ struct CameraTweenStorage: Equatable {
         do {
             return try JSONEncoder().encode(Archive(spans: spans))
         } catch {
-            fatalError("CameraTweenStorage encode: \(error)")
+            throw SceneLoadError(message: "CameraTweenStorage encode: \(error)")
         }
     }
 
@@ -266,21 +271,23 @@ struct CameraTweenStorage: Equatable {
     }
 
     mutating func ensureValid(frameCount: Int) {
+        let before = ranges.count
+        ranges.removeAll { $0.fromFrame < 0 || $0.toFrame >= frameCount || $0.fromFrame >= $0.toFrame }
+        if ranges.count != before {
+            assertionFailure("dropped \(before - ranges.count) invalid camera tween spans for \(frameCount) frames")
+        }
         sort()
-        for i in ranges.indices.dropFirst() {
-            let prev = ranges[i - 1]
-            let current = ranges[i]
-            if prev.intersects(from: current.fromFrame, to: current.toFrame) {
-                fatalError(
-                    "Overlapping camera spans: [\(prev.fromFrame)..\(prev.toFrame)] and [\(current.fromFrame)..\(current.toFrame)]"
+        var kept: [CameraAutoTweenRange] = []
+        for current in ranges {
+            if let prev = kept.last, prev.intersects(from: current.fromFrame, to: current.toFrame) {
+                assertionFailure(
+                    "Overlapping camera spans: [\(prev.fromFrame)..\(prev.toFrame)] and [\(current.fromFrame)..\(current.toFrame)] — dropping later span"
                 )
+                continue
             }
+            kept.append(current)
         }
-        for span in ranges {
-            if span.fromFrame < 0 || span.toFrame >= frameCount || span.fromFrame >= span.toFrame {
-                fatalError("camera span [\(span.fromFrame)..\(span.toFrame)] invalid for \(frameCount) frames")
-            }
-        }
+        ranges = kept
         let maxSegment = ranges.map(\.segmentNumber).max() ?? 0
         nextSegmentNumber = max(nextSegmentNumber, maxSegment + 1)
     }

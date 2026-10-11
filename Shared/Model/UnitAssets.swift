@@ -106,33 +106,36 @@ final class UnitAssets {
         }
         if model.unitType == .bubble {
             archives[key] = StoredArchive(entryName: entryName, zip: zip)
-            captureRest(from: model)
+            try captureRest(from: model)
             return
         }
         let xml = try ZipStore.dataThrowing(named: "assets.xml", in: zip)
         let parsed = try AssetsXML.parse(xml)
         try install(parsed, zip: zip)
         archives[key] = StoredArchive(entryName: entryName, zip: zip)
-        captureRest(from: model)
+        try captureRest(from: model)
     }
 
-    func archive(for unitName: String) -> StoredArchive {
+    func archive(for unitName: String) -> StoredArchive? {
         let key = Self.removeNumber(unitName)
         guard let stored = archives[key] else {
-            fatalError("UnitAssets missing archive for '\(key)'")
+            assertionFailure("UnitAssets missing archive for '\(key)'")
+            return nil
         }
         return stored
     }
 
     static func atiEntryName(packName: String, systemName: String) -> String {
         if systemName.isEmpty {
-            fatalError("UnitAssets empty systemName")
+            // Behind ManifestXML / SceneLoader.resolveUnitName validators.
+            assertionFailure("UnitAssets empty systemName")
         }
         if packName == "@" {
             return systemName + ".ati"
         }
         if packName.isEmpty {
-            fatalError("UnitAssets empty packName for '\(systemName)'")
+            assertionFailure("UnitAssets empty packName for '\(systemName)'")
+            return systemName + ".ati"
         }
         return "\(packName)/items/\(systemName).ati"
     }
@@ -145,7 +148,9 @@ final class UnitAssets {
         let pack = String(name[..<colon])
         let own = String(name[name.index(after: colon)...])
         if own.isEmpty {
-            fatalError("UnitAssets unit name '\(unitName)' has empty own name")
+            // Behind SceneLoader.resolveUnitName; a file-supplied name never gets here empty.
+            assertionFailure("UnitAssets unit name '\(unitName)' has empty own name")
+            return name + ".ati"
         }
         return atiEntryName(packName: pack, systemName: own)
     }
@@ -167,8 +172,7 @@ final class UnitAssets {
         for edge in unit.edges {
             let key = EdgeKey(unitName: name, start: edge.from, end: edge.to, flipped: unit.flipped)
             guard let asset = getDrawable(key, state: state) else { continue }
-            let start = unit.point(id: edge.from)
-            let end = unit.point(id: edge.to)
+            guard let start = unit.point(optionalId: edge.from), let end = unit.point(optionalId: edge.to) else { continue }
             let angle = atan2(end.y - start.y, end.x - start.x)
             let mirror = unit.flipped && !asset.nativeFlipped
             let scale = unit.scale
@@ -200,7 +204,9 @@ final class UnitAssets {
     /// Skeleton joints plus every state's bitmaps — the box the FBF preview must fit.
     func combinedBounds(for unit: StickmanUnit) -> CGRect {
         if unit.points.isEmpty {
-            fatalError("UnitAssets combinedBounds '\(unit.name)' has no points")
+            // FBFAnimationSheet only fits units that were built with points.
+            assertionFailure("UnitAssets combinedBounds '\(unit.name)' has no points")
+            return .zero
         }
         var xs = unit.points.map(\.x)
         var ys = unit.points.map(\.y)
@@ -297,11 +303,13 @@ final class UnitAssets {
     /// Clones art from an existing `bmName` onto a new edge (shared bitmap, Android-style reuse).
     func attachBone(bmName: String, toEdge start: Int, end: Int, unitName: String) {
         if bmName.isEmpty {
-            fatalError("UnitAssets attachBone empty bmName")
+            assertionFailure("UnitAssets attachBone empty bmName")
+            return
         }
         let name = Self.removeNumber(unitName)
         guard let template = firstAsset(bmName: bmName, unitName: name) else {
-            fatalError("UnitAssets attachBone unknown bm '\(bmName)' for '\(name)'")
+            assertionFailure("UnitAssets attachBone unknown bm '\(bmName)' for '\(name)'")
+            return
         }
         let key = EdgeKey(
             unitName: name,
@@ -320,44 +328,52 @@ final class UnitAssets {
     }
 
     /// Android `BonePictureFactory.createEmpty` + `Constants.DEFAULT_LENGTH` Kurwa hint.
-    func createEmptyGalleryBone(unitName: String, length: CGFloat = defaultBoneLength) -> EdgeAsset {
+    /// Nil when the empty bitmap could not be allocated (memory pressure).
+    func createEmptyGalleryBone(unitName: String, length: CGFloat = defaultBoneLength) -> EdgeAsset? {
         if length <= 0 {
-            fatalError("UnitAssets gallery bone length is \(length)")
+            assertionFailure("UnitAssets gallery bone length is \(length)")
+            return nil
         }
         let name = Self.removeNumber(unitName)
-        let asset = makeEmptyAsset(
+        guard let asset = makeEmptyAsset(
             unitName: name,
             start: -1,
             end: -1,
             length: length,
             bmName: uniqueGalleryBmName()
-        )
+        ) else {
+            return nil
+        }
         if looseBones[asset.bmName] != nil {
-            fatalError("UnitAssets duplicate loose bm '\(asset.bmName)'")
+            assertionFailure("UnitAssets duplicate loose bm '\(asset.bmName)'")
+            return nil
         }
         looseBones[asset.bmName] = asset
         return asset
     }
 
     /// FastPainter empty frame: square `2*length`, pad so the bone sits on the mid-line.
+    /// Nil when the empty bitmap could not be allocated (memory pressure).
     func ensureDrawable(
         start: Int,
         end: Int,
         unitName: String,
         length: CGFloat
-    ) -> EdgeAsset {
+    ) -> EdgeAsset? {
         let name = Self.removeNumber(unitName)
         let key = EdgeKey(unitName: name, start: start, end: end, flipped: false)
         if let existing = getDrawable(key, state: Self.stateDefault) {
             return existing
         }
-        let asset = makeEmptyAsset(
+        guard let asset = makeEmptyAsset(
             unitName: name,
             start: start,
             end: end,
             length: length,
             bmName: uniqueBmName(start: start, end: end)
-        )
+        ) else {
+            return nil
+        }
         edgeAssets[key] = [Self.stateDefault: asset]
         return asset
     }
@@ -388,22 +404,25 @@ final class UnitAssets {
     }
 
     /// Slide by `dx`/`dy`, then scale and rotate the bitmap around the joint (`-xOffset`, `-yOffset`).
-    func applyShift(bmName: String, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
+    func applyShift(bmName: String, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) throws {
         if scale <= 0 {
-            fatalError("UnitAssets applyShift '\(bmName)' scale \(scale)")
+            // The caller gates on this (SkeletonScreen.applyBoneShift).
+            assertionFailure("UnitAssets applyShift '\(bmName)' scale \(scale)")
+            return
         }
         if dx != 0 || dy != 0 {
             applyShift(bmName: bmName, dx: dx, dy: dy)
         }
         if abs(scale - 1) > 0.001 || abs(rotation) > 0.001 {
-            applyPictureTransform(bmName: bmName, factor: scale, radians: rotation)
+            try applyPictureTransform(bmName: bmName, factor: scale, radians: rotation)
         }
     }
 
     /// Android `PictureFrame.applyModifier`: `xpad -= dx` (`xOffset` is `-xpad`).
     func applyShift(bmName: String, dx: CGFloat, dy: CGFloat) {
         if bmName.isEmpty {
-            fatalError("UnitAssets applyShift empty bmName")
+            assertionFailure("UnitAssets applyShift empty bmName")
+            return
         }
         var found = false
         for (key, states) in edgeAssets {
@@ -428,28 +447,32 @@ final class UnitAssets {
             found = true
         }
         if !found {
-            fatalError("UnitAssets applyShift unknown bm '\(bmName)'")
+            assertionFailure("UnitAssets applyShift unknown bm '\(bmName)'")
         }
     }
 
     /// Resample `bmName` around the joint so that pixel stays on the bone start.
-    private func applyPictureTransform(bmName: String, factor: CGFloat, radians: CGFloat) {
+    private func applyPictureTransform(bmName: String, factor: CGFloat, radians: CGFloat) throws {
         if factor <= 0 {
-            fatalError("UnitAssets picture scale \(factor) for '\(bmName)'")
+            // The caller gates on this (applyShift, SkeletonScreen.applyBoneShift).
+            assertionFailure("UnitAssets picture scale \(factor) for '\(bmName)'")
+            return
         }
         let matches = assets(bmName: bmName)
         if matches.isEmpty {
-            fatalError("UnitAssets picture scale unknown bm '\(bmName)'")
+            assertionFailure("UnitAssets picture scale unknown bm '\(bmName)'")
+            return
         }
         let source = matches[0]
         for asset in matches.dropFirst() {
             if asset.xOffset != source.xOffset || asset.yOffset != source.yOffset {
-                fatalError("UnitAssets '\(bmName)' offsets differ across edges")
+                assertionFailure("UnitAssets '\(bmName)' offsets differ across edges")
+                return
             }
         }
         let jointX = -source.xOffset
         let jointY = -source.yOffset
-        let scaled = BonePictureScale.transform(
+        let scaled = try BonePictureScale.transform(
             source.bitmap,
             aroundX: jointX,
             y: jointY,
@@ -485,23 +508,30 @@ final class UnitAssets {
         // from the 1x path — today's behavior, never a regression. A stored buffer is therefore
         // always either exact current state or absent; there is no stale low-quality copy.
         var scaledBuffer: Data?
-        if let data = source.paintBuffer {
-            let bufferImage = PNG.image(from: data, name: bmName)
+        if let data = source.paintBuffer, let bufferImage = PNG.decodedImage(from: data) {
             if bufferImage.width == source.bitmap.width * BonePaperDocument.sample,
                bufferImage.height == source.bitmap.height * BonePaperDocument.sample {
                 let sample = CGFloat(BonePaperDocument.sample)
-                let scaledBuf = BonePictureScale.transform(
+                // A buffer resample failure drops the buffer (the bone reopens from the 1x
+                // picture); the bitmap already transformed fine, so the op itself stands.
+                if let scaledBuf = try? BonePictureScale.transform(
                     bufferImage,
                     aroundX: jointX * sample,
                     y: jointY * sample,
                     factor: factor,
                     radians: radians
-                )
-                if scaledBuf.image.width == scaled.image.width * BonePaperDocument.sample,
-                   scaledBuf.image.height == scaled.image.height * BonePaperDocument.sample {
-                    scaledBuffer = PNG.data(from: scaledBuf.image, name: bmName)
-                } else {
-                    print("UnitAssets '\(bmName)' dropped paint buffer after transform: \(scaledBuf.image.width)x\(scaledBuf.image.height) != \(scaled.image.width * BonePaperDocument.sample)x\(scaled.image.height * BonePaperDocument.sample)")
+                ) {
+                    if scaledBuf.image.width == scaled.image.width * BonePaperDocument.sample,
+                       scaledBuf.image.height == scaled.image.height * BonePaperDocument.sample {
+                        do {
+                            // Encode failure drops the buffer; the transformed bitmap still stands.
+                            scaledBuffer = try PNG.data(from: scaledBuf.image, name: bmName)
+                        } catch {
+                            print("UnitAssets '\(bmName)' dropped paint buffer encode: \(error)")
+                        }
+                    } else {
+                        print("UnitAssets '\(bmName)' dropped paint buffer after transform: \(scaledBuf.image.width)x\(scaledBuf.image.height) != \(scaled.image.width * BonePaperDocument.sample)x\(scaled.image.height * BonePaperDocument.sample)")
+                    }
                 }
             } else {
                 print("UnitAssets '\(bmName)' dropped stale paint buffer: \(bufferImage.width)x\(bufferImage.height)")
@@ -551,8 +581,8 @@ final class UnitAssets {
     }
 
     /// PNG bytes for a paint buffer, for the screen layer (the `PNG` helper is file-private).
-    static func pngData(from image: CGImage, name: String) -> Data {
-        PNG.data(from: image, name: name)
+    static func pngData(from image: CGImage, name: String) throws -> Data {
+        try PNG.data(from: image, name: name)
     }
 
     /// Decoded buffer image, nil for bad bytes. Loud variant is `PNG.image`, kept for pack art.
@@ -581,18 +611,25 @@ final class UnitAssets {
         }
     }
 
-    func replaceBitmap(bmName: String, image: CGImage, buffer: Data? = nil, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) {
+    func replaceBitmap(bmName: String, image: CGImage, buffer: Data? = nil, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) throws {
         if bmName.isEmpty {
-            fatalError("UnitAssets replaceBitmap empty bmName")
+            throw SceneLoadError(message: "UnitAssets replaceBitmap empty bmName")
         }
         if image.width < 1 || image.height < 1 {
-            fatalError("UnitAssets replaceBitmap '\(bmName)' size \(image.width)x\(image.height)")
+            throw SceneLoadError(message: "UnitAssets replaceBitmap '\(bmName)' size \(image.width)x\(image.height)")
         }
+        // A buffer that is undecodable or off the exact 2x contract is dropped with a log;
+        // the picture itself always replaces (same policy as the loader sidecars).
+        var storedBuffer = buffer
         if let buffer {
-            let decoded = PNG.image(from: buffer, name: bmName)
-            if decoded.width != image.width * BonePaperDocument.sample
-                || decoded.height != image.height * BonePaperDocument.sample {
-                fatalError("UnitAssets replaceBitmap '\(bmName)' buffer \(decoded.width)x\(decoded.height) != \(image.width * BonePaperDocument.sample)x\(image.height * BonePaperDocument.sample)")
+            let decoded = PNG.decodedImage(from: buffer)
+            if decoded == nil {
+                print("UnitAssets replaceBitmap '\(bmName)' dropped undecodable buffer, storing picture only")
+                storedBuffer = nil
+            } else if decoded!.width != image.width * BonePaperDocument.sample
+                || decoded!.height != image.height * BonePaperDocument.sample {
+                print("UnitAssets replaceBitmap '\(bmName)' dropped bad buffer \(decoded!.width)x\(decoded!.height), storing picture only")
+                storedBuffer = nil
             }
         }
         var found = false
@@ -602,7 +639,7 @@ final class UnitAssets {
             for (state, asset) in states where asset.bmName == bmName {
                 var updated = asset
                 updated.bitmap = image
-                updated.paintBuffer = buffer
+                updated.paintBuffer = storedBuffer
                 updated.xOffset -= extraLeft
                 updated.yOffset -= extraTop
                 next[state] = updated
@@ -615,18 +652,18 @@ final class UnitAssets {
         }
         if var loose = looseBones[bmName] {
             loose.bitmap = image
-            loose.paintBuffer = buffer
+            loose.paintBuffer = storedBuffer
             loose.xOffset -= extraLeft
             loose.yOffset -= extraTop
             looseBones[bmName] = loose
             found = true
         }
         if !found {
-            fatalError("UnitAssets replaceBitmap unknown bm '\(bmName)'")
+            assertionFailure("UnitAssets replaceBitmap unknown bm '\(bmName)'")
         }
     }
 
-    func pngFiles(unitName: String) -> [(name: String, data: Data)] {
+    func pngFiles(unitName: String) throws -> [(name: String, data: Data)] {
         let name = Self.removeNumber(unitName)
         var seen: Set<String> = []
         var files: [(name: String, data: Data)] = []
@@ -634,7 +671,7 @@ final class UnitAssets {
             for asset in states.values {
                 if seen.contains(asset.bmName) { continue }
                 seen.insert(asset.bmName)
-                files.append((name: asset.bmName, data: PNG.data(from: asset.bitmap, name: asset.bmName)))
+                files.append((name: asset.bmName, data: try PNG.data(from: asset.bitmap, name: asset.bmName)))
             }
         }
         return files.sorted { $0.name < $1.name }
@@ -646,10 +683,12 @@ final class UnitAssets {
         end: Int,
         length: CGFloat,
         bmName: String
-    ) -> EdgeAsset {
+    ) -> EdgeAsset? {
         let safe = max(length, 1)
         let side = min(1024, max(2, Int(ceil(safe * 2))))
-        let bitmap = Self.emptyBitmap(width: side, height: side)
+        guard let bitmap = Self.emptyBitmap(width: side, height: side) else {
+            return nil
+        }
         let xPad = max(0, (CGFloat(side) - safe) / 2)
         return EdgeAsset(
             unitName: unitName,
@@ -828,9 +867,10 @@ final class UnitAssets {
         return String(name[..<hash])
     }
 
-    private static func emptyBitmap(width: Int, height: Int) -> CGImage {
+    private static func emptyBitmap(width: Int, height: Int) -> CGImage? {
         if width < 1 || height < 1 {
-            fatalError("UnitAssets emptyBitmap \(width)x\(height)")
+            assertionFailure("UnitAssets emptyBitmap \(width)x\(height)")
+            return nil
         }
         guard let context = CGContext(
             data: nil,
@@ -841,13 +881,10 @@ final class UnitAssets {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
-            fatalError("UnitAssets emptyBitmap could not create \(width)x\(height)")
+            return nil
         }
         context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-        guard let image = context.makeImage() else {
-            fatalError("UnitAssets emptyBitmap \(width)x\(height) makeImage failed")
-        }
-        return image
+        return context.makeImage()
     }
 
     private func install(_ rows: [EdgeAssetRow], zip: Data) throws {
@@ -922,7 +959,7 @@ final class UnitAssets {
     /// Sidecar entries for save: one `<bm>.x2.png` per buffered picture plus the manifest.
     /// `pngs` must be the exact 1x bytes being saved (from `pngFiles`), keyed by bmName; the manifest
     /// hashes those so load detects a picture replaced without its buffer. Empty when no buffers.
-    func sidecarFiles(unitName: String, pngs: [String: Data]) -> [(name: String, data: Data)] {
+    func sidecarFiles(unitName: String, pngs: [String: Data]) throws -> [(name: String, data: Data)] {
         let name = Self.removeNumber(unitName)
         var seen = Set<String>()
         var files: [(name: String, data: Data)] = []
@@ -933,7 +970,7 @@ final class UnitAssets {
                 seen.insert(asset.bmName)
                 guard let buffer = asset.paintBuffer else { continue }
                 guard let png = pngs[asset.bmName] else {
-                    fatalError("UnitAssets sidecar '\(asset.bmName)' has no live PNG")
+                    throw SceneLoadError(message: "UnitAssets sidecar '\(asset.bmName)' has no live PNG")
                 }
                 let entry = Self.sidecarEntry(for: asset.bmName)
                 files.append((name: entry, data: buffer))
@@ -941,7 +978,7 @@ final class UnitAssets {
             }
         }
         guard !files.isEmpty else { return [] }
-        files.append((name: Self.sidecarManifest, data: manifest.encode()))
+        files.append((name: Self.sidecarManifest, data: try manifest.encode()))
         return files.sorted { $0.name < $1.name }
     }
 
@@ -1034,12 +1071,12 @@ final class UnitAssets {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func captureRest(from model: StickmanUnit) {
+    private func captureRest(from model: StickmanUnit) throws {
         var lengths: [Int: CGFloat] = [:]
         for point in model.points {
             if point.isBase { continue }
             guard let parentId = point.parentId else { continue }
-            let parent = model.point(id: parentId)
+            let parent = try model.point(id: parentId)
             let rest = hypot(point.x - parent.x, point.y - parent.y)
             if rest > 0 {
                 lengths[point.id] = rest
@@ -1082,17 +1119,17 @@ struct BonePaperManifest: Codable {
     var version: Int
     var buffers: [String: Entry]
 
-    func encode() -> Data {
+    func encode() throws -> Data {
         do {
             return try JSONEncoder().encode(self)
         } catch {
-            fatalError("UnitAssets bonepaper.json encode: \(error)")
+            throw SceneLoadError(message: "UnitAssets bonepaper.json encode: \(error)")
         }
     }
 }
 
 private enum PNG {
-    /// Nil instead of a crash for untrusted bytes (sidecars); `image(from:name:)` stays loud for pack art.
+    /// Nil instead of a crash for untrusted bytes (sidecars).
     static func decodedImage(from data: Data) -> CGImage? {
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         return CGImage(
@@ -1101,14 +1138,6 @@ private enum PNG {
             shouldInterpolate: true,
             intent: .defaultIntent
         )
-    }
-
-    static func image(from data: Data, name: String) -> CGImage {
-        do {
-            return try loaded(from: data, name: name)
-        } catch {
-            fatalError(ItemLoadError.text(error))
-        }
     }
 
     static func loaded(from data: Data, name: String) throws -> CGImage {
@@ -1154,24 +1183,24 @@ private enum PNG {
         return image
     }
 
-    static func data(from image: CGImage, name: String) -> Data {
+    static func data(from image: CGImage, name: String) throws -> Data {
         if image.width < 1 || image.height < 1 {
-            fatalError("UnitAssets '\(name)' encode size \(image.width)x\(image.height)")
+            throw SceneLoadError(message: "UnitAssets '\(name)' encode size \(image.width)x\(image.height)")
         }
         guard let data = UIImage(cgImage: image).pngData(), !data.isEmpty else {
-            fatalError("UnitAssets '\(name)' PNG encode failed")
+            throw SceneLoadError(message: "UnitAssets '\(name)' PNG encode failed")
         }
         return data
     }
 }
 
 enum AssetsXML {
-    static func serialize(rows: [EdgeAssetRow], fullName: String) -> Data {
+    static func serialize(rows: [EdgeAssetRow], fullName: String) throws -> Data {
         if fullName.isEmpty {
-            fatalError("AssetsXML serialize has empty unit name")
+            throw SceneLoadError(message: "AssetsXML serialize has empty unit name")
         }
         if rows.isEmpty {
-            fatalError("AssetsXML serialize '\(fullName)' has no rows")
+            throw SceneLoadError(message: "AssetsXML serialize '\(fullName)' has no rows")
         }
         var xml = XMLWrite.header
         xml += "<unit"
@@ -1199,7 +1228,7 @@ enum AssetsXML {
             xml += " />\n"
         }
         xml += "</unit>\n"
-        return XMLWrite.data(xml)
+        return try XMLWrite.data(xml)
     }
 
     static func parse(_ data: Data) throws -> [EdgeAssetRow] {

@@ -30,7 +30,6 @@ struct SideMenu: View {
                 row(.editScene, "Edit scene", "slider.horizontal.3")
                 row(.background, "Background", "photo")
                 row(.camera, "Camera view", "camera")
-                row(.speedEffects, "Speed effects", "speedometer")
                 row(.debug, "Debug", "ladybug")
                 divider
                 row(.settings, "App settings", "gearshape")

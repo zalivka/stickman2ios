@@ -50,12 +50,16 @@ struct ItemChooserPanel: View {
                 ForEach(packs, id: \.name) { pack in
                     Button {
                         openPack(pack.name)
-                    } label: {
+                    }                     label: {
                         VStack(spacing: 6) {
-                            Image(decorative: packLogo(pack.name), scale: UIScreen.main.scale)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 150, height: 150)
+                            if let logo = packLogo(pack.name) {
+                                Image(decorative: logo, scale: UIScreen.main.scale)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 150, height: 150)
+                            } else {
+                                Color.white.frame(width: 150, height: 150)
+                            }
                             Text(pack.title)
                                 .font(.system(size: 13))
                                 .foregroundStyle(Color(white: 0.25))
@@ -179,11 +183,13 @@ struct ItemChooserPanel: View {
         guard let url = Bundle.main.url(forResource: "magic_wand2", withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: "magic_wand2", withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ItemChooserPanel missing chrome/magic_wand2.png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/magic_wand2.png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ItemChooserPanel could not read \(url.path): \(error)")
         }
     }()
@@ -192,11 +198,13 @@ struct ItemChooserPanel: View {
         guard let url = Bundle.main.url(forResource: "dir2", withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: "dir2", withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ItemChooserPanel missing chrome/dir2.png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/dir2.png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ItemChooserPanel could not read \(url.path): \(error)")
         }
     }()
@@ -204,11 +212,10 @@ struct ItemChooserPanel: View {
     private func openPack(_ name: String) {
         Task {
             let matched = await Manifest.shared.queryPacks(Query(name))
-            guard let pack = matched.first else {
-                fatalError("ItemChooser pack '\(name)' missing")
-            }
-            if matched.count != 1 {
-                fatalError("ItemChooser Query(\(name)) returned \(matched.map(\.name))")
+            guard matched.count == 1, let pack = matched.first else {
+                // Pack vanished mid-session (external pack removed). Stay on the current level.
+                assertionFailure("ItemChooser Query(\(name)) returned \(matched.map(\.name))")
+                return
             }
             level = .items(pack: pack, dir: nil)
         }
@@ -219,15 +226,16 @@ struct ItemChooserPanel: View {
         packs = await Manifest.shared.queryPacks(.empty())
         if case .items(let pack, let dir) = level, pack.name == Pack.customName {
             guard let updated = packs.first(where: { $0.name == Pack.customName }) else {
-                fatalError("ItemChooser custom pack missing after reload")
+                assertionFailure("ItemChooser custom pack missing after reload")
+                return
             }
             level = .items(pack: updated, dir: dir)
         }
     }
 
-    private func packLogo(_ packName: String) -> CGImage {
-        ThumbCache.image("logo:" + packName) {
-            PNGImage.cgImage(from: Manifest.shared.packLogo(packName), name: "\(packName)/logo.png")
+    private func packLogo(_ packName: String) -> CGImage? {
+        ThumbCache.imageIfPresent("logo:" + packName) {
+            PNGImage.cgImage(from: try Manifest.shared.packLogo(packName), name: "\(packName)/logo.png")
         }
     }
 

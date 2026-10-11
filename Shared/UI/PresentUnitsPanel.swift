@@ -76,7 +76,8 @@ struct PresentUnitsPanel: View {
 
     private func row(_ unit: StickmanUnit) -> some View {
         let selected = unit.name == selectedName
-        let number = UnitName.number(unit.name)
+        // A name whose #suffix is not an integer gets no badge rather than crashing the panel.
+        let number = UnitName.numberOrNil(unit.name) ?? 0
         return ZStack(alignment: .bottomTrailing) {
             Color.white
             if let image = thumb(unit) {
@@ -107,11 +108,13 @@ struct PresentUnitsPanel: View {
         guard let url = Bundle.main.url(forResource: "props_paste", withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: "props_paste", withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("PresentUnitsPanel missing chrome/props_paste.png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/props_paste.png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("PresentUnitsPanel could not read \(url.path): \(error)")
         }
     }()
@@ -119,7 +122,9 @@ struct PresentUnitsPanel: View {
     private func thumb(_ unit: StickmanUnit) -> CGImage? {
         let key = "scene:" + UnitAssets.removeNumber(unit.name)
         return ThumbCache.imageIfPresent(key) {
-            let stored = assets.archive(for: unit.name)
+            guard let stored = assets.archive(for: unit.name) else {
+                throw SceneLoadError(message: "no archive for \(unit.name)")
+            }
             return try ItemLoader.thumb(from: stored.zip, name: unit.name)
         }
     }

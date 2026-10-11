@@ -35,7 +35,13 @@ Full tables, the joint formula, scene rules, and pack storage are in [reference.
 
 A fill whose area is more than 85% of the padded canvas is a leak. Stop.
 
-A large outline drawn as a 24-gon shows facets under a 14 px brush. Sample it so `hand.poly` edges are about 5 px. `svg_export` simplify tolerance 0.25 affects the fill path only, not the stroke ring.
+A large outline drawn as a 24-gon shows facets under a 14 px brush. `brush_svg` passes the `simplify(1.8)` ring straight to `hand.poly` without resampling. On a traced disc that leaves edges of 17 px (radius 30) to 43 px (radius 120), and the wobble at `jitter = 0.5` is only about 3 px. Stroke a round part as `hand.curve(ring, closed=True)` (Catmull-Rom). Keep `hand.poly` for real corners such as a rock or a prong, with edges about 5 px. `svg_export` simplify tolerance 0.25 affects the fill path only, not the stroke ring.
+
+## Raster input
+
+The tracer is `regions()` in `bluehairsvg/build.py`. Do not put Potrace, vtracer, or autotrace in front of it. The hard part is the colour policy: merge across black ink, use the white sentinel, drop near-black outlines, and enforce minimum blob sizes. `brush_svg` reads only the exterior polygon, so fitted curves are thrown away. If the pixel walk is too slow, replace `boundary_loops` with `cv2.findContours` on each colour mask and keep the rest.
+
+A raster is a usable input only when it is flat colour. A photo or soft shading splits into one band per shade at merge 36, and each band gets its own outline. Build a picture like that from shapes instead. `out/storypic` does that and calls `brush_svg` once.
 
 ## Partial fills
 

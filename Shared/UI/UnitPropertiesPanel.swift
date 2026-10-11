@@ -113,7 +113,8 @@ struct UnitPropertiesPanel: View {
                 if unit.unitType == .bubble {
                     actionButton("Set text", icon: "props_text", enabled: !poseLocked, action: {
                         guard let onSetText else {
-                            fatalError("UnitPropertiesPanel bubble '\(unit.name)' missing onSetText")
+                            assertionFailure("UnitPropertiesPanel bubble '\(unit.name)' missing onSetText")
+                            return
                         }
                         onSetText()
                     })
@@ -280,7 +281,9 @@ struct UnitPropertiesPanel: View {
     }
 
     private var thumb: CGImage? {
-        let stored = assets.archive(for: unit.name)
+        guard let stored = assets.archive(for: unit.name) else {
+            return nil
+        }
         return ThumbCache.imageIfPresent("props:" + unit.name) {
             try ItemLoader.thumb(from: stored.zip, name: unit.name)
         }
@@ -315,11 +318,13 @@ struct UnitPropertiesPanel: View {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: name, withExtension: "png")
         else {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("UnitPropertiesPanel missing chrome/\(name).png")
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/\(name).png")
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("UnitPropertiesPanel could not read \(url.path): \(error)")
         }
     }
@@ -375,6 +380,7 @@ private final class OpacityBarView: UIView {
     }
 
     required init?(coder: NSCoder) {
+        // unused: views are built in code; storyboard init is never invoked
         fatalError("OpacityBarView init(coder:) is unused")
     }
 

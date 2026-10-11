@@ -11,10 +11,12 @@ enum CameraMoveInterpolator {
         framesNumber: Int
     ) -> PictureMove {
         if framesNumber <= 0 {
-            fatalError("CameraMoveInterpolator framesNumber must be > 0, got \(framesNumber)")
+            assertionFailure("CameraMoveInterpolator framesNumber must be > 0, got \(framesNumber)")
+            return frame2.cameraMove
         }
         if step < 0 || step >= framesNumber {
-            fatalError("CameraMoveInterpolator step \(step) out of \(framesNumber)")
+            assertionFailure("CameraMoveInterpolator step \(step) out of \(framesNumber)")
+            return frame2.cameraMove
         }
         let localProgress = Float(step + 1) / Float(framesNumber + 1)
         if let span = scene.cameraTweens.findForSpan(from: originIndex, to: originIndex + 1) {

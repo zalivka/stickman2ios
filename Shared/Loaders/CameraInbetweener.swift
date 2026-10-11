@@ -10,7 +10,8 @@ enum CameraInbetweener {
         shakeFrequency: Float
     ) {
         if from < 0 || to >= scene.frames.count || to - from < 2 {
-            fatalError("CameraInbetweener range \(from)..\(to) out of \(scene.frames.count)")
+            assertionFailure("CameraInbetweener range \(from)..\(to) out of \(scene.frames.count)")
+            return
         }
         bakeInteriors(
             scene: &scene,
@@ -39,7 +40,8 @@ enum CameraInbetweener {
         shakeFrequency: Float
     ) {
         if from < 0 || to >= scene.frames.count || from >= to {
-            fatalError("CameraInbetweener bake \(from)..\(to) out of \(scene.frames.count)")
+            assertionFailure("CameraInbetweener bake \(from)..\(to) out of \(scene.frames.count)")
+            return
         }
         let source = scene.frames[from].cameraMove
         let target = scene.frames[to].cameraMove

@@ -86,6 +86,7 @@ enum PNGImage {
         do {
             return try loaded(from: data, name: name)
         } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
             fatalError(ItemLoadError.text(error))
         }
     }
@@ -131,34 +132,6 @@ nonisolated enum ZipStore {
     static let store: UInt16 = 0
     static let deflate: UInt16 = 8
 
-    static func names(in zip: Data) -> [String] {
-        do {
-            return try namesThrowing(in: zip)
-        } catch {
-            fatalError("\(error)")
-        }
-    }
-
-    static func contains(_ name: String, in zip: Data) -> Bool {
-        names(in: zip).contains(name)
-    }
-
-    static func data(named name: String, in zip: Data) -> Data {
-        do {
-            return try dataThrowing(named: name, in: zip)
-        } catch {
-            fatalError("\(error)")
-        }
-    }
-
-    static func data(atiNamed file: String, in zip: Data) -> Data {
-        do {
-            return try dataAtiThrowing(file: file, in: zip)
-        } catch {
-            fatalError("\(error)")
-        }
-    }
-
     /// False when the bytes have no zip end-of-central-directory record.
     static func isArchive(_ data: Data) -> Bool {
         (try? eocdOffset(in: data)) != nil
@@ -181,7 +154,7 @@ nonisolated enum ZipStore {
         throw ZipError(message: "ItemLoader zip missing '\(name)'")
     }
 
-    private static func dataAtiThrowing(file: String, in zip: Data) throws -> Data {
+    static func dataAtiThrowing(file: String, in zip: Data) throws -> Data {
         let matches = try entries(in: zip).filter { ($0.name as NSString).lastPathComponent == file }
         if matches.isEmpty {
             throw ZipError(message: "ItemLoader zip missing '\(file)'")
@@ -196,9 +169,9 @@ nonisolated enum ZipStore {
         )
     }
 
-    static func archive(_ files: [(name: String, data: Data)]) -> Data {
+    static func archive(_ files: [(name: String, data: Data)]) throws -> Data {
         if files.isEmpty {
-            fatalError("ZipStore archive has no files")
+            throw ZipError(message: "ZipStore archive has no files")
         }
         var seen = Set<String>()
         var locals = Data()
@@ -208,23 +181,23 @@ nonisolated enum ZipStore {
             let name = file.name
             let payload = file.data
             if name.isEmpty || name.hasPrefix("/") || name.hasSuffix("/") {
-                fatalError("ZipStore refuses entry '\(name)'")
+                throw ZipError(message: "ZipStore refuses entry '\(name)'")
             }
             if name.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
-                fatalError("ZipStore refuses entry '\(name)'")
+                throw ZipError(message: "ZipStore refuses entry '\(name)'")
             }
             if seen.contains(name) {
-                fatalError("ZipStore duplicate entry '\(name)'")
+                throw ZipError(message: "ZipStore duplicate entry '\(name)'")
             }
             seen.insert(name)
             guard let nameData = name.data(using: .utf8) else {
-                fatalError("ZipStore entry '\(name)' is not UTF-8")
+                throw ZipError(message: "ZipStore entry '\(name)' is not UTF-8")
             }
             if nameData.count > 0xFFFF {
-                fatalError("ZipStore entry '\(name)' name is \(nameData.count) bytes")
+                throw ZipError(message: "ZipStore entry '\(name)' name is \(nameData.count) bytes")
             }
             if payload.count > Int(UInt32.max) {
-                fatalError("ZipStore entry '\(name)' is \(payload.count) bytes")
+                throw ZipError(message: "ZipStore entry '\(name)' is \(payload.count) bytes")
             }
             let crc = CRC32.hash(payload)
             let size = UInt32(payload.count)
@@ -262,7 +235,7 @@ nonisolated enum ZipStore {
             central.appendU32(localOffset)
             central.append(nameData)
             if count == UInt16.max {
-                fatalError("ZipStore archive exceeds \(UInt16.max) entries")
+                throw ZipError(message: "ZipStore archive exceeds \(UInt16.max) entries")
             }
             count += 1
         }
@@ -279,48 +252,6 @@ nonisolated enum ZipStore {
         out.appendU32(cdOffset)
         out.appendU16(0)
         return out
-    }
-
-    static func unpack(_ zip: Data, to directory: URL) {
-        let fm = FileManager.default
-        let tmp = directory.appendingPathExtension("unpacking")
-        if fm.fileExists(atPath: tmp.path) {
-            do {
-                try fm.removeItem(at: tmp)
-            } catch {
-                fatalError("ZipStore could not replace \(tmp.path): \(error)")
-            }
-        }
-        do {
-            try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
-        } catch {
-            fatalError("ZipStore could not create \(tmp.path): \(error)")
-        }
-        for name in names(in: zip) {
-            if name.hasSuffix("/") { continue }
-            if name.hasPrefix("/") || name.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
-                fatalError("ZipStore refuses entry '\(name)'")
-            }
-            let dest = tmp.appendingPathComponent(name)
-            do {
-                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data(named: name, in: zip).write(to: dest, options: .atomic)
-            } catch {
-                fatalError("ZipStore could not write \(dest.path): \(error)")
-            }
-        }
-        if fm.fileExists(atPath: directory.path) {
-            do {
-                try fm.removeItem(at: directory)
-            } catch {
-                fatalError("ZipStore could not replace \(directory.path): \(error)")
-            }
-        }
-        do {
-            try fm.moveItem(at: tmp, to: directory)
-        } catch {
-            fatalError("ZipStore could not move \(tmp.path) to \(directory.path): \(error)")
-        }
     }
 
     nonisolated private struct Entry {
@@ -490,23 +421,23 @@ enum ModelXML {
     }
 
     /// Writes the item format: base point at the origin, in native unscaled item units.
-    static func serialize(_ unit: StickmanUnit, fullName: String) -> Data {
+    static func serialize(_ unit: StickmanUnit, fullName: String) throws -> Data {
         if fullName.isEmpty {
-            fatalError("ModelXML serialize has empty unit name")
+            throw ItemLoadError("ModelXML serialize has empty unit name")
         }
         if unit.scale <= 0 {
-            fatalError("ModelXML serialize unit '\(unit.name)' scale is \(unit.scale)")
+            throw ItemLoadError("ModelXML serialize unit '\(unit.name)' scale is \(unit.scale)")
         }
-        let base = unit.basePoint()
+        let base = try unit.basePoint()
         var xml = XMLWrite.header
         xml += "<unit"
         xml += XMLWrite.attr("name", fullName)
         xml += ">\n"
         for point in unit.points {
-            xml += serialize(point, base: base, scale: unit.scale, unitName: unit.name)
+            xml += try serialize(point, base: base, scale: unit.scale, unitName: unit.name)
         }
         xml += "</unit>\n"
-        return XMLWrite.data(xml)
+        return try XMLWrite.data(xml)
     }
 
     private static func serialize(
@@ -514,7 +445,7 @@ enum ModelXML {
         base: StickmanPoint,
         scale: CGFloat,
         unitName: String
-    ) -> String {
+    ) throws -> String {
         var xml = "<point"
         xml += XMLWrite.attr("id", "\(point.id)")
         xml += XMLWrite.attr("x", XMLWrite.float((point.x - base.x) / scale))
@@ -523,7 +454,7 @@ enum ModelXML {
             xml += XMLWrite.attr("base", "true")
         } else {
             guard let parentId = point.parentId else {
-                fatalError("ModelXML unit '\(unitName)' point \(point.id) missing par")
+                throw ItemLoadError("ModelXML unit '\(unitName)' point \(point.id) missing par")
             }
             xml += XMLWrite.attr("par", "\(parentId)")
         }

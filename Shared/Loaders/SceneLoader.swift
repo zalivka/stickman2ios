@@ -78,7 +78,7 @@ enum SceneLoader {
             try assets.loadItemFromArchive(try ZipStore.dataThrowing(named: item, in: zip), entryName: item)
         }
         try ensureAssets(scene: scene, assets: assets, resource: resource)
-        let backgrounds = loadBackgrounds(scene: &scene, zip: zip, names: names, resource: resource)
+        let backgrounds = try loadBackgrounds(scene: &scene, zip: zip, names: names, resource: resource)
         return (scene, assets, backgrounds)
     }
 
@@ -154,7 +154,7 @@ enum SceneLoader {
         zip: Data,
         names: [String],
         resource: String
-    ) -> BackgroundAssets {
+    ) throws -> BackgroundAssets {
         let backgrounds = BackgroundAssets()
         // GOTCHA (doc/gotchas.md): old demos (demo_space, demo_fight) put bg.png at zip root
         // and omit bg_name. Android wraps that PNG as usermade and stamps every frame.
@@ -172,7 +172,7 @@ enum SceneLoader {
                 backgrounds.install(
                     name: bgName,
                     image: image,
-                    archive: ZipStore.archive([(name: "bg.png", data: png)])
+                    archive: try ZipStore.archive([(name: "bg.png", data: png)])
                 )
                 for i in scene.frames.indices {
                     scene.frames[i].bgName = bgName
@@ -261,7 +261,8 @@ enum SceneLoader {
         guard let colon = unitName.firstIndex(of: ":") else { return unitName }
         let rest = String(unitName[unitName.index(after: colon)...])
         if rest.isEmpty {
-            fatalError("SceneLoader unit name '\(unitName)' has empty own name")
+            // Callers feed the result into zip lookups; an empty own name simply misses.
+            assertionFailure("SceneLoader unit name '\(unitName)' has empty own name")
         }
         return rest
     }
@@ -308,15 +309,15 @@ enum SceneXML {
         return scene
     }
 
-    static func serialize(_ scene: StickmanScene) -> Data {
+    static func serialize(_ scene: StickmanScene) throws -> Data {
         if scene.frames.isEmpty {
-            fatalError("SceneXML serialize has no frames")
+            throw SceneLoadError(message: "SceneXML serialize has no frames")
         }
         if scene.width <= 0 || scene.height <= 0 {
-            fatalError("SceneXML serialize size \(scene.width)x\(scene.height)")
+            throw SceneLoadError(message: "SceneXML serialize size \(scene.width)x\(scene.height)")
         }
         if scene.interframes < 1 {
-            fatalError("SceneXML serialize interframes is \(scene.interframes)")
+            throw SceneLoadError(message: "SceneXML serialize interframes is \(scene.interframes)")
         }
         var xml = XMLWrite.header
         xml += "<scene"
@@ -327,7 +328,7 @@ enum SceneXML {
         xml += XMLWrite.attr("no_interpolation", scene.noInterpolation ? "true" : "false")
         xml += XMLWrite.attr("no_interpolation_frames", "\(scene.noInterpolationFrames)")
         if !scene.speedModifier.isEmpty {
-            xml += XMLWrite.attr("pivot_points", scene.speedModifier.encodeJSON())
+            xml += XMLWrite.attr("pivot_points", try scene.speedModifier.encodeJSON())
         }
         xml += ">\n"
         var written = 0
@@ -335,17 +336,17 @@ enum SceneXML {
             if frame.id == -1 {
                 continue
             }
-            xml += serialize(frame)
+            xml += try serialize(frame)
             written += 1
         }
         if written == 0 {
-            fatalError("SceneXML serialize has no frames")
+            throw SceneLoadError(message: "SceneXML serialize has no frames")
         }
         xml += "</scene>\n"
-        return XMLWrite.data(xml)
+        return try XMLWrite.data(xml)
     }
 
-    private static func serialize(_ frame: StickmanFrame) -> String {
+    private static func serialize(_ frame: StickmanFrame) throws -> String {
         let bgName = frame.bgName ?? "#ffffff"
         var xml = "<frame"
         xml += XMLWrite.attr("id", "\(frame.id)")
@@ -354,24 +355,24 @@ enum SceneXML {
         xml += XMLWrite.attr("bg_name", bgName)
         xml += ">\n"
         for unit in frame.units {
-            xml += serialize(unit)
+            xml += try serialize(unit)
         }
         xml += "</frame>\n"
         return xml
     }
 
-    private static func serialize(_ unit: StickmanUnit) -> String {
+    private static func serialize(_ unit: StickmanUnit) throws -> String {
         if unit.name.isEmpty {
-            fatalError("SceneXML unit has empty name")
+            throw SceneLoadError(message: "SceneXML unit has empty name")
         }
         if unit.points.isEmpty {
-            fatalError("SceneXML unit '\(unit.name)' has no points")
+            throw SceneLoadError(message: "SceneXML unit '\(unit.name)' has no points")
         }
         if unit.scale <= 0 {
-            fatalError("SceneXML unit '\(unit.name)' scale is \(unit.scale)")
+            throw SceneLoadError(message: "SceneXML unit '\(unit.name)' scale is \(unit.scale)")
         }
         if unit.alpha < 0 {
-            fatalError("SceneXML unit '\(unit.name)' alpha is \(unit.alpha)")
+            throw SceneLoadError(message: "SceneXML unit '\(unit.name)' alpha is \(unit.alpha)")
         }
         var xml = "<unit"
         xml += XMLWrite.attr("name", unit.name)
@@ -381,9 +382,9 @@ enum SceneXML {
         case .bubble:
             xml += XMLWrite.attr("type", "bubble")
             guard let bubble = unit.bubble else {
-                fatalError("SceneXML unit '\(unit.name)' bubble missing meta")
+                throw SceneLoadError(message: "SceneXML unit '\(unit.name)' bubble missing meta")
             }
-            xml += XMLWrite.attr("meta", bubble.encoded(unitName: unit.name))
+            xml += XMLWrite.attr("meta", try bubble.encoded(unitName: unit.name))
         }
         xml += XMLWrite.attr("flipped", unit.flipped ? "true" : "false")
         xml += XMLWrite.attr("arrange", "\(unit.arrange)")
@@ -392,13 +393,13 @@ enum SceneXML {
         xml += XMLWrite.attr("state", "\(unit.assetsState)")
         xml += ">\n"
         for point in unit.points {
-            xml += serialize(point, unitName: unit.name)
+            xml += try serialize(point, unitName: unit.name)
         }
         xml += "</unit>\n"
         return xml
     }
 
-    private static func serialize(_ point: StickmanPoint, unitName: String) -> String {
+    private static func serialize(_ point: StickmanPoint, unitName: String) throws -> String {
         var xml = "<point"
         xml += XMLWrite.attr("id", "\(point.id)")
         xml += XMLWrite.attr("x", XMLWrite.float(point.x))
@@ -407,7 +408,7 @@ enum SceneXML {
             xml += XMLWrite.attr("base", "true")
         } else {
             guard let parentId = point.parentId else {
-                fatalError("SceneXML unit '\(unitName)' point \(point.id) missing par")
+                throw SceneLoadError(message: "SceneXML unit '\(unitName)' point \(point.id) missing par")
             }
             xml += XMLWrite.attr("par", "\(parentId)")
         }

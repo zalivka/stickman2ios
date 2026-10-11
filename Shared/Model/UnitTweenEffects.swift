@@ -14,8 +14,8 @@ enum UnitTweenEffects {
         strength: Float,
         frequency: Float,
         t: Float
-    ) {
-        applyShake(
+    ) throws {
+        try applyShake(
             &unit,
             start: start,
             end: end,
@@ -24,7 +24,7 @@ enum UnitTweenEffects {
             frequency: frequency,
             t: t
         )
-        applyCartwheel(&unit, easing: easing, strength: strength, turns: frequency, t: t)
+        try applyCartwheel(&unit, easing: easing, strength: strength, turns: frequency, t: t)
     }
 
     static func applyShake(
@@ -35,13 +35,13 @@ enum UnitTweenEffects {
         strength: Float,
         frequency: Float,
         t: Float
-    ) {
+    ) throws {
         if !easing.isShake {
             return
         }
         let onX = easing == .SHAKE_X
-        let startBase = start.basePoint()
-        let endBase = end.basePoint()
+        let startBase = try start.basePoint()
+        let endBase = try end.basePoint()
         let travel = onX
             ? Float(abs(endBase.x - startBase.x))
             : Float(abs(endBase.y - startBase.y))
@@ -63,14 +63,14 @@ enum UnitTweenEffects {
         strength: Float,
         turns: Float,
         t: Float
-    ) {
+    ) throws {
         if !easing.isCartwheel {
             return
         }
         let sign: Float = easing == .CARTWHEEL_CW ? 1 : -1
         let spinT = cartwheelSpinProgress(t, strength)
         let degrees = sign * 360 * UnitTweenStorage.clampFrequency(easing, turns) * spinT
-        let base = unit.basePoint()
+        let base = try unit.basePoint()
         unit.rotate(radians: CGFloat(degrees) * .pi / 180, pivotX: base.x, pivotY: base.y)
     }
 

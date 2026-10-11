@@ -7,6 +7,7 @@ enum SceneSaver {
 
     static func savedDirectory() -> URL {
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            // platform precondition: Application Support always resolves on a real device
             fatalError("SceneSaver has no Application Support")
         }
         return root
@@ -37,18 +38,18 @@ enum SceneSaver {
         name rawName: String
     ) throws -> String {
         if !isGoodFileName(rawName) {
-            fatalError("SceneSaver illegal name '\(rawName)'")
+            throw SceneLoadError(message: "SceneSaver illegal name '\(rawName)'")
         }
         let name = rawName.replacingOccurrences(of: " ", with: "_")
         if scene.frames.isEmpty {
-            fatalError("SceneSaver scene has no frames")
+            throw SceneLoadError(message: "SceneSaver scene has no frames")
         }
-        let thumbs = SceneThumbRenderer.pair(scene: scene, assets: assets, backgrounds: backgrounds)
+        let thumbs = try SceneThumbRenderer.pair(scene: scene, assets: assets, backgrounds: backgrounds)
         var files: [(name: String, data: Data)] = [
-            (name: "model.xml", data: SceneXML.serialize(scene)),
+            (name: "model.xml", data: try SceneXML.serialize(scene)),
             (name: "thumb.png", data: thumbs.small),
             (name: "thumb_big.png", data: thumbs.big),
-            (name: "metadata.txt", data: metadata(name: name))
+            (name: "metadata.txt", data: try metadata(name: name))
         ]
         var seenItems = Set<String>()
         for frame in scene.frames {
@@ -58,12 +59,16 @@ enum SceneSaver {
                     continue
                 }
                 seenItems.insert(key)
-                let stored = assets.archive(for: key)
+                // A unit whose archive never loaded cannot be embedded; the scene still saves.
+                guard let stored = assets.archive(for: key) else {
+                    print("SceneSaver skipping unit '\(key)': no archive")
+                    continue
+                }
                 files.append((name: stored.entryName, data: stored.zip))
             }
         }
         if seenItems.isEmpty {
-            fatalError("SceneSaver scene has no units")
+            throw SceneLoadError(message: "SceneSaver scene has no units")
         }
         var seenBgs = Set<String>()
         for frame in scene.frames {
@@ -75,21 +80,24 @@ enum SceneSaver {
             }
             seenBgs.insert(bgName)
             let own = SceneLoader.ownName(bgName)
-            files.append((name: "_bgs/\(own).zip", data: backgrounds.archive(for: bgName)))
+            // A background that never installed is skipped; frames referencing it draw the fill.
+            if let archive = backgrounds.archive(for: bgName) {
+                files.append((name: "_bgs/\(own).zip", data: archive))
+            }
         }
         if !scene.unitAnimations.isEmpty {
-            files.append((name: "animations_v2.txt", data: encodeAnimations(scene.unitAnimations)))
+            files.append((name: "animations_v2.txt", data: try encodeAnimations(scene.unitAnimations)))
         }
         if !scene.unitTweens.isEmpty {
-            files.append((name: UnitTweenStorage.archiveName, data: scene.unitTweens.encodeArchive(scene: scene)))
+            files.append((name: UnitTweenStorage.archiveName, data: try scene.unitTweens.encodeArchive(scene: scene)))
         }
         if !scene.cameraTweens.isEmpty {
-            files.append((name: CameraTweenStorage.archiveName, data: scene.cameraTweens.encodeArchive(scene: scene)))
+            files.append((name: CameraTweenStorage.archiveName, data: try scene.cameraTweens.encodeArchive(scene: scene)))
         }
         for font in StickmanFonts.customFontsUsed(in: scene) {
             files.append((name: "fonts/\(font.file)", data: font.data))
         }
-        let zip = ZipStore.archive(files)
+        let zip = try ZipStore.archive(files)
         let dir = try ensureSavedDirectory()
         let url = dir.appendingPathComponent("\(name).\(Self.ext)")
         let fm = FileManager.default
@@ -101,33 +109,42 @@ enum SceneSaver {
     }
 
     /// Saved document without thumbs/metadata — used to detect unsaved edits.
-    static func documentBytes(scene: StickmanScene) -> Data {
-        var bytes = SceneXML.serialize(scene)
+    /// Nil when serialization fails: callers treat nil as dirty, so the user gets
+    /// prompted to save instead of losing edits to a silent comparison miss.
+    static func documentBytes(scene: StickmanScene) -> Data? {
+        guard var bytes = try? SceneXML.serialize(scene) else {
+            return nil
+        }
         let animations = scene.unitAnimations.values.sorted { $0.unitname < $1.unitname }
         if !animations.isEmpty {
             do {
                 bytes.append(try JSONEncoder().encode(animations))
             } catch {
-                fatalError("SceneSaver documentBytes animations JSON: \(error)")
+                return nil
             }
         }
         if !scene.unitTweens.isEmpty {
-            bytes.append(scene.unitTweens.encodeArchive(scene: scene))
+            guard let archive = try? scene.unitTweens.encodeArchive(scene: scene) else {
+                return nil
+            }
+            bytes.append(archive)
         }
         if !scene.cameraTweens.isEmpty {
-            bytes.append(scene.cameraTweens.encodeArchive(scene: scene))
+            guard let archive = try? scene.cameraTweens.encodeArchive(scene: scene) else {
+                return nil
+            }
+            bytes.append(archive)
         }
         return bytes
     }
 
     static func incomingName(from zip: Data) -> String {
-        if ZipStore.contains("metadata.txt", in: zip) {
-            let data = ZipStore.data(named: "metadata.txt", in: zip)
-            if let meta = try? JSONDecoder().decode(SceneMetadataFile.self, from: data) {
-                let name = meta.mName.replacingOccurrences(of: " ", with: "_")
-                if !name.isEmpty {
-                    return name
-                }
+        // A garbage archive simply has no readable metadata; fall back to the timestamp name.
+        if let data = try? ZipStore.dataThrowing(named: "metadata.txt", in: zip),
+           let meta = try? JSONDecoder().decode(SceneMetadataFile.self, from: data) {
+            let name = meta.mName.replacingOccurrences(of: " ", with: "_")
+            if !name.isEmpty {
+                return name
             }
         }
         return "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
@@ -139,13 +156,15 @@ enum SceneSaver {
         return dir
     }
 
-    private static func metadata(name: String) -> Data {
+    private static func metadata(name: String) throws -> Data {
         guard let appName = Bundle.main.bundleIdentifier, !appName.isEmpty else {
+            // Info.plist: a failure here ships broken, fires on first debug run
             fatalError("SceneSaver missing bundle identifier")
         }
         guard let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
               !appVersion.isEmpty
         else {
+            // Info.plist: a failure here ships broken, fires on first debug run
             fatalError("SceneSaver missing CFBundleShortVersionString")
         }
         let payload = SceneMetadataFile(
@@ -161,16 +180,16 @@ enum SceneSaver {
         do {
             return try JSONEncoder().encode(payload)
         } catch {
-            fatalError("SceneSaver metadata JSON: \(error)")
+            throw SceneLoadError(message: "SceneSaver metadata JSON: \(error)")
         }
     }
 
-    private static func encodeAnimations(_ animations: [String: FBFAnimation]) -> Data {
+    private static func encodeAnimations(_ animations: [String: FBFAnimation]) throws -> Data {
         let list = Array(animations.values)
         do {
             return try JSONEncoder().encode(list)
         } catch {
-            fatalError("SceneSaver animations_v2.txt JSON: \(error)")
+            throw SceneLoadError(message: "SceneSaver animations_v2.txt JSON: \(error)")
         }
     }
 }

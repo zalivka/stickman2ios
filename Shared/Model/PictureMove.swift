@@ -10,10 +10,12 @@ struct PictureMove {
     var y: CGFloat
 
     init(scale: CGFloat, rotate: CGFloat, x: CGFloat, y: CGFloat) {
+        // Loaders reject scale <= 0 via parse; this guards computed moves (lerp,
+        // canvas transforms) from a degenerate pinch producing a flipped camera.
         if scale <= 0 {
-            fatalError("PictureMove scale is \(scale)")
+            assertionFailure("PictureMove scale is \(scale) — falling back to 1")
         }
-        self.scale = scale
+        self.scale = scale > 0 ? scale : 1
         self.rotate = rotate
         self.x = x
         self.y = y

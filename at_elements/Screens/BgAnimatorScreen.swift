@@ -17,7 +17,7 @@ enum SolidBackgrounds {
 
     static let reset = "#FFFFFF"
 
-    static func hex(from color: UIColor) -> String {
+    static func hex(from color: UIColor) -> String? {
         var r: CGFloat = 0
         var g: CGFloat = 0
         var b: CGFloat = 0
@@ -28,10 +28,12 @@ enum SolidBackgrounds {
                 intent: .defaultIntent,
                 options: nil
             ) else {
-                fatalError("SolidBackgrounds color is not RGB")
+                print("SolidBackgrounds color is not RGB")
+                return nil
             }
             if !UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) {
-                fatalError("SolidBackgrounds converted color is not RGB")
+                print("SolidBackgrounds converted color is not RGB")
+                return nil
             }
         }
         let ri = min(max(Int((r * 255).rounded()), 0), 255)
@@ -72,7 +74,7 @@ struct BgAnimatorScreen: View {
 
     init(scene: Binding<StickmanScene>, assets: UnitAssets, backgrounds: BackgroundAssets) {
         if scene.wrappedValue.frames.isEmpty {
-            fatalError("BgAnimatorScreen has no frames")
+            assertionFailure("BgAnimatorScreen has no frames")
         }
         _scene = scene
         self.assets = assets
@@ -104,7 +106,7 @@ struct BgAnimatorScreen: View {
                         names: stripNames,
                         pictureMode: pictureStrip,
                         backgrounds: backgrounds,
-                        selected: scene.currentFrame.bgName,
+                        selected: scene.currentFrameOrNil?.bgName,
                         onPick: applyBackground,
                         onLongPress: beginRangePick,
                         onEdit: { openEdit(bgName: $0) },
@@ -119,7 +121,13 @@ struct BgAnimatorScreen: View {
                     currentIndex: currentIndexBinding,
                     range: $range,
                     mode: $navMode,
-                    onNextAtEnd: { scene.addFrame() }
+                    onNextAtEnd: {
+                        do {
+                            try scene.addFrame()
+                        } catch {
+                            bail(error)
+                        }
+                    }
                 )
         }
         .ignoresSafeArea(edges: [.horizontal, .bottom])
@@ -177,7 +185,9 @@ struct BgAnimatorScreen: View {
         }
         .sheet(isPresented: $showingColorPicker) {
             FlexColorPickerSheet(initial: pickerInitialColor) { color in
-                applyBackground(SolidBackgrounds.hex(from: color))
+                if let hex = SolidBackgrounds.hex(from: color) {
+                    applyBackground(hex)
+                }
                 showingColorPicker = false
             }
         }
@@ -224,7 +234,11 @@ struct BgAnimatorScreen: View {
     /// Solid color: blank scene-sized page over that color. Picture: the picture itself,
     /// saved as a new background on Apply with every use of the old one retargeted.
     private func openDraw() {
-        guard let bgName = scene.currentFrame.bgName, !bgName.hasPrefix("#") else {
+        guard let frame = scene.currentFrameOrNil else {
+            showToast("Scene has no current frame")
+            return
+        }
+        guard let bgName = frame.bgName, !bgName.hasPrefix("#") else {
             let width = Int(scene.width.rounded())
             let height = Int(scene.height.rounded())
             let limit = BonePaperScreen.worldSide
@@ -238,11 +252,11 @@ struct BgAnimatorScreen: View {
             )
             return
         }
-        guard backgrounds.hasImage(for: bgName) else {
+        guard let image = backgrounds.image(for: bgName) else {
             showToast("Cannot process the background \(bgName)")
             return
         }
-        guard let session = sessionForImage(backgrounds.image(for: bgName), label: bgName) else {
+        guard let session = sessionForImage(image, label: bgName) else {
             return
         }
         if Self.isUserArchive(bgName) {
@@ -262,7 +276,8 @@ struct BgAnimatorScreen: View {
             == BackgroundStore.userDirectory().standardizedFileURL.path
     }
 
-    /// The PNG is the paint buffer, copied in without scaling. Nil after toasting on a bad size.
+    /// The PNG is the paint buffer, copied in without scaling. Nil after toasting on a bad size
+    /// or when the paper-color probe cannot allocate its 1x1 context.
     private func sessionForImage(_ image: CGImage, label: String) -> DrawSession? {
         let sample = BonePaperDocument.sample
         if image.width % sample != 0 || image.height % sample != 0 {
@@ -276,8 +291,12 @@ struct BgAnimatorScreen: View {
             showToast("This picture is too big (\(image.width)×\(image.height)). Maximum side is \(limit).")
             return nil
         }
+        guard let paper = Self.topLeftColor(image) else {
+            showToast("Cannot process the background \(label)")
+            return nil
+        }
         return DrawSession(
-            sheet: BonePaperSheet(width: width, height: height, paper: Self.topLeftColor(image)),
+            sheet: BonePaperSheet(width: width, height: height, paper: paper),
             buffer: image
         )
     }
@@ -285,7 +304,8 @@ struct BgAnimatorScreen: View {
     /// Reopens a saved custom background. The PNG is the paint buffer, copied in without scaling.
     private func openEdit(_ entry: BackgroundEntry) -> Bool {
         guard case .user(let own) = entry.source else {
-            fatalError("BgAnimatorScreen edit of non-user background \(entry.id)")
+            assertionFailure("BgAnimatorScreen edit of non-user background \(entry.id)")
+            return false
         }
         let bgName = BackgroundStore.usermadePrefix + own
         let image: CGImage
@@ -295,7 +315,7 @@ struct BgAnimatorScreen: View {
             guard let raster = BackgroundStore.rasterEntry(in: archive) else {
                 throw BackgroundStore.Failure.noRaster(bgName)
             }
-            guard let decoded = BackgroundAssets.tryDecode(ZipStore.data(named: raster, in: archive)) else {
+            guard let decoded = BackgroundAssets.tryDecode(try ZipStore.dataThrowing(named: raster, in: archive)) else {
                 throw BackgroundStore.Failure.notAnImage(bgName)
             }
             image = decoded
@@ -321,7 +341,8 @@ struct BgAnimatorScreen: View {
 
     private func deleteCustomBackground(_ entry: BackgroundEntry) -> Bool {
         guard case .user(let own) = entry.source else {
-            fatalError("BgAnimatorScreen delete of non-user background \(entry.id)")
+            assertionFailure("BgAnimatorScreen delete of non-user background \(entry.id)")
+            return false
         }
         let bgName = BackgroundStore.usermadePrefix + own
         do {
@@ -339,7 +360,7 @@ struct BgAnimatorScreen: View {
         return true
     }
 
-    private static func topLeftColor(_ image: CGImage) -> UIColor {
+    private static func topLeftColor(_ image: CGImage) -> UIColor? {
         var pixel = [UInt8](repeating: 0, count: 4)
         guard let ctx = CGContext(
             data: &pixel,
@@ -350,7 +371,8 @@ struct BgAnimatorScreen: View {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
-            fatalError("BgAnimatorScreen top-left color context failed")
+            print("BgAnimatorScreen top-left color context failed")
+            return nil
         }
         ctx.draw(
             image,
@@ -371,9 +393,14 @@ struct BgAnimatorScreen: View {
     ) {
         let scale = 2
         if export.image.width != sheet.width * scale || export.image.height != sheet.height * scale {
-            fatalError("BgAnimatorScreen drawn \(export.image.width)x\(export.image.height) != \(sheet.width * scale)x\(sheet.height * scale)")
+            assertionFailure("BgAnimatorScreen drawn \(export.image.width)x\(export.image.height) != \(sheet.width * scale)x\(sheet.height * scale)")
+            showToast("Cannot save this drawing")
+            return
         }
-        let image = Self.flatten(export.image, over: sheet.paper)
+        guard let image = Self.flatten(export.image, over: sheet.paper) else {
+            showToast("Cannot save this drawing")
+            return
+        }
         if let replaceName {
             let archive: Data
             do {
@@ -397,7 +424,7 @@ struct BgAnimatorScreen: View {
                 return
             }
             backgrounds.install(name: saved.bgName, image: image, archive: saved.archive)
-            undo.commitTimeline(from: scene)
+            commitTimeline()
             for index in scene.frames.indices where scene.frames[index].bgName == retargetName {
                 scene.frames[index].bgName = saved.bgName
             }
@@ -420,7 +447,7 @@ struct BgAnimatorScreen: View {
         applyBackground(saved.bgName)
     }
 
-    private static func flatten(_ image: CGImage, over paper: UIColor) -> CGImage {
+    private static func flatten(_ image: CGImage, over paper: UIColor) -> CGImage? {
         let size = CGSize(width: image.width, height: image.height)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
@@ -431,7 +458,8 @@ struct BgAnimatorScreen: View {
             UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
         }
         guard let flat = rendered.cgImage else {
-            fatalError("BgAnimatorScreen flatten failed")
+            print("BgAnimatorScreen flatten failed")
+            return nil
         }
         return flat
     }
@@ -446,22 +474,36 @@ struct BgAnimatorScreen: View {
         }
     }
 
+    private func bail(_ error: Error) {
+        print("BgAnimatorScreen: \(error)")
+        showToast(ItemLoadError.text(error))
+    }
+
+    private func commitTimeline() {
+        do {
+            try undo.commitTimeline(from: scene)
+        } catch {
+            bail(error)
+        }
+    }
+
     private var workArea: some View {
-        SkeletonCanvas(
-                unit: scene.currentFrame.units.isEmpty ? nil : unitBinding,
-                frameUnits: scene.currentFrame.units,
+        let frame = scene.currentFrameOrNil
+        return SkeletonCanvas(
+                unit: (frame?.units.isEmpty == false) ? unitBinding : nil,
+                frameUnits: frame?.units ?? [],
                 assets: assets,
                 backgrounds: backgrounds,
-                bgName: scene.currentFrame.bgName,
+                bgName: frame?.bgName,
                 backgroundRevision: backgroundRevision,
-                bgMove: scene.currentFrame.bgMove,
-                cameraMove: scene.currentFrame.cameraMove,
+                bgMove: frame?.bgMove ?? .identity,
+                cameraMove: frame?.cameraMove ?? .identity,
                 sceneWidth: scene.width,
                 sceneHeight: scene.height,
                 currentIndex: scene.currentIndex,
                 mode: .background,
                 showSkeleton: false,
-                onPrepareUndo: { undo.commitTimeline(from: scene) },
+                onPrepareUndo: commitTimeline,
                 onBackgroundChange: applyBgMove
             )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -469,7 +511,7 @@ struct BgAnimatorScreen: View {
     }
 
     private var pickerInitialColor: UIColor {
-        guard let name = scene.currentFrame.bgName, name.hasPrefix("#") else {
+        guard let name = scene.currentFrameOrNil?.bgName, name.hasPrefix("#") else {
             return UIColor.white
         }
         guard let rgba = HexRGB.parse(name) else {
@@ -565,7 +607,8 @@ struct BgAnimatorScreen: View {
         switch navMode {
         case .range:
             if range.lowerBound < 0 || range.upperBound >= scene.frames.count {
-                fatalError("BgAnimatorScreen range \(range) out of \(scene.frames.count)")
+                assertionFailure("BgAnimatorScreen range \(range) out of \(scene.frames.count)")
+                return scene.currentIndex...scene.currentIndex
             }
             return range
         case .frames:
@@ -594,16 +637,21 @@ struct BgAnimatorScreen: View {
     /// Android `applyBackground`: every frame in the span gets the name and the fitted move.
     private func applyBackground(_ bgName: String, to span: ClosedRange<Int>) {
         if span.lowerBound < 0 || span.upperBound >= scene.frames.count {
-            fatalError("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
+            assertionFailure("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
+            return
         }
-        undo.commitTimeline(from: scene)
+        commitTimeline()
         let move: PictureMove
         if bgName.hasPrefix("#") {
             rememberColor(bgName)
             move = .identity
         } else {
+            guard let image = backgrounds.image(for: bgName) else {
+                showToast("Cannot process the background \(bgName)")
+                return
+            }
             move = BackgroundResolver.fittedMove(
-                image: backgrounds.image(for: bgName),
+                image: image,
                 sceneWidth: scene.width,
                 sceneHeight: scene.height
             )
@@ -627,7 +675,8 @@ struct BgAnimatorScreen: View {
             span = range
         }
         if span.lowerBound < 0 || span.upperBound >= scene.frames.count {
-            fatalError("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
+            assertionFailure("BgAnimatorScreen range \(span) out of \(scene.frames.count)")
+            return
         }
         for index in span {
             scene.frames[index].bgMove = move
@@ -642,7 +691,12 @@ struct BgAnimatorScreen: View {
         if !undo.canUndo {
             return
         }
-        undo.restore(into: &scene)
+        do {
+            try undo.restore(into: &scene)
+        } catch {
+            bail(error)
+            return
+        }
         let last = scene.frames.count - 1
         let low = min(max(range.lowerBound, 0), last)
         let high = min(max(range.upperBound, low), last)
@@ -654,7 +708,8 @@ struct BgAnimatorScreen: View {
             get: { scene.currentIndex },
             set: { newIndex in
                 if newIndex < 0 || newIndex >= scene.frames.count {
-                    fatalError("BgAnimatorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                    assertionFailure("BgAnimatorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
+                    return
                 }
                 scene.currentIndex = newIndex
             }
@@ -664,14 +719,14 @@ struct BgAnimatorScreen: View {
     private var unitBinding: Binding<StickmanUnit> {
         Binding(
             get: {
-                let frame = scene.currentFrame
-                guard let first = frame.units.first else {
-                    fatalError("BgAnimatorScreen frame \(frame.id) read unit")
+                guard let first = scene.currentFrameOrNil?.units.first else {
+                    bail(SceneLoadError(message: "BgAnimatorScreen frame has no units"))
+                    return StickmanUnit(name: "", points: [], edges: [])
                 }
                 return first
             },
             set: { _ in
-                fatalError("BgAnimatorScreen canvas is not an editor")
+                assertionFailure("BgAnimatorScreen canvas is not an editor")
             }
         )
     }
@@ -768,10 +823,12 @@ private struct BackgroundStrip: View {
             Color(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a)
         } else if name.hasPrefix("#") {
             Color.white
-        } else {
-            Image(decorative: backgrounds.image(for: name), scale: 1)
+        } else if let image = backgrounds.image(for: name) {
+            Image(decorative: image, scale: 1)
                 .resizable()
                 .scaledToFill()
+        } else {
+            Color.white
         }
     }
 
@@ -847,7 +904,8 @@ struct FlexColorPickerSheet: UIViewControllerRepresentable {
 
         @objc func apply() {
             guard let picker else {
-                fatalError("FlexColorPickerSheet Apply with no picker")
+                assertionFailure("FlexColorPickerSheet Apply with no picker")
+                return
             }
             onApply(picker.selectedColor)
         }

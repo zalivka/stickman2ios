@@ -12,8 +12,11 @@ nonisolated enum OngoingAnimations {
             return
         }
         var running: [String: Log] = [:]
+        // A unit whose animation cannot advance is dropped for the whole clip: one bad FBF
+        // unit must not stop the rest of the scene from playing.
+        var dropped: Set<String> = []
         for index in frames.indices {
-            apply(source: source, frame: &frames[index], stateLists: stateLists, running: &running)
+            apply(source: source, frame: &frames[index], stateLists: stateLists, running: &running, dropped: &dropped)
         }
     }
 
@@ -21,9 +24,13 @@ nonisolated enum OngoingAnimations {
         source: StickmanScene,
         frame: inout StickmanFrame,
         stateLists: [String: [Int]],
-        running: inout [String: Log]
+        running: inout [String: Log],
+        dropped: inout Set<String>
     ) {
         for (unitName, animation) in source.unitAnimations {
+            if dropped.contains(unitName) {
+                continue
+            }
             guard let unitIndex = frame.units.firstIndex(where: { $0.name == unitName }) else {
                 continue
             }
@@ -37,10 +44,16 @@ nonisolated enum OngoingAnimations {
                 start = true
             }
             if start {
-                guard let states = stateLists[unitName] else {
-                    fatalError("OngoingAnimations missing states for '\(unitName)'")
+                do {
+                    guard let states = stateLists[unitName] else {
+                        throw SceneLoadError(message: "OngoingAnimations missing states for '\(unitName)'")
+                    }
+                    try tick(unit: &frame.units[unitIndex], animation: animation, states: states, running: &running)
+                } catch {
+                    print("OngoingAnimations dropping '\(unitName)': \(error)")
+                    dropped.insert(unitName)
+                    running.removeValue(forKey: unitName)
                 }
-                tick(unit: &frame.units[unitIndex], animation: animation, states: states, running: &running)
             }
             if frame.originFrameIndex == range.end {
                 running.removeValue(forKey: unitName)
@@ -53,10 +66,10 @@ nonisolated enum OngoingAnimations {
         animation: FBFAnimation,
         states: [Int],
         running: inout [String: Log]
-    ) {
+    ) throws {
         var log = running[unit.name] ?? Log()
         if (log.counter + 1) % animation.period == 0 {
-            let next = unit.nextState(
+            let next = try unit.nextState(
                 states: states,
                 current: log.assetsState,
                 backward: log.backward,

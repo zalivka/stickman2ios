@@ -23,39 +23,39 @@ enum ItemSaver {
         poster: Data
     ) throws -> URL {
         if !SceneSaver.isGoodFileName(rawName) {
-            fatalError("ItemSaver illegal name '\(rawName)'")
+            throw SceneLoadError(message: "ItemSaver illegal name '\(rawName)'")
         }
         let name = rawName.replacingOccurrences(of: " ", with: "_")
         let fullName = "\(pack):\(name)"
 
         var files: [(name: String, data: Data)] = [
-            (name: "model.xml", data: ModelXML.serialize(unit, fullName: fullName))
+            (name: "model.xml", data: try ModelXML.serialize(unit, fullName: fullName))
         ]
 
         let rows = assets.exportRows(unitName: unit.name)
-        let livePngs = assets.pngFiles(unitName: unit.name)
+        let livePngs = try assets.pngFiles(unitName: unit.name)
         let liveNames = Set(livePngs.map(\.name))
         if !rows.isEmpty {
             if livePngs.isEmpty {
-                fatalError("ItemSaver '\(fullName)' has asset rows but no live PNGs")
+                throw SceneLoadError(message: "ItemSaver '\(fullName)' has asset rows but no live PNGs")
             }
             for row in rows where !liveNames.contains(row.bmName) {
-                fatalError("ItemSaver '\(fullName)' edge \(row.start)-\(row.end) bm '\(row.bmName)' has no live PNG")
+                throw SceneLoadError(message: "ItemSaver '\(fullName)' edge \(row.start)-\(row.end) bm '\(row.bmName)' has no live PNG")
             }
-            files.append((name: "assets.xml", data: AssetsXML.serialize(rows: rows, fullName: fullName)))
+            files.append((name: "assets.xml", data: try AssetsXML.serialize(rows: rows, fullName: fullName)))
             files.append(contentsOf: livePngs)
             files.append(
-                contentsOf: assets.sidecarFiles(
+                contentsOf: try assets.sidecarFiles(
                     unitName: unit.name,
                     pngs: Dictionary(uniqueKeysWithValues: livePngs.map { ($0.name, $0.data) })
                 )
             )
-        } else if let source, ZipStore.contains("assets.xml", in: source) {
-            fatalError("ItemSaver '\(fullName)' live assets empty but source has assets.xml")
+        } else if let source, try ZipStore.namesThrowing(in: source).contains("assets.xml") {
+            throw SceneLoadError(message: "ItemSaver '\(fullName)' live assets empty but source has assets.xml")
         }
 
         if let source {
-            for entry in ZipStore.names(in: source) where !regenerated.contains(entry) {
+            for entry in try ZipStore.namesThrowing(in: source) where !regenerated.contains(entry) {
                 if liveNames.contains(entry) {
                     continue
                 }
@@ -66,15 +66,15 @@ enum ItemSaver {
                 if entry.hasSuffix(".name") || entry.hasSuffix("/") {
                     continue
                 }
-                files.append((name: entry, data: ZipStore.data(named: entry, in: source)))
+                files.append((name: entry, data: try ZipStore.dataThrowing(named: entry, in: source)))
             }
         }
         files.append((name: "\(name).name", data: Data()))
-        files.append((name: "meta.txt", data: meta(name: name, scale: unit.scale)))
+        files.append((name: "meta.txt", data: try meta(name: name, scale: unit.scale)))
         files.append((name: "thumb.png", data: thumb))
         files.append((name: "poster.png", data: poster))
 
-        let zip = ZipStore.archive(files)
+        let zip = try ZipStore.archive(files)
         let fm = FileManager.default
         let dir = CustomItems.directory()
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -103,9 +103,10 @@ enum ItemSaver {
         return candidate
     }
 
-    private static func meta(name: String, scale: CGFloat) -> Data {
+    private static func meta(name: String, scale: CGFloat) throws -> Data {
         // Android reads meta.txt appVersion as an int.
         guard let appVersion = Int(XMLWrite.versionCode()) else {
+            // Info.plist: a failure here ships broken, fires on first debug run
             fatalError("ItemSaver CFBundleVersion '\(XMLWrite.versionCode())' is not an integer")
         }
         let payload = ItemMetaFile(
@@ -118,7 +119,7 @@ enum ItemSaver {
         do {
             return try JSONEncoder().encode(payload)
         } catch {
-            fatalError("ItemSaver meta.txt JSON: \(error)")
+            throw SceneLoadError(message: "ItemSaver meta.txt JSON: \(error)")
         }
     }
 }

@@ -72,7 +72,8 @@ struct SkeletonSaveScreen: View {
         .alert(overrideTitle, isPresented: overrideShown) {
             Button("Yes") {
                 guard let item = pending else {
-                    fatalError("SkeletonSaveScreen override with no item")
+                    assertionFailure("SkeletonSaveScreen override with no item")
+                    return
                 }
                 pending = nil
                 saving = true
