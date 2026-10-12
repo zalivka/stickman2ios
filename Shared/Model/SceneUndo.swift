@@ -75,6 +75,13 @@ final class SceneUndo: ObservableObject {
         rangeBaseline = false
     }
 
+    /// Discards all undo history. Used when the whole scene is replaced
+    /// (debug tutorial relaunch): old entries reference dead frame ids.
+    func clear() {
+        stack.removeAll()
+        rangeBaseline = false
+    }
+
     func commitFramesInserted(
         ids: [Int],
         currentIndex: Int,

@@ -17,7 +17,7 @@
 - [x] 2.2 Done: `ITSAppUsesNonExemptEncryption=false` in `Info.plist` (only exempt SHA-256 + HTTPS). Still answer No/exempt in Connect once.
 - [x] 2.3 Done: `UIFileSharingEnabled=false`, recordings moved to `Library/Application Support/BonePaperRecordings` (`BonePaperRecorder.swift`).
 - [ ] 2.4 Usage string is done in `Info.plist` and both `INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription` settings: "The app saves exported videos to your photo library." Policy page is `site/privacy.html` in the stickman site. In Connect, paste that URL once the site is deployed, and enter nutrition labels with tracking off. Data linked to you: Product Interaction, Device ID, Coarse Location (Analytics). Data not linked: Crash Data, Other Data Types (App Functionality). Photos are not collected. Bugsnag’s own manifest also lists User ID and Product Interaction as not linked and used for app functionality; include those if the Xcode privacy report shows them.
-- [ ] 2.5 Bump `MARKETING_VERSION / CURRENT_PROJECT_VERSION` (now 1.0 / 1). Confirm bundle id `zalivka.animation`, team `2X6F8N8723`.
+- [x] 2.5 Done: bumped `MARKETING_VERSION` to 1.0 (`CURRENT_PROJECT_VERSION` is 4). Confirmed bundle id `zalivka.animation`, team `2X6F8N8723`.
 
 ## 3. Permissions UX
 - [x] 3.1 Done: `VideoExport.Phase.failed(Failure)` carries `.photosDenied` vs `.exportFailed`; denied shows "allow in Settings" toast + Open Settings alert.
@@ -41,7 +41,7 @@
 - [ ] 6.6 App size: FFmpegKit xcframework is heavy — check final IPA size, slices stripped.
 
 ## 7. Metadata to prepare
-- [ ] 7.1 Screenshots: landscape iPhone + iPad (editor, playback, export). Icon + launch screen check.
+- [x] 7.1 Icon installed (`Assets.xcassets/AppIcon.appiconset/AppIcon.png`, 1024x1024 sRGB, opaque). Screenshots: landscape iPhone + iPad (editor, playback, export). Launch screen check.
 - [ ] 7.2 Connect: support URL, privacy URL, age rating, category, keywords, "no tracking" if true.
 - [ ] 7.3 Reviewer notes: steps New Cartoon → add item → Play → Export → Photos; mention landscape-only, notification optional, no login.
 

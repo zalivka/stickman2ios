@@ -74,12 +74,18 @@ struct SceneEditorScreen: View {
     @State private var frameInsertFlash = 0
     @State private var tutorialStep: TutorialStep?
     @State private var playHintScheduled = false
+    @State private var tutorialFallbackScheduled = false
+    /// Invalidates pending tutorial hint tasks when the whole scene is replaced.
+    @State private var tutorialGeneration = 0
     @State private var tutorialNextPress = 0
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
     /// Android `MainEditor.SIMPLE_TUTORIAL` — set once Play is pressed from the tutorial hint.
     static let tutorialDoneKey = "simple_tutorial"
+    /// Android `PrefUtils.PREF_FIRST_LAUNCH` — the intro auto-opens once on first
+    /// launch and never again. Redeemed immediately when it fires, not on completion.
+    static let introAutoLaunchKey = "intro_auto_launched"
 
     init(
         scene: StickmanScene,
@@ -440,7 +446,7 @@ struct SceneEditorScreen: View {
             }
         }
         .sheet(isPresented: $showingSettings) {
-            AppSettingsSheet()
+            AppSettingsSheet(onTutorial: relaunchTutorial)
         }
         .sheet(isPresented: $showingSave) {
             SaveProjectSheet(
@@ -650,6 +656,81 @@ struct SceneEditorScreen: View {
         dismiss()
     }
 
+    /// DEBUG settings → Tutorial: discards the current scene (no save prompt)
+    /// and replays the intro in place, mirroring a fresh tutorial open.
+    private func relaunchTutorial() {
+        showingSettings = false
+        do {
+            let built = try SceneLoader.load(resource: "intro_scene", subdirectory: "demo")
+            replaceScene(scene: built.0, assets: built.1, backgrounds: built.2)
+        } catch {
+            showToast(ItemLoadError.text(error))
+        }
+    }
+
+    /// Swaps the whole scene without touching the navigation stack. Mirrors
+    /// `init` plus a reset of every transient/editor state that references the
+    /// old scene, so no stale undo, clipboard, export, selection, or sheet
+    /// can leak into the new one.
+    private func replaceScene(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets) {
+        videoExport.cancel()
+        undo.clear()
+        clipboard.clear()
+        self.scene = scene
+        self.assets = assets
+        self.backgrounds = backgrounds
+        mode = .frames
+        if scene.frames.isEmpty {
+            range = 0...0
+        } else {
+            range = DualNavigation.defaultRange(
+                current: scene.currentIndex,
+                frameCount: scene.frames.count
+            )
+        }
+        tweenDraftRange = 0...0
+        tweenApplyRange = nil
+        showingPreview = false
+        previewFinishesTutorial = false
+        showingCamera = false
+        showingBackground = false
+        showingSpeedEffects = false
+        showingTweenRange = false
+        showingInsert = false
+        showingEditUnit = false
+        editUnitBackTick = 0
+        showingEditFrame = false
+        showingMenu = false
+        showingCreateItems = false
+        scenePropsSheet = nil
+        selectedUnitName = nil
+        capturedUnitName = nil
+        showingSave = false
+        saveName = ""
+        saveError = ""
+        lastSavedName = nil
+        saveToast = ""
+        exportToast = nil
+        announceCancelOnActive = false
+        showingPhotosDenied = false
+        showingFBF = false
+        showingAdvanced = false
+        showingSetText = false
+        setTextDraft = ""
+        setTextColor = Color.black
+        setTextError = ""
+        showingLeaveAlert = false
+        dismissAfterSave = false
+        savedDocument = SceneSaver.documentBytes(scene: scene)
+        frameInsertFlash = 0
+        tutorialStep = .move
+        playHintScheduled = false
+        tutorialFallbackScheduled = false
+        tutorialGeneration += 1
+        tutorialNextPress = 0
+        openedAt = Date.now
+    }
+
     private func tutorialTargetTap() {
         switch tutorialStep {
         case .nextFrame:
@@ -669,15 +750,38 @@ struct SceneEditorScreen: View {
     }
 
     /// Android `InEditor.onNextFrame` — the Play hint 1 s after Next lands on the last frame.
+    /// Plus an 8 s fallback: once Next has been pressed at least once, Play is
+    /// highlighted anyway even if the last frame was never reached.
     private func tutorialNextAdvanced() {
         guard tutorialStep == .nextFrame || tutorialStep == .animate else { return }
         tutorialStep = .animate
+        scheduleTutorialPlayFallback()
         if playHintScheduled || scene.currentIndex != scene.frames.count - 1 {
             return
         }
         playHintScheduled = true
+        let gen = tutorialGeneration
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard gen == tutorialGeneration, tutorialStep == .animate else { return }
+            tutorialStep = .play
+        }
+    }
+
+    /// Starts the 8 s fallback timer on the first Next press. When it fires, Play
+    /// is highlighted even mid-scene, so a user who never reaches the last frame
+    /// still discovers playback.
+    private func scheduleTutorialPlayFallback() {
+        if tutorialFallbackScheduled {
+            return
+        }
+        tutorialFallbackScheduled = true
+        let gen = tutorialGeneration
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard gen == tutorialGeneration,
+                  tutorialStep == .nextFrame || tutorialStep == .animate
+            else { return }
             tutorialStep = .play
         }
     }

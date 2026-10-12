@@ -11,6 +11,14 @@ final class CopyPasteBuffer: ObservableObject {
     var hasFrames: Bool { !frames.isEmpty }
     var framesInBuffer: Int { frames.count }
 
+    /// Discards buffered units/frames. Used when the whole scene is replaced
+    /// (debug tutorial relaunch): pasting stale clones into a new scene is wrong.
+    func clear() {
+        units = []
+        frames = []
+        animations = [:]
+    }
+
     func copyUnits(_ structure: [StickmanUnit]) {
         if structure.isEmpty {
             assertionFailure("CopyPasteBuffer copyUnits empty")

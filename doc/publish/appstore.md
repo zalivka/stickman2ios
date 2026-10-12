@@ -4,9 +4,9 @@ Adapted from the [Play listing for Draw Cartoons 2](https://play.google.com/stor
 
 Ads, in-app purchases, and the paid unlocks (unlimited export, extra library, ad-free) are left out. This iOS app has no ads and no purchases. Export to Photos is part of the app.
 
-## Name (15/30)
+## Name (19/30)
 
-Draw Cartoons 2
+Drawing Cartoons PRO
 
 ## Subtitle (15/30)
 
@@ -18,7 +18,7 @@ Pose characters, tween the frames, build your own items, and export the movie to
 
 ## Description
 
-Draw Cartoons 2 is an animation editor for making your own movies and cartoons. Pose a character, set the next pose, and the app fills in the frames between them.
+Drawing Cartoons PRO is an animation editor for making your own movies and cartoons. Pose a character, set the next pose, and the app fills in the frames between them.
 
 **Skeletal animation**
 Move the bones. You do not redraw the character on every frame.
@@ -40,10 +40,10 @@ Save the finished movie to Photos.
 
 No account. The app runs in landscape.
 
-## Keywords (96/100)
+## Keywords (91/100)
 
 ```
-animation,stickman,skeleton,tween,movie,editor,comic,kids,creator,background,camera,flipbook,art
+animation,stickman,skeleton,tween,movie,editor,comic,creator,background,camera,flipbook,art
 ```
 
 ## Category

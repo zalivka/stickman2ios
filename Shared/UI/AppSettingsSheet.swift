@@ -5,9 +5,13 @@ import UIKit
 struct AppSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var antialiasing: Bool
+    /// When set, a DEBUG-only Tutorial button discards the current scene and
+    /// replays the intro. Nil (e.g. item editor) hides the button entirely.
+    let onTutorial: (() -> Void)?
 
-    init() {
+    init(onTutorial: (() -> Void)? = nil) {
         _antialiasing = State(initialValue: AppSettings.paperDrawAntialiasing)
+        self.onTutorial = onTutorial
     }
 
     var body: some View {
@@ -81,6 +85,11 @@ struct AppSettingsSheet: View {
                     .foregroundStyle(SkeletonChrome.toolLabel)
                     .textCase(.uppercase)
                 antialiasingCard
+                #if DEBUG
+                if onTutorial != nil {
+                    tutorialCard
+                }
+                #endif
                 privacyCard
             }
             .padding(.horizontal, 16)
@@ -150,6 +159,45 @@ struct AppSettingsSheet: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Privacy Policy")
     }
+
+    #if DEBUG
+    /// DEBUG only: discards the current scene and replays the intro tutorial.
+    /// Visible only when the presenter supplies `onTutorial` (scene editor).
+    private var tutorialCard: some View {
+        Button {
+            AppSettings.paperDrawAntialiasing = antialiasing
+            onTutorial?()
+            dismiss()
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Tutorial")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Discard current scene and replay the intro")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "play.circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tutorial")
+    }
+    #endif
 
     private static let privacyPolicyURL = URL(string: "https://dc2.app/privacy.html")!
 

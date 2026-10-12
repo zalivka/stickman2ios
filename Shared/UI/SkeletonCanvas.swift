@@ -1422,7 +1422,9 @@ struct SkeletonCanvas: View {
         hitAnyUnit(at: location, layout: layout, radius: radius, in: [liveUnit])?.pointId
     }
 
-    /// First node within `radius` in front-to-back draw order.
+    /// Nearest node within `radius`. Android `Frame.findNearestDraggablePoint`:
+    /// nearest first, radius check second — never first-in-draw-order, so a far
+    /// point can't steal the touch from a closer one sharing the radius.
     private func hitAnyUnit(
         at location: CGPoint,
         layout: SkeletonLayout,
@@ -1430,22 +1432,22 @@ struct SkeletonCanvas: View {
         in candidates: [StickmanUnit]? = nil
     ) -> (name: String, pointId: Int, unit: StickmanUnit)? {
         let pool = candidates ?? drawnUnits
-        for drawn in pool.sorted(by: {
-            if $0.arrange != $1.arrange { return $0.arrange > $1.arrange }
-            return $0.name > $1.name
-        }) {
+        var best: (name: String, pointId: Int, unit: StickmanUnit)?
+        var bestDist = radius
+        for drawn in pool {
             for point in drawn.points {
                 if mode != .skeleton, !drawn.canBeDragged(point) {
                     continue
                 }
                 let center = layout.screenPoint(x: point.x, y: point.y)
                 let dist = hypot(location.x - center.x, location.y - center.y)
-                if dist <= radius {
-                    return (drawn.name, point.id, drawn)
+                if dist <= bestDist {
+                    bestDist = dist
+                    best = (drawn.name, point.id, drawn)
                 }
             }
         }
-        return nil
+        return best
     }
 }
 

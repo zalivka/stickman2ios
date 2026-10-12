@@ -135,10 +135,10 @@ private struct MakePane: View {
                     .position(x: dividerX, y: proxy.size.height / 2)
 
                 Button {
-                    if UserDefaults.standard.bool(forKey: SceneEditorScreen.tutorialDoneKey) {
+                    // The intro auto-opens once on first launch (see onAppear);
+                    // New Cartoon always starts empty after that.
+                    if opener.loadingName == nil {
                         openCartoon = true
-                    } else {
-                        openTutorial()
                     }
                 } label: {
                     Text("New\nCartoon")
@@ -235,7 +235,24 @@ private struct MakePane: View {
             if Self.cartoonIdle == nil || Self.cartoonPressed == nil || Self.itemsIdle == nil || Self.itemsPressed == nil {
                 ToastCenter.show("Landing art is missing")
             }
+            maybeAutoOpenIntro()
         }
+    }
+
+    /// Android `LandingActivity.proceedApp` + `PrefUtils` first-launch: the intro
+    /// opens once on the very first launch and never again. Redeemed immediately,
+    /// so killing the app mid-intro does not re-trigger it. Upgraders who already
+    /// finished the tutorial are marked without opening.
+    private func maybeAutoOpenIntro() {
+        let autoKey = SceneEditorScreen.introAutoLaunchKey
+        if UserDefaults.standard.bool(forKey: autoKey) {
+            return
+        }
+        UserDefaults.standard.set(true, forKey: autoKey)
+        if UserDefaults.standard.bool(forKey: SceneEditorScreen.tutorialDoneKey) {
+            return
+        }
+        openTutorial()
     }
 
     private func openTutorial() {
@@ -260,7 +277,7 @@ private struct MakePane: View {
     #endif
 
     private var versionLabel: some View {
-        Text("Drawing Cartoons 2 (\(Self.versionName))")
+        Text("Drawing Cartoons PRO (\(Self.versionName))")
             .font(.system(size: 14))
             .foregroundStyle(Color(white: 0x88 / 255))
             .lineLimit(1)
