@@ -90,8 +90,9 @@ goes through `brush()`, then `page_svg(scene, paper)`. The paper is a `<rect>`,
 never a part: a full-page shape trips the 85% leak check.
 
 Shipped this way: `out/beer_mug`, `out/shotgun`, `out/car`, `out/truck`,
-`out/corvette` — each a declarative `build.py` of 60–75 lines plus one `draw`
-run. `out/corvette/build.py` is the worked example for a curvy vehicle.
+`out/corvette`, `out/monster_truck` — each a declarative `build.py` of 60–75
+lines plus one `draw` run. `out/corvette/build.py` is the worked example for a
+curvy vehicle.
 
 ### Vehicle recipe
 
@@ -105,6 +106,9 @@ Learned over car, truck, and corvette:
   lines are drawn by hand between parts.
 - **Wheels** are an ink `disc` with a hub `disc` painted after the body, so
   they read as filled arches. Hub spokes are ink strokes in `details()`.
+- **Strict side view. Never fake depth.** No far-side wheels peeking past the
+  nose, no 3/4 hints: a second smaller wheel at ground level reads as a third
+  wheel (the monster truck's first run was a trike). Two wheels, done.
 - **Windows and glass** are separate compact parts and must reach short ≥ 42
   (corvette's windshield took three widening passes: 15 → 19 → 26).
 
