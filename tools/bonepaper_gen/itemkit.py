@@ -103,15 +103,15 @@ def ink_under(parts, rim=RIM):
 
     The part's own stamp and closed stroke cover the middle, so what survives
     is a `rim` wide ring: the near-black outline a traced part gets for free.
-    A part already inked is left alone.
+    A part already inked is left alone. The ink silhouette is always stamped
+    and filled, never stroked, so it carries no expect: the grown ring of a
+    limb reads compact, and passing the limb's expect down would contradict.
     """
     out = []
     for shape in parts:
         color, geom = shape[0], shape[1]
-        expect = shape[2] if len(shape) > 2 else None
         if color != INK:
-            ring = geom.buffer(rim, join_style="round")
-            out.append((INK, ring) if expect is None else (INK, ring, expect))
+            out.append((INK, geom.buffer(rim, join_style="round")))
         out.append(shape)
     return out
 
