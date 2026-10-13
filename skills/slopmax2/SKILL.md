@@ -5,7 +5,7 @@ description: Runs the whole slopmax job as one command (tools/bonepaper_gen/slop
 
 # Slopmax2
 
-One command replaces the per-job `build.py` copies (`out/camera`, `out/lion`, `out/sun`, …). The brush rules, joint formula, and scene-scale rules are in [slopmax reference](../slopmax/reference.md). This skill only says how to run them.
+One command replaces the per-job `build.py` copies (`out/camera`, `out/lion`, `out/sun`, …). The brush rules, joint formula, scene-scale rules, and the hand-drawn item route are in [slopmax reference](../slopmax/reference.md). This skill only says how to run them.
 
 Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. The tracer is still `out/bluehairsvg/build.py`.
 
@@ -17,6 +17,9 @@ Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. T
 | Scene | `slopmax2.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats` | the `.ats`, plus every `.ati` and bone PNG in `out/<output stem>/` |
 | Background | `slopmax2.py bg picture.png -o out/picture/picture.zip` | zip with `bg.png` (1280×960), `bg.svg` (640×480 page), `thumb.png` (100×100), and the three files beside it |
 | Lint | `slopmax2.py lint out/storypic/build.py` | prints the plan, exits 1 on any issue |
+| Hand-drawn item | `slopmax2.py draw out/beer_mug/build.py` | `out/<dir>/<name>.ati`, `drawing.svg`, the bone PNG. Lint, brush, 4× raster, pack — one run, ~1 s |
+
+**Nothing exists to trace** (a mug, a hat, a new creature): use `draw`, not `item`. The script is data — `NAME`, `W`, `H`, `JOINT`, `EDGE`, `parts()`, optional `underlay(hand)` / `details(hand)` — and `itemkit.py` does the rest. Do not write a per-job `build.py` with its own `poly`/`disc`/zip code; those copies are what this replaced. Worked examples in `out/`: `beer_mug` (handle as underlay), `shotgun`, and `corvette` (curvy vehicle, the reference). The part rules, the vehicle recipe, and the two failure modes lint does not catch (a shallow part rejected as `expected compact`; a sub-12 px stroke dying at render time) are in [slopmax reference](../slopmax/reference.md), "Hand-drawn item".
 
 `pack:item` resolves `newstickman` or `zalivka.newstickman` to exactly one `at_elements/packs/*.atp`, then reads `items/<item>.ati`.
 
@@ -61,6 +64,6 @@ This is one command and about 3 s, with merge 36. The bay picture gave 56 shapes
 
 Gaps between separate shapes are not checked, because an arm touching a head is intended.
 
-Traced runs (`item`, `scene`, `bg`) stop on fatal issues and print the warnings. `lint` treats every issue as a failure. The script must expose `parts()`, plus `W` and `H` if the page is not 640×480.
+Traced runs (`item`, `scene`, `bg`) stop on fatal issues and print the warnings. `lint` treats every issue as a failure, and so does `draw`. The script must expose `parts()`, plus `W` and `H` if the page is not 640×480.
 
-For a hand-built picture like `out/storypic`, run `lint` until it is clean, then render once.
+`draw` lints as its first step, so a hand-built item is one command: fix the part list, rerun `draw`, until it is clean and the picture is right. Standalone `lint` is for shape scripts that are not items (a page like `out/storypic`).

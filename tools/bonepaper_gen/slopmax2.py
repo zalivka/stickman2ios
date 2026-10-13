@@ -5,6 +5,11 @@
   .venv/bin/python slopmax2.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats
   .venv/bin/python slopmax2.py bg picture.png -o out/picture/picture.zip
   .venv/bin/python slopmax2.py lint out/storypic/build.py
+  .venv/bin/python slopmax2.py draw out/beer_mug/build.py
+
+`draw` is the hand-drawn route: the script is data (NAME, W, H, JOINT, EDGE,
+parts(), optional underlay/details) and itemkit does lint, brush, 4x raster
+and the .ati pack in one run. Nothing to trace, no build.py boilerplate.
 
 The tracer is bluehairsvg (components, boundary_loops, brush_svg). Every traced
 shape list goes through shape_lint before the brush: fatal issues stop the run,
@@ -772,19 +777,34 @@ def cmd_bg(args):
         print(f"chooser name usermade:{millis}")
 
 
-def cmd_lint(args):
-    path = Path(args.script).resolve()
+def load_script(script, suffix):
+    path = Path(script).resolve()
+    if not path.exists():
+        raise SystemExit(f"missing {path}")
     sys.path.insert(0, str(path.parent))
-    spec = importlib.util.spec_from_file_location(path.stem + "_lint", path)
+    spec = importlib.util.spec_from_file_location(path.stem + suffix, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+def cmd_lint(args):
+    module = load_script(args.script, "_lint")
     if not hasattr(module, "parts"):
-        raise SystemExit(f"{path} has no parts()")
+        raise SystemExit(f"{args.script} has no parts()")
     size = (getattr(module, "W", PAGE[0]), getattr(module, "H", PAGE[1]))
     plans, issues = shape_lint.lint(module.parts(), size)
-    shape_lint.report(plans, issues, path.parent.name)
+    shape_lint.report(plans, issues, Path(args.script).parent.name)
     if issues:
         raise SystemExit(f"{len(issues)} issues")
+
+
+def cmd_draw(args):
+    """Hand-drawn item: lint the parts, brush, rasterize at 4x, pack the .ati."""
+    import itemkit
+
+    module = load_script(args.script, "_item")
+    itemkit.item(module, args.out)
 
 
 def main():
@@ -821,6 +841,11 @@ def main():
     p = sub.add_parser("lint", help="check parts() of a shape script")
     p.add_argument("script")
     p.set_defaults(run=cmd_lint)
+
+    p = sub.add_parser("draw", help="brush and pack a hand-drawn item script")
+    p.add_argument("script", help="out/<name>/build.py with NAME, W, H, JOINT, EDGE, parts()")
+    p.add_argument("--out", help="output dir, default the script's dir")
+    p.set_defaults(run=cmd_draw)
 
     args = parser.parse_args()
     args.run(args)

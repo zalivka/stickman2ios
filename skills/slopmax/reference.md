@@ -56,6 +56,92 @@ None of them do the colour policy above: merge across black ink, use the white s
 
 Tracing a soft or photographic raster fails either way, because quantization makes a band per shade. Draw that kind of picture from shapes (`out/storypic`).
 
+## Hand-drawn item (`itemkit.py`, `slopmax2.py draw`)
+
+Nothing to trace (a mug, a hat, a new creature): the picture starts as flat
+parts. `tools/bonepaper_gen/itemkit.py` holds the whole pipeline, so an item
+script is data plus three functions and no boilerplate. One command, about 1 s:
+
+```
+.venv/bin/python slopmax2.py draw out/beer_mug/build.py
+```
+
+The script exposes `NAME`, `W`, `H` (page px, no PAD), `JOINT` (where an edge
+attaches, page px), `EDGE` (bone length in page px, along +x), `parts()`, and
+optionally `underlay(hand)` and `details(hand)`. `draw` lints, brushes, rasterizes
+the uncropped padded canvas at 4×, and packs `@:<NAME>`.
+
+| Piece | Rule |
+|-------|------|
+| `parts()` | List of `(color, geom)` or `(color, geom, "limb"\|"compact")` in page px. Build with `poly`, `disc`, `ellipse`, `capsule`, `union`. |
+| Outline | `ink_under(parts)` prepends `INK` (`#222222`) silhouettes grown by `RIM = 10`. The part's own stamp and closed stroke cover the middle, leaving a 10 px black ring — the rim a traced sword keeps. Never author the ink part by hand. |
+| `expect` | Pass `"compact"` for every part meant to keep an outline. A C or an L fails the elongated test and comes out as a compact outline instead of a stroke, so it cannot be a part. |
+| Handles, bows, ropes | `underlay(hand)`: strokes spliced under every part, so their ends vanish behind a neighbour. The mug handle is `stroke(HANDLE, INK, 46)` then `stroke(HANDLE, BEER, 26)`. |
+| `details(hand)` | Strokes on top: light edge, shade edge, bubbles, cusps. `stroke(hand, points, color, size)` takes page px and adds PAD itself. |
+| Minimum feature | Still 2× the brush: ≥ 22 px wide, ≥ 20 px clear inside a part you tap, a ring needs radius ≥ 8 px to get 12 px from its start. |
+| Colours | Outline and fill must sit well over 0.06 OKLab apart, or one fill tap runs through both. |
+
+Joint and packing match the traced route: offset `-((JOINT + PAD) * 4)`, bone
+`bm_1_state_0.png`, `meta.txt` scale `0.25`, unit name `@:<NAME>`, one edge point
+at `x = EDGE * 4`. `pack()` writes it; do not rebuild the zip by hand.
+
+For a hand-built **page** (a background, `out/red_square`), the same part list
+goes through `brush()`, then `page_svg(scene, paper)`. The paper is a `<rect>`,
+never a part: a full-page shape trips the 85% leak check.
+
+Shipped this way: `out/beer_mug`, `out/shotgun`, `out/car`, `out/truck`,
+`out/corvette` — each a declarative `build.py` of 60–75 lines plus one `draw`
+run. `out/corvette/build.py` is the worked example for a curvy vehicle.
+
+### Vehicle recipe
+
+Learned over car, truck, and corvette:
+
+- **One body silhouette**, roof and cabin included. A separate cabin polygon
+  (a low quad on a long body) fails `expected compact`: its rotated rectangle
+  reads as a limb. Merge it into the body and let the windows carry the shape.
+- **Paint back to front** (stock, action, barrels, forend on the shotgun): each
+  part's ink rim becomes the seam against the part in front of it, so no seam
+  lines are drawn by hand between parts.
+- **Wheels** are an ink `disc` with a hub `disc` painted after the body, so
+  they read as filled arches. Hub spokes are ink strokes in `details()`.
+- **Windows and glass** are separate compact parts and must reach short ≥ 42
+  (corvette's windshield took three widening passes: 15 → 19 → 26).
+
+### Two failure modes lint does not catch
+
+1. **`expected compact` on a shallow part.** A part whose rotated-rect short
+   side lands under 42 is classed as a limb; if it was declared `"compact"`
+   the run stops. Fix the geometry: widen the short side past 42, shrink the
+   long side, or merge the part into a neighbour. Thinning the *expect* away
+   only turns it into one fat stroke.
+2. **`hand: stroke shorter than slop` at render time.** Every stroke must get
+   12 px from its start along its own path. A 10 px lamp tick or a 13 px pipe
+   clamp survives the lint and dies in the hand. Stretch the tick (13 → 14 px
+   worked), never thin it.
+
+The exception reports only coordinates, not which call died. To find it, patch
+and count:
+
+```python
+orig = Hand.stroke
+count = [0]
+def patched(self, pieces, color, closed=False, jitter=1.0, size=None):
+    try:
+        orig(self, pieces, color, closed, jitter, size)
+        count[0] += 1
+    except SystemExit:
+        print(f"stroke #{count[0]} FAILED: {color} size={size}")
+        raise
+Hand.stroke = patched
+```
+
+**Name shadowing.** A module-level geometry list that reuses an imported
+colour constant's name (corvette's `GLASS = [(...)]` over the colour `GLASS`)
+crashes with `TypeError: int() can't convert non-string` deep in
+`svg_export.oklab`, far from the cause. Name geometry `WIN`, `BODY`, `TYRES`,
+never like a colour.
+
 What `stroke()` does, in order:
 
 1. Loop run-on (`closed=True`): the path continues past its start by 4–14% of its length, so a later fill holds.
