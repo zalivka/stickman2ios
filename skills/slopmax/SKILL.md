@@ -43,7 +43,7 @@ The tracer is `regions()` in `bluehairsvg/build.py`. Do not put Potrace, vtracer
 
 A raster is a usable input only when it is flat colour. A photo or soft shading splits into one band per shade at merge 36, and each band gets its own outline. Build a picture like that from shapes instead. `out/storypic` does that and calls `brush_svg` once.
 
-Line art with solid areas (hair, brows, pupils) needs a hybrid: erosion-depth split into fill regions and centre-line strokes. Large regions can be hatched with a pale wide brush (marker/watercolor wash) instead of flat fills. Route table, hatch geometry rules, and the wrong-attempt list are in [reference.md](reference.md).
+Line art with solid areas (hair, brows, pupils) needs a hybrid split into fill regions and centre-line strokes. Prefer **[slopmax3](../../.cursor/skills/slopmax3/SKILL.md)** (`slopmax3.py sketch`): EDT half-width, hysteresis ink, optional `--wash`, ink-budget gate — no per-picture `build.py`. Hatch geometry and the wrong-attempt list stay in [reference.md](reference.md).
 
 ## Partial fills
 
