@@ -90,9 +90,8 @@ goes through `brush()`, then `page_svg(scene, paper)`. The paper is a `<rect>`,
 never a part: a full-page shape trips the 85% leak check.
 
 Shipped this way: `out/beer_mug`, `out/shotgun`, `out/car`, `out/truck`,
-`out/corvette`, `out/monster_truck` — each a declarative `build.py` of 60–75
-lines plus one `draw` run. `out/corvette/build.py` is the worked example for a
-curvy vehicle.
+`out/corvette` — each a declarative `build.py` of 60–75 lines plus one `draw`
+run. `out/corvette/build.py` is the worked example for a curvy vehicle.
 
 ### Vehicle recipe
 
@@ -106,9 +105,6 @@ Learned over car, truck, and corvette:
   lines are drawn by hand between parts.
 - **Wheels** are an ink `disc` with a hub `disc` painted after the body, so
   they read as filled arches. Hub spokes are ink strokes in `details()`.
-- **Strict side view. Never fake depth.** No far-side wheels peeking past the
-  nose, no 3/4 hints: a second smaller wheel at ground level reads as a third
-  wheel (the monster truck's first run was a trike). Two wheels, done.
 - **Windows and glass** are separate compact parts and must reach short ≥ 42
   (corvette's windshield took three widening passes: 15 → 19 → 26).
 
@@ -263,6 +259,50 @@ Android pack load (`BackgroundAsyncCache.loadFromArchive`, `processPackBg`) trie
 iOS chooser folder is one `.atp`. Backgrounds inside it are flat `bgs/<name>.zip`. The folder title is `pack_name` from `translate_en.xml`, otherwise `mHumanName`. `mSysName` must contain a `.` and must equal the archive filename. `BackgroundCatalog` lists every bundle `.atp` that contains `bgs/*.zip`. Hiding an item-less pack from the item chooser is `Manifest.chooserHidden`, separate from the background list.
 
 Day, evening, and night of one layout share one seed (`17 + sum(name) % 80` on the day name) so the brush wobble matches. Evening puts the sun in the horizon band, clipped by the sea drawn later. Night sets the sun to none and draws no moon.
+
+## Backgrounds from a picture
+
+Three routes pick by content, all in `tools/bonepaper_gen` with `.venv/bin/python`. Worked examples live only on the working machine under `out/` (git-ignored), not in the repo: `out/redface` (marker face on red), `out/lineflower` (one-line flower on white), `out/whale` (cartoon minus water), `out/busnight` (dark Futurama still). Each is a data script plus its outputs; recreate them from the rules here.
+
+| Picture | Route | Entry |
+|---------|-------|-------|
+| Flat-colour regions (bay, meme) | `slopmax2.py bg` plain or `--flatten` | see slopmax2 SKILL.md |
+| Line art: strokes on one paper colour | centre-line trace, `lineart.line_art_bg` | the picture's `build.py` is data (`out/redface`, `out/lineflower`) |
+| Full-colour cartoon | flatten composition in a `build.py` | `out/whale`, `out/busnight` (local only) |
+
+`regions()` is never the route for curvy line art: every stroke blob is a limb brushed along its rotated-rect axis, so wiggly strokes come out as disconnected straight sausages.
+
+### Centre-line route (`lineart.py`)
+
+`line_art_bg(NAME, SRC, PAPER, ...)`. The per-picture script is data: `PAPER(arr)` is the ink test; optional `FADE=(fade_test, max_walk)` extends path ends through a fade band; knobs `CONTACT=5`, `COS_MIN=0.65`, `MIN_BLOB=40`, `MAX_SIZE=8`. The engine closes 1 px mask breaks (Max3→Min3), skeletonizes (Zhang-Suen), splits paths at tips and junctions, glues split ends, and draws one `hand.curve` per chain over a paper rect. `lineart.compare(src, out)` writes the review stack: fit_page'd source over `bg.png`, both 640×480.
+
+| Fact | Detail |
+|------|--------|
+| Ink test is per-picture data | Luma cannot separate black from mid-luma paper: red `rgb(169,1,0)` has luma 51, inside the ink band; redface uses chroma `R − max(G,B) < 80`. White paper uses `default_paper`. |
+| `default_paper` delta | 60 is the JPEG-safe default. Thin clean PNG strokes lose their antialiased edge under it and lines break: delta 35 fixed the flower (43 → 10 lone ends). Lower starts catching shading noise. |
+| Bridge gates | Endpoints ≤ 2.5 px apart merge unconditionally (`TOUCH`): at junctions the 4-point direction window is meaningless, and a visible "gap" is usually two strokes stopping 1 px short. Farther pairs need ≥ 0.65 cosine on both sides. A 14 px gate at cosine 0.25 chains eye → brow → hair into one line across the face: closeness is not continuity. |
+| Faded marker strokes | The mask ends where the fade begins while the visible line runs on. Extending the whole mask fattens every stroke and welds parallel strands (redface: +5350 px, mush everywhere). `FADE` walks each raw-skeleton END outward through the fade band instead (28 px total), aborting on direction change: ends move, strokes never widen. |
+| Coverage metrics lie | "Fraction of the visible line within 6 px of a centre-line" went 0.9949 → 0.9997 while the picture got worse: the metric sees presence, not extra strokes or welds. Score candidate fixes on the rendered `bg.png` itself (zoomed crops of it), never on a derived score alone. |
+
+### Removing an object from a flatten build (whale)
+
+Wave stripes shared exact palette colours with the whale body (`(103,198,252)` spans both), so no colour test inside a bounding box separates them. What separates them is topology: flood the page borders through non-ink pixels; every blue or pink pixel reachable from outside is water. Erase dark pixels per COMPONENT, never per pixel — the whale outline touches both its interior and the water, so per-pixel rules bite slits into it, and a bitten shape dies later as `FATAL loop never gets 12 px` (a 107 px crescent). Keep a component that borders the interior; drop one that only borders water. Water pockets erased from between belly plates leave notches: close the silhouette (Max31→Min31) and repaint each closed-in notch with its surrounding colour, iterating — one close only seals a gulf's mouth, each repainted ring lets the next close reach deeper. Lines whose fills vanished become ink-on-white and the caption rule drops them by itself: whiten the fills before `ink_strokes` runs.
+
+### Dark stills (busnight)
+
+A dark animation frame fails three ways, all rules from the busnight run (its `build.py` is local-only under `out/`):
+
+1. Key colours sit below the tracer's floor (`peak ≥ 110`; gray needs `peak ≥ 70`). Gamma-lift the source: `(v/255)^g × 255`. The lift must clear the floor for the PAD band too — `fit_page` pads with the darkest edge shade, and g = 0.55 left it at peak 104, so nothing touched the top edge and the run stopped at "no shape reaches three page edges". g = 0.45 worked.
+2. Letterbox bars are player chrome, not content: trim near-black full-height/width strips before lifting. Guard the trim: the kept box must stay ≥ half the frame.
+3. Shading gradients quantize into tiny rings (area < 250, fitting a 24 px box) that fatally fail the 12 px loop test and the brush cannot draw. Drop them loudly in the build script.
+
+`--flatten` cannot run on a dark still: its ink test (luma < 90 or local contrast) reads the whole night as ink, and 64 grow steps cannot fill it.
+
+### Canvas contract and verification
+
+A page build must `fit_page` to 640×480 before `mark_page`/`regions`. `page_svg` writes a PAGE viewBox, so shapes traced from a different canvas make an SVG that crops and rescales the scene — busnight shipped cropped before the guards existed. `slopmax2.checked(..., page=True)` (used by `cmd_bg`), `lineart.line_art_bg`, and the uniform-render check in both engines now fail loudly. Verify the shipped artifact (`bg.png` at 1280×960), never a compare image alone: `lineart.compare` fit-pages both panels, which normalized away exactly this defect once.
+
+A stale extracted folder (`<zip name>/` beside the zip, from Archive Utility) masquerades as "the build is old" — the IDE happily keeps showing it. Check mtimes and zip-vs-disk sha before debugging.
 
 ## Where a finished scene goes
 

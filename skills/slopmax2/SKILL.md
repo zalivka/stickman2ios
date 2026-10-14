@@ -21,6 +21,8 @@ Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. T
 
 **Nothing exists to trace** (a mug, a hat, a new creature): use `draw`, not `item`. The script is data — `NAME`, `W`, `H`, `JOINT`, `EDGE`, `parts()`, optional `underlay(hand)` / `details(hand)` — and `itemkit.py` does the rest. Do not write a per-job `build.py` with its own `poly`/`disc`/zip code; those copies are what this replaced. Worked examples in `out/`: `beer_mug` (handle as underlay), `shotgun`, and `corvette` (curvy vehicle, the reference). The part rules, the vehicle recipe, and the two failure modes lint does not catch (a shallow part rejected as `expected compact`; a sub-12 px stroke dying at render time) are in [slopmax reference](../slopmax/reference.md), "Hand-drawn item".
 
+**The picture is line art (strokes on one paper colour) or a full-colour cartoon**: `bg` is the wrong tool — `regions()` turns curvy strokes into disconnected sausages, and a dark still fails the colour floor. Those go through `lineart.line_art_bg` or a flatten-composition `build.py`; the route table, per-picture ink tests, bridge/fade rules, object removal, and the canvas-contract guards are in [slopmax reference](../slopmax/reference.md), "Backgrounds from a picture". Worked `build.py` examples (`out/redface`, `out/lineflower`, `out/whale`, `out/busnight`) live on the working machine only — `out/` is git-ignored.
+
 `pack:item` resolves `newstickman` or `zalivka.newstickman` to exactly one `at_elements/packs/*.atp`, then reads `items/<item>.ati`.
 
 Options:

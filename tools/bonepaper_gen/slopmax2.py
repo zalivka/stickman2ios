@@ -202,7 +202,16 @@ def regions(png, merge):
     return shapes
 
 
-def checked(shapes, size, label):
+def checked(shapes, size, label, page=False):
+    """Lint a shape list; for page builds, assert the page contract up front.
+
+    Page SVGs (page_svg) write a PAGE viewBox: a build that traces a
+    different-sized canvas gets an SVG whose window crops and rescales the
+    scene. Bones are built on their own padded canvas and pass page=False.
+    """
+    if page and size != PAGE:
+        raise SystemExit(f"{label}: canvas is {size[0]}x{size[1]}, page is {PAGE[0]}x{PAGE[1]}; "
+                         "run fit_page (or build at PAGE) before tracing")
     plans, issues = shape_lint.lint([(color, geom) for _, color, geom in shapes], size)
     fatal = [issue for issue in issues if issue.fatal]
     warns = [issue for issue in issues if not issue.fatal]
@@ -749,7 +758,7 @@ def cmd_bg(args):
     shapes = [inset(item) for item in shapes if item is not page]
     shapes = [item for item in shapes if item is not None]
     label = output.stem
-    checked(shapes, PAGE, f"{label} paper={paper}")
+    checked(shapes, PAGE, f"{label} paper={paper}", page=True)
     tracer.brush_svg(work, shapes, seed=seed_for(label))
     scene = tracer.brush_svg.scene
     if lines:
@@ -763,6 +772,13 @@ def cmd_bg(args):
     if "#FF00B4" in svg:
         raise SystemExit("sentinel left in the background")
     png = rasterize(svg, w * 2, h * 2)
+    # The SVG window is PAGE: shapes traced from another canvas would crop
+    # here. A solid-uniform render also means the trace produced no content.
+    corners = [png.getpixel(p) for p in ((0, 0), (png.width - 1, 0), (0, png.height - 1), (png.width - 1, png.height - 1))]
+    from PIL import Image as _Image
+    extrema = _Image.fromarray(np.array(png)).convert("RGB").getextrema()
+    if all(v[1] - v[0] < 8 for v in extrema):
+        raise SystemExit(f"{label}: render is a uniform colour; the scene content was lost")
     (output.parent / "bg.svg").write_text(svg)
     png.save(output.parent / "bg.png")
     thumb = cover_thumb(png)
