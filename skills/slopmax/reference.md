@@ -299,6 +299,28 @@ A picture can be both: filled hair, thick brow wedges and pupils AND thin face/g
 
 Verify features against the source with per-element ink budgets or side-by-side ASCII maps of the masks — whole-image metrics hid every one of these defects. `fit_page` RELOCATES pixels (glasses: 507×605 got 150 columns per side, then ×0.793): probe coordinates must be in fitted-page space, not source space, or the probes inspect the wrong pixels and every measurement lies.
 
+### Pale wide-brush hatching for regions and skin (watercolor / marker wash)
+
+Flat vector fills (`_stamp` with solid `<path fill=...>`) look like mechanical sticker cutouts when placed on line art. Replacing solid fills with parallel pale wide-brush strokes gives an organic marker / watercolor wash where paper texture and overlap tones breathe through:
+
+1. **Hatching generator**:
+   - Rotate the polygon by an angle (e.g. \(-20^\circ\) for hair, \(+25^\circ\) for skin so contrasting layers slant oppositely).
+   - Slice the rotated polygon with horizontal test lines spaced by `spacing` (e.g. 13–16 px).
+   - Intersect with the polygon, alternating scanline directions (left-to-right, right-to-left) to mimic natural continuous hand shading.
+   - Rotate back to canvas space.
+2. **Sub-SLOP segment guard**:
+   - Every hatch line fragment must satisfy `part.length >= shape_lint.SLOP + 1` (≥ 13 px). Slicing concave shapes or jagged hair tips produces tiny corner slivers (3–6 px) that fatally abort the hand runner (`stroke shorter than slop`).
+3. **Brush & Opacity**:
+   - Broad brush: `size = 18..22` px.
+   - Low opacity: `hand.opacity = 0.30..0.45`, `jitter = 0.5..0.6`. Multiple passes build up translucent marker saturation at overlaps while single passes let paper show through.
+4. **Order of layers**:
+   - Pale washes (skin, large tints) go **first** (underneath), followed by dark hatched regions (hair), followed by linework / centre-line strokes. Facial features (eyes, lashes, brows, wrinkles) and glasses rims stay crisp on top.
+5. **Silhouette enclosure for unclosed line art (skin/face)**:
+   - Line art rarely has a closed polygon around skin: the jaw/neck/collar is open at the bottom, and hairline/ears have stroke breaks.
+   - Bridge specific open gaps with synthetic line segments on an ink mask copy (e.g. jaw-to-chin bridge and collar bottom).
+   - Invert outside flood-fill to get the enclosed silhouette.
+   - Subtract the hair mask trimmed to `MaxFilter(3)` (not `MaxFilter(7)`, which bites into the upper forehead) and clamp to the actual hairline (`y >= 50`, not arbitrary brow cutoffs like `y >= 150` which leaves the forehead white).
+
 ### Removing an object from a flatten build (whale)
 
 Wave stripes shared exact palette colours with the whale body (`(103,198,252)` spans both), so no colour test inside a bounding box separates them. What separates them is topology: flood the page borders through non-ink pixels; every blue or pink pixel reachable from outside is water. Erase dark pixels per COMPONENT, never per pixel — the whale outline touches both its interior and the water, so per-pixel rules bite slits into it, and a bitten shape dies later as `FATAL loop never gets 12 px` (a 107 px crescent). Keep a component that borders the interior; drop one that only borders water. Water pockets erased from between belly plates leave notches: close the silhouette (Max31→Min31) and repaint each closed-in notch with its surrounding colour, iterating — one close only seals a gulf's mouth, each repainted ring lets the next close reach deeper. Lines whose fills vanished become ink-on-white and the caption rule drops them by itself: whiten the fills before `ink_strokes` runs.
