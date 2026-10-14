@@ -269,6 +269,7 @@ Three routes pick by content, all in `tools/bonepaper_gen` with `.venv/bin/pytho
 | Flat-colour regions (bay, meme) | `slopmax2.py bg` plain or `--flatten` | see slopmax2 SKILL.md |
 | Line art: strokes on one paper colour | centre-line trace, `lineart.line_art_bg` | the picture's `build.py` is data (`out/redface`, `out/lineflower`) |
 | Full-colour cartoon | flatten composition in a `build.py` | `out/whale`, `out/busnight` (local only) |
+| Line art WITH solid areas (hair, brows, pupils) | hybrid split in a `build.py` | `out/glasses` (local only) |
 
 `regions()` is never the route for curvy line art: every stroke blob is a limb brushed along its rotated-rect axis, so wiggly strokes come out as disconnected straight sausages.
 
@@ -283,6 +284,20 @@ Three routes pick by content, all in `tools/bonepaper_gen` with `.venv/bin/pytho
 | Bridge gates | Endpoints ≤ 2.5 px apart merge unconditionally (`TOUCH`): at junctions the 4-point direction window is meaningless, and a visible "gap" is usually two strokes stopping 1 px short. Farther pairs need ≥ 0.65 cosine on both sides. A 14 px gate at cosine 0.25 chains eye → brow → hair into one line across the face: closeness is not continuity. |
 | Faded marker strokes | The mask ends where the fade begins while the visible line runs on. Extending the whole mask fattens every stroke and welds parallel strands (redface: +5350 px, mush everywhere). `FADE` walks each raw-skeleton END outward through the fade band instead (28 px total), aborting on direction change: ends move, strokes never widen. |
 | Coverage metrics lie | "Fraction of the visible line within 6 px of a centre-line" went 0.9949 → 0.9997 while the picture got worse: the metric sees presence, not extra strokes or welds. Score candidate fixes on the rendered `bg.png` itself (zoomed crops of it), never on a derived score alone. |
+
+### Hybrid: solid areas plus strokes (glasses)
+
+A picture can be both: filled hair, thick brow wedges and pupils AND thin face/glasses strokes. Neither route alone works — the centre-line trace scribbles a solid area into a parallel-line lattice; the region trace brushes thin strokes as disconnected sausages. Split by EROSION DEPTH (how many 3×3 erosions a pixel survives = local half-width), not by a pass/fail erosion bar: `depth >= 7` is a region core, grown back `MaxFilter(5)`, everything else stroke. What the glasses run got wrong first, in order:
+
+| Wrong attempt | Symptom | Rule |
+|---|---|---|
+| Pass/fail erosion `MinFilter(11)` (bar 5 px) | brows, half-width ~5, classified as regions → fill + fat outline blobs | the bar must exceed the THICKEST stroke's half-width, and line art thickness varies 2–13 px: one bar cannot pass/fail it. Depth sorts continuously instead. |
+| Region grow `MaxFilter(21)` (+10 px) | pupils (25 px) swelled to ~45 px, "huge and outside the eyes" | grow recovers only the antialias fringe: +2 px (`MaxFilter(5)`). The core already came from depth, it needs no swelling. |
+| Fixed 14 px region outline | a 25 px pupil read as ~39 px | outline is a wobble trim, not a fatten: `0.15 × short side`, floor 3. Only big shapes (short ≥ 70, hair) keep a hefty outline. |
+| Stroke width fixed 4.0, or per-blob max | 2 px lashes drawn at 7.3 px (the max of the chain they glued to) | width is `area / run length + 1.0` per SKELETON RUN, clamped 2–8. Chains inherit runs, so split a chain where width jumps ≥ 2 px between consecutive runs. |
+| Grow clipped to `& ink` only | (latent) a donut's hole floods when a grown disc bridges the gap | constrain the grow to the seed's own ink island (`tracer.components` label). `& ink` alone does not stop a disc from landing on the FAR side of a hole. |
+
+Verify features against the source with per-element ink budgets or side-by-side ASCII maps of the masks — whole-image metrics hid every one of these defects. `fit_page` RELOCATES pixels (glasses: 507×605 got 150 columns per side, then ×0.793): probe coordinates must be in fitted-page space, not source space, or the probes inspect the wrong pixels and every measurement lies.
 
 ### Removing an object from a flatten build (whale)
 

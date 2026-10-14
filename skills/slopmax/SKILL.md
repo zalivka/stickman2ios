@@ -43,6 +43,8 @@ The tracer is `regions()` in `bluehairsvg/build.py`. Do not put Potrace, vtracer
 
 A raster is a usable input only when it is flat colour. A photo or soft shading splits into one band per shade at merge 36, and each band gets its own outline. Build a picture like that from shapes instead. `out/storypic` does that and calls `brush_svg` once.
 
+Line art with solid areas (hair, brows, pupils) needs a hybrid: erosion-depth split into fill regions and centre-line strokes. Route table and the wrong-attempt list (thickness bars, grow width, outline and per-run brush sizing) are in [reference.md](reference.md).
+
 ## Partial fills
 
 A tap recolours only the colour under the tap. Count the colours inside the outline and tap each one.
