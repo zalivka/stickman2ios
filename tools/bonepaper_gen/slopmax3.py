@@ -489,7 +489,9 @@ def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str)
     seed_spec is either 'auto' (largest interior pocket) or 'x,y' in page coords.
     """
     h, w = ink.shape
-    barrier = binary_closing(ink, structure=np.ones((45, 45), bool))
+    pad = 25
+    ink_p = np.pad(ink, pad, mode="constant", constant_values=False)
+    barrier = binary_closing(ink_p, structure=np.ones((45, 45), bool))[pad:-pad, pad:-pad]
     ys_ink, xs_ink = np.nonzero(ink)
     if len(ys_ink) == 0:
         return np.zeros_like(ink)
@@ -512,8 +514,8 @@ def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str)
         xs = np.nonzero(ink[y, :])[0]
         if len(xs) >= 2:
             row_span[y, xs.min():xs.max() + 1] = True
-    allowed = ~real_barrier & row_span
-    for _ in range(24):
+    allowed = ~real_barrier & row_span & inside_coarse
+    for _ in range(120):
         nxt = binary_dilation(interior, structure=np.ones((3, 3), bool)) & allowed
         if np.array_equal(nxt, interior):
             break
@@ -521,15 +523,18 @@ def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str)
 
     # Weld adjacent interior pockets across thin interior strokes (glasses rims,
     # nose bridge, mouth, wrinkles) so the face/body silhouette is one continuous
-    # region instead of stopping at the glasses line.
-    interior = binary_closing(interior, structure=np.ones((15, 15), bool)) & ~binary_dilation(
-        reg, structure=np.ones((3, 3), bool)
-    )
+    # region instead of stopping at the glasses line. Only for 'auto': an exact
+    # x,y seed must pick its own tight pocket BEFORE welding, or the weld merges
+    # adjacent differently-coloured fills (club brown vs face skin) into one.
+    unwelded = interior
+    if seed_spec == "auto":
+        interior = binary_closing(interior, structure=np.ones((15, 15), bool)) & ~binary_dilation(
+            reg, structure=np.ones((3, 3), bool)
+        )
 
     if seed_spec != "auto":
         sx, sy = [int(v) for v in seed_spec.split(",")]
-        comp_lab, _ = label(interior)
-        # Pick the pocket at (sx, sy) or nearest to it within 15 px
+        comp_lab, _ = label(unwelded)
         lbl = int(comp_lab[np.clip(sy, 0, h - 1), np.clip(sx, 0, w - 1)])
         if lbl == 0:
             y0, y1 = max(0, sy - 15), min(h, sy + 16)
@@ -540,7 +545,10 @@ def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str)
                 lbl = int(np.bincount(vals).argmax())
         if lbl == 0:
             raise SystemExit(f"tint seed ({sx},{sy}) did not land inside an enclosed pocket")
-        return comp_lab == lbl
+        pocket = comp_lab == lbl
+        return binary_closing(pocket, structure=np.ones((15, 15), bool)) & ~binary_dilation(
+            reg, structure=np.ones((3, 3), bool)
+        )
     return interior
 
 
@@ -615,10 +623,13 @@ def ink_budget(src_rgb: np.ndarray, bg_rgb: np.ndarray, name: str, wash: bool = 
     # under-counts source ink (thin gray rings) vs opaque hand strokes.
     a_mark = ink_hysteresis(a.astype(np.int16))
     if wash:
-        # Compare dark or gray wash marks (luma < 200), ignoring pale skin tints
-        # like #FCE4DC (luma ~234) which intentionally sit on white paper.
-        b_luma = (b.astype(np.int16) @ np.array([299, 587, 114]) // 1000)
-        b_mark = b_luma < 200
+        # Compare only dark/gray marks (luma < 120 AND low saturation): pale skin
+        # tints (#FCE4DC) and bright colour fills (club brown, cloth orange) are
+        # additive washes the source's ink mask intentionally doesn't contain.
+        b_int = b.astype(np.int16)
+        b_luma = (b_int @ np.array([299, 587, 114]) // 1000)
+        b_spread = b_int.max(axis=2) - b_int.min(axis=2)
+        b_mark = (b_luma < 105) & (b_spread < 60)
         limit = BUDGET * 1.4
         empty_out_tol = 0.25  # wide wash caps are allowed to overshoot contour into adjacent cells
     else:
@@ -648,7 +659,16 @@ def ink_budget(src_rgb: np.ndarray, bg_rgb: np.ndarray, name: str, wash: bool = 
 
 def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_budget: bool,
            tints=None, wash_color: str | None = None, slop: float = 1.0):
-    im = slopmax2.fit_page(Image.open(src).convert("RGB"))
+    # RGBA PNGs drop their alpha channel on convert("RGB"), keeping the raw RGB
+    # under transparent pixels (usually black) — that black then masquerades as
+    # paper and the ink mask finds halos around strokes instead of strokes.
+    # Composite transparency on white paper first (meme PNGs are drawn for white).
+    src_im = Image.open(src)
+    if src_im.mode in ("RGBA", "LA", "P"):
+        rgba = src_im.convert("RGBA")
+        paper_im = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        src_im = Image.alpha_composite(paper_im, rgba)
+    im = slopmax2.fit_page(src_im.convert("RGB"))
     arr_u8 = maybe_lift(np.array(im))
     arr = arr_u8.astype(np.int16)
     if im.size != PAGE:
@@ -765,7 +785,10 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
         if int(sk.sum()) == 0:
             continue
         comp_paths = [p for p in slopmax2.skeleton_paths(sk) if len(p) >= INK_MIN]
-        is_isolated_feature = len(comp_paths) == 1 and len(pixels) >= 20
+        # Feature cluster: a tiny blob (stubble patch, arm-hair ticks) is a
+        # deliberate drawing feature even when it shatters into several short
+        # paths; junction crumbs come from big stroke blobs instead.
+        is_isolated_feature = len(pixels) < 250 or (len(comp_paths) == 1 and len(pixels) >= 20)
         for path in comp_paths:
             pts = [(x + x0 + 0.5, y + y0 + 0.5) for y, x in path]
             rs = path_radii(path, radius, y0, x0)

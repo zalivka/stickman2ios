@@ -30,10 +30,10 @@ overlap tones breathe through.
 2. **Enclosed paper pockets (`--tint SPEC`)**:
    - Line art rarely has a closed polygon around skin/face: the jaw/neck is open at the bottom, hairline/ears have gaps, and interior strokes (glasses, nose bridge, mouth) subdivide the face into multiple pockets.
    - `extract_enclosed_tint_mask(ink, regions_m, seed_spec)`:
-     - Builds a temporary barrier via `binary_closing(ink, ones(45, 45))` plus a bottom-collar seal across the lowest ink row span.
+     - Builds a temporary barrier via padded `binary_closing(ink_pad, ones(45, 45))` (padding with `False` prevents `scipy.ndimage.binary_closing` border-erosion artifacts) plus a bottom-collar seal across the lowest ink row span.
      - Floods from the page borders; inverts to get `inside_coarse`.
-     - Regrows `interior` up to 24 steps inside `~binary_dilation(ink | reg, 3x3)` constrained to each row's `[min_ink_x, max_ink_x]` span so it meets the true hairline (`y >= 27`) and cheek contours without leaking out of open gaps.
-     - Welds adjacent interior pockets across thin interior strokes via `binary_closing(interior, ones(15, 15)) & ~binary_dilation(reg, 3x3)` so forehead, glasses lenses, and cheeks merge into one continuous face silhouette instead of stopping at the glasses frame.
+     - Regrows `interior` up to 120 steps inside `allowed = ~binary_dilation(ink | reg, 3x3) & row_span & inside_coarse` so narrow corridors (like a neck) fill completely without dilating `barrier` bridges out into open sky bays between separate objects (e.g. between a held stick/club and the head).
+     - For `auto`, welds adjacent interior pockets across thin interior strokes via `binary_closing(interior, ones(15, 15)) & ~binary_dilation(reg, 3x3)`. For an exact `x,y` seed, selects the unwelded connected component first (so adjacent differently-colored pockets like a brown club and pink face don't merge) and then runs the `15×15` closing on that single pocket to weld internal feature holes (mouth, nose, collarbone) so the inset buffer in `hatch_region` doesn't split the wash.
    - Painted **first** (underneath ink regions and strokes) at `opacity = 0.45, size = 30.0, spacing = 21`.
    - Syntax:
      - `--tint "#FCE4DC"` or `--tint "auto:#FCE4DC@25"` → largest enclosed pocket.
