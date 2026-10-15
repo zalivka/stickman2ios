@@ -558,6 +558,19 @@ def discover_pockets(ink: np.ndarray, reg: np.ndarray, arr: np.ndarray, min_px: 
             "mask": m,
         })
     pockets.sort(key=lambda p: p["px"], reverse=True)
+    # A white pocket whose bottom nearly reaches the drawing's ink floor is a
+    # background gap (space between legs, under arms), not skin: skin pockets
+    # sit well above the ink bottom (face bottom-gap fraction ~0.77 vs ~0.01
+    # for a between-legs gap). Mark them so --auto-tint skips the skin fill.
+    ys_ink, _ = np.nonzero(ink)
+    if len(ys_ink):
+        y_top, y_bot = int(ys_ink.min()), int(ys_ink.max())
+        span = max(1, y_bot - y_top)
+        for p in pockets:
+            if not p["is_colored"]:
+                ys_p, _ = np.nonzero(p["mask"])
+                if (y_bot - int(ys_p.max())) / span <= 0.15:
+                    p["is_background_gap"] = True
     return pockets
 
 
@@ -800,7 +813,8 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
     pockets = discover_pockets(ink, regions_m, arr, min_px=250)
     if pockets:
         for idx, p in enumerate(pockets):
-            kind = "colored" if p["is_colored"] else "white"
+            kind = "colored" if p["is_colored"] else (
+                "background-gap" if p.get("is_background_gap") else "white")
             print(f"{name}: pocket #{idx+1} seed={p['seed']} px={p['px']} src={p['src_hex']} ({kind}) angle={p['angle']:+.0f}")
 
     effective_tints = list(tints or [])
@@ -811,7 +825,7 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
             if p["is_colored"]:
                 col = remap_color(p["src_hex"], remap_rules)
                 effective_tints.append(f"{p['seed']}:{col}@{int(p['angle'])}")
-            elif p["px"] >= 800 and skin_tint.lower() != "none":
+            elif p["px"] >= 800 and skin_tint.lower() != "none" and not p.get("is_background_gap"):
                 col = remap_color(skin_hex, remap_rules)
                 effective_tints.append(f"{p['seed']}:{col}@25")
 
