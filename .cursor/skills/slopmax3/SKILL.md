@@ -28,14 +28,16 @@ Needs `scipy` (see `requirements.txt`).
 | Flat colour cartoon / logo | `slopmax2.py bg` |
 | Comic with fills + ink | `slopmax2.py bg --flatten` |
 | Line art / hybrid (hair fills + thin face strokes + washes) | **`slopmax3.py sketch`** |
+| Shaded photo of an object on white paper (`pirate_roller`) | Extract silhouette boundary + DoG internal seams → **`slopmax3.py sketch --tint`** |
 | Nothing to trace (draw from shapes) | `slopmax2.py draw` |
 
 ## Commands
 
 | Job | Command | Writes |
 |-----|---------|--------|
-| Sketch | `slopmax3.py sketch src.png -o out/name/name.zip` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `compare.png`, `edt_split.png` |
+| Sketch | `slopmax3.py sketch src.png -o out/name/name.zip` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `compare.png`, `edt_split.png`, `pockets.png` |
 | Sketch + hair wash | `slopmax3.py sketch src.png --wash -o out/name/name.zip` | same; hair-scale ink regions get pale wide-brush hatch |
+| Sketch + wash + auto pocket tint | `slopmax3.py sketch src.png --wash --auto-tint -o out/name/name.zip` | same; auto-colors all enclosed pockets from source RGB + `--skin-tint` for white pockets |
 | Sketch + wash + face tint | `slopmax3.py sketch src.png --wash --tint "#FCE4DC" -o out/name/name.zip` | same; enclosed face/body paper pocket washed under ink |
 
 Options:
@@ -44,8 +46,12 @@ Options:
 |--------|-----|
 | `--wash` | Pale wide-brush hatch (`opacity=0.32, size=26..30`) for large ink regions (`area >= 5000` or `short >= 70`) instead of solid stamp fill |
 | `--wash-color #HEX` | Colour for `--wash` strokes (default: `--ink`) |
-| `--tint SPEC` | Wash an enclosed paper pocket underneath ink: `#HEX` (auto largest pocket), `auto:#HEX@25`, or `x,y:#HEX[@angle]` (repeatable) |
+| `--auto-tint` | Zero-seed automatic pocket coloring: colors already-tinted source pockets with their source RGB along their PCA major axis, and white pockets (`>= 800 px`) with `--skin-tint` |
+| `--skin-tint #HEX` | Colour for white interior pockets when `--auto-tint` is used (default: `#FCE4DC`; pass `none` to skip white pockets) |
+| `--remap OLD:NEW` | Remap source pocket colour in `--auto-tint` mode (e.g. `--remap "#B97A57:#505050"`, repeatable, matches within RGB distance 45) |
+| `--tint SPEC` | Wash an enclosed paper pocket underneath ink: `#HEX` (auto largest pocket), `auto:#HEX@25`, or `x,y:#HEX[@angle]` (repeatable; seeds are printed to stdout and drawn on `pockets.png`) |
 | `--slop FLOAT` | Looseness of wash & region outline (`0.0` = clean, `1.0` = default, `>1.0` = wilder; alias `--sloppiness`) |
+| `--wash-opacity FLOAT` | Opacity override for tint and region wash strokes (default: `0.45` tint / `0.32` region; use `0.9` for nearly opaque marker fills) |
 | `--ink #222222` | Stroke and region outline colour |
 | `--name NAME` | Zip / log label (default: output stem) |
 | `--skip-budget` | Debug only: bypass the 8×8 ink-density gate |
@@ -77,5 +83,6 @@ Options:
 ## Do not
 
 - Write a per-picture `build.py` for line art, hybrid ink+fill, or face/hair washes — run `slopmax3.py sketch`.
+- Feed a continuous-tone shaded photo directly into `slopmax3.py sketch` — `ink_hysteresis` only sees the dark cast-shadow side as ink and drops the lit contour entirely (`pirate_roller`). Convert the object's silhouette boundary + internal DoG creases into synthetic line art first, then wash with `--tint`.
 - Pass pre-translated (`+PAD`) geometry to `tracer._stamp` — `_stamp` adds `PAD` internally (double-offset shifts pupils onto cheeks).
 - Wash small regions (`short < 70`) with a wide brush or slice un-inset polygons.
