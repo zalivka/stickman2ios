@@ -14,7 +14,7 @@ Solid pixels are `alpha > 200`.
 
 `rgb >= 240` is paper to the tracer. A white fuselage, a white blade, or a blast core disappears unless it was marked with the sentinel first. Rename that sentinel back to `#FFFFFF`. Do not leave `(255, 0, 180)` in the item.
 
-The tracer drops white (`rgb >= 240`) and black ink (`rgb <= 24`), plus a one-pixel fringe around that ink so the dark edge of a black stroke is not its own colour. Gray limbs (low saturation, peak `>= 70`) stay. A near-black outline such as `#2C2C2B` does not.
+The tracer drops white (`rgb >= 240`) and black ink (`rgb <= 24`), plus a one-pixel fringe around that ink so the dark edge of a black stroke is not its own colour. Gray limbs (low saturation, peak `>= 70`) stay. A near-black outline such as `#2C2C2B` does not. Dark saturated colours stay too (peak `>= 60` with channel spread `>= 30`: a navy suit at peak ~90 is content, not fringe).
 
 ## Colour split
 

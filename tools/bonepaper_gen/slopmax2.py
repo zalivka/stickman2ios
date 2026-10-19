@@ -29,6 +29,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
+from scipy.ndimage import distance_transform_edt, label as nd_label
 from shapely.geometry import LineString, Polygon
 
 GEN = Path(__file__).resolve().parent
@@ -134,7 +135,10 @@ def regions(png, merge):
     white = np.all(rgb >= 240, axis=2)
     peak = rgb.max(axis=2)
     gray = ((peak - rgb.min(axis=2)) < 24) & (peak >= 70)
-    solid = (alpha > 200) & ~fringe & ~white & (gray | (peak >= 110))
+    # Dark saturated colours (a navy suit, peak ~90) are content, not ink
+    # fringe: keep them when the channel spread proves they are not near-black.
+    dark_sat = (peak >= 60) & ((peak - rgb.min(axis=2)) >= 30)
+    solid = (alpha > 200) & ~fringe & ~white & (gray | (peak >= 110) | dark_sat)
     centers = color_centers(rgb, solid, merge)
     if not centers:
         raise SystemExit("no colour")
@@ -527,7 +531,10 @@ def flatten(im, colors):
     1. Ink is removed and the neighbouring colours grow over it, so text on sky
        becomes sky. Ink is luma < INK_LUMA, or INK_CONTRAST darker than the 9 px
        median around it (a JPEG outline is gray, not black), grown by 1 px for
-       the antialiased edge.
+       the antialiased edge. A large dark mass (a navy suit, a black silhouette)
+       is not ink: EDT cores with half-width >= 7 px are grown back to their
+       own ink island and kept as flat colour, so only the thin strokes around
+       and inside them are removed and redrawn.
     2. The palette is cut to `colors` entries with an octree. Median cut spends
        its entries on sky and grass and drops a small purple sail.
     3. A 7 px mode filter on palette indices erases hatching and specks.
@@ -538,6 +545,25 @@ def flatten(im, colors):
     luma = (arr @ np.array([299, 587, 114]) // 1000).astype(np.uint8)
     local = np.array(Image.fromarray(luma).filter(ImageFilter.MedianFilter(9))).astype(np.int16)
     core = (luma < INK_LUMA) | (luma.astype(np.int16) < local - INK_CONTRAST)
+    # Large dark masses are fills, not strokes (same EDT split as slopmax3's
+    # region_mask): seed half-width >= 7, grow back 6.5 on the seed's island.
+    protected = np.zeros_like(core)
+    seeds = core & (distance_transform_edt(core) >= 7.0)
+    if seeds.any():
+        islands, _ = nd_label(core)
+        labeled_seeds, n_seeds = nd_label(seeds)
+        for i in range(1, n_seeds + 1):
+            seed = labeled_seeds == i
+            if int(seed.sum()) < 12:
+                continue
+            ys, xs = np.nonzero(seed)
+            isl = islands[ys[len(ys) // 2], xs[len(xs) // 2]]
+            if isl == 0:
+                continue
+            protected |= (distance_transform_edt(~seed) <= 6.5) & (islands == isl)
+    if protected.any():
+        print(f"flatten: protected {int(protected.sum())} dark-region px from ink removal")
+    core = core & ~protected
     ink = np.array(Image.fromarray((core * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))) > 0
     if ink.all():
         raise SystemExit("the whole picture is ink")
@@ -585,8 +611,28 @@ def skeleton(mask):
     return img[1:-1, 1:-1].astype(bool)
 
 
+def prune_l_corners(sk):
+    """Remove 8-connected L-corner redundant pixels so diagonal curves have degree 2."""
+    sk = sk.copy()
+    h, w = sk.shape
+    for y, x in zip(*np.nonzero(sk)):
+        if not sk[y, x]:
+            continue
+        n = sk[y - 1, x] if y > 0 else False
+        s = sk[y + 1, x] if y + 1 < h else False
+        west = sk[y, x - 1] if x > 0 else False
+        e = sk[y, x + 1] if x + 1 < w else False
+        if (n and e and not (y + 1 < h and x > 0 and sk[y + 1, x - 1])) or \
+           (n and west and not (y + 1 < h and x + 1 < w and sk[y + 1, x + 1])) or \
+           (s and e and not (y > 0 and x > 0 and sk[y - 1, x - 1])) or \
+           (s and west and not (y > 0 and x + 1 < w and sk[y - 1, x + 1])):
+            sk[y, x] = False
+    return sk
+
+
 def skeleton_paths(sk):
     """Split a skeleton into pixel paths that end at tips and junctions; loops are walked once."""
+    sk = prune_l_corners(sk)
     pts = set(zip(*[v.tolist() for v in np.nonzero(sk)]))
 
     def around(p):
