@@ -38,6 +38,7 @@ overlap tones breathe through.
    - Syntax:
      - `--tint "#FCE4DC"` or `--tint "auto:#FCE4DC@25"` → largest enclosed pocket.
      - `--tint "350,250:#FCE4DC@-15"` → pocket containing `(350, 250)` in 640×480 page coords.
+   - A white pocket is not an interior. The 45 px close turns the paper between two strokes that nearly touch — stem and leaf, arm and body, stick and head — into a pocket, and `background-gap` only rejects pockets that reach the bottom of the drawing. Tint a pocket only when `pockets.png` shows it inside one outline. If deleting one of the two bounding strokes joins that pocket to the page background, it is the gap between them. The tulip wedges (`296,236` left of the stem, `322,309` right of it) were logged as `(white)` and are that gap.
 
 ### 2. Hatch & outline geometry rules (`hatch_region` & `sloppy_outline_strokes`)
 
@@ -46,6 +47,7 @@ Controlled by `--slop FLOAT` (`default = 1.0`, `0.0` = clean/tight, `>1.0` = loo
 1. **Controlled wide wash (`hatch_region(..., slop=1.0)`)**:
    - Uses a light inward buffer (`-0.15 * brush_size`) so wide round brush caps (`size = 26..30 px`, randomized `(1 - 0.12*slop)..(1 + 0.16*slop)×`) kiss or slightly cross the boundary without shooting far outside.
    - Scales variation with `slop`: row spacing jitter (`1 ± 0.2*slop`), endpoint jitter (`±3.0*slop px`), y-tilt (`±2.8*slop px`), midpoint bow (`±2.5*slop px`), angle wobble (`±2.2*slop°`), and stroke jitter (`0.4 + 0.55*slop`).
+   - `--tint-size < 30` is a tight fill: the brush is `min(tint_size, short * 0.72)`, the cap is inset, rows overlap, and stroke jitter drops to `0.15 + 0.25*slop`. Angle wobble does not get that extra cut, but `±2.2*0.1°` is still a ruled comb. The reviewed hand-drawn fill is `--slop 0.7` with a different `@angle` on each pocket. Strokes that share one angle stay parallel no matter the slop.
 2. **Sloppy region outline (`sloppy_outline_strokes(..., slop=1.0)`)**:
    - At `slop <= 0.05`, draws a single closed ring (`closed=True`).
    - Otherwise coarsens `geom.exterior` (`simplify(2.0 + 5.5*slop)`), perturbs control points (`±4.5*slop px`), splits the perimeter into 3 overlapping open arcs with `(2.0*slop)..(7.0*slop) px` tangent tail overshoots, and draws them with `jitter = 0.8 + 1.4*slop` so the border looks loosely hand-sketched.
@@ -69,6 +71,33 @@ To convert a clean object photo into a `slopmax3` sketch + wash:
    - **Outer contour**: `sil & ~binary_erosion(sil, ones(5, 5))` (5 px wide → EDT half-width `2.5` → crisp `size = 5.0` stroke).
    - **Internal structural seams**: inside `binary_erosion(sil, ones(6, 6))`, threshold Difference of Gaussians (`gaussian_filter(luma, 4.0) - gaussian_filter(luma, 1.0) >= 7.5`) and keep connected components `>= 60 px` so wood grain noise is ignored while turned-wood collar grooves survive.
 4. **Run `slopmax3.py sketch`** on the synthetic line-art PNG with two `--tint` washes along the object's main axis (`@-26` / `@-24`) using the photo's median object tones and `--skip-budget` (since the source is a synthetic contour).
+
+## Flat fills that must stay fills
+
+On white paper the ink core is `luma < 55`. Any `luma < 90` pixel connected to that core is ink too. A fill darker than that, sharing the outline stroke, welds to the stroke and is stamped black. It never shows up as a colored pocket, so `--tint` cannot paint it.
+
+- `#4a3428` (luma ~57) and `#6b4226` (luma ~82) vanished this way. `#8d5a32` (luma ~101) and `#c4956a` stayed pockets.
+- A second dark mark inside the same outline (a `#2a1e18` char, two coal strokes stacked) joins the same blob. A core that should only shift the pocket median is `stroke="none"`.
+- SVG `opacity` does not survive rasterization as a pocket. `#888` at `opacity="0.3"` on white becomes near-white and is logged `(white)` or missed. Bake the fade into RGB: `255*(1-a) + gray*a`.
+
+`painted 0` after a pocket was printed means the hatch was discarded. `_wash_keys` drops reach `< 15` px and `hatch_region` drops length `< 13` px. A coal or thin log whose long axis is shorter than that paints nothing even though the seed is right. Point `@angle` along the long axis, or enlarge the shape. A brush bigger than the short side insets the pocket empty: a ~23 px-tall log painted 0 at `--tint-size 14` and painted at 8.
+
+The wash exists only inside closed ink. Deleting the source stroke to hide an outline deletes the pocket. Sketch with the stroke, then remove the `<polyline stroke="#222222">` you do not want from `bg.svg` and re-raster (`rsvg-convert`). The wash strokes are already underneath.
+
+`glue_chains` writes one polyline for ink that touches. A log outline that touches a puff is one `points` list: the wood run, then the climb into the smoke. Dropping that polyline because its bbox enters the smoke deletes the log. Split the point list on the boundary and keep the run that stays on the wood (on the smoke sheet that was `y >= 340` in padded SVG coords).
+
+`--tint` specs contain `#`. In zsh an unquoted value is a comment, and argparse rejects a single token `"--tint 320,200:#C4956A@4"`. Pass two arguments, `--tint` and `320,200:#C4956A@4`, from a list rather than an unquoted shell variable.
+
+## Deliver the strokes on transparency
+
+Tracing needs the white page. `bg.svg` starts with `<rect x="40" y="40" width="640" height="480" fill="#FFFFFF"/>`, and `bg.png` is that page rasterized. That PNG is the proof sheet, not the sprite.
+
+Anything that will be shown off white paper — an `.ati` bone bitmap, a sticker, a gif on a colored scene — is rasterized from the strokes alone:
+
+1. Delete the `#FFFFFF` paper rect.
+2. `rsvg-convert -f png -b none`. The stroke edge is paint color at partial alpha, not paint blended into white.
+
+Do not composite onto white and then erase near-white pixels. A cutoff of `rgb >= 250` keeps `(250,250,249)` fully opaque. On a dark canvas that one pixel is a white rim around every puff and every black outline. The edge was already mixed with white in the bitmap, so no later threshold can recover the paint color.
 
 ## Ink budget gate (`ink_budget`)
 
