@@ -69,6 +69,17 @@ enum ThumbCache {
         }
     }
 
+    /// Drops a user pack's logo and item thumbs after that pack is deleted.
+    static func drop(packName: String) {
+        lock.lock()
+        let logo = "logo:" + packName
+        let chooser = "chooser:" + packName + ":"
+        images = images.filter { $0.key != logo && !$0.key.hasPrefix(chooser) }
+        failures = failures.filter { $0.key != logo && !$0.key.hasPrefix(chooser) }
+        toasted = toasted.filter { $0 != logo && !$0.hasPrefix(chooser) }
+        lock.unlock()
+    }
+
     private static func dropChooserCustoms() {
         lock.lock()
         images = images.filter { !$0.key.hasPrefix("chooser:@:") }

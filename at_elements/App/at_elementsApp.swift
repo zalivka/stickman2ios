@@ -114,8 +114,12 @@ private struct ManifestBootView: View {
                     try IncomingScene.importURL(url)
                     Analytics.event("entry_saved")
                     showToast("Scene copied")
+                case InstalledPacks.ext:
+                    let pack = try await IncomingPack.importURL(url)
+                    Analytics.event("entry_pack")
+                    showToast("Installing \(pack.name), version \(pack.version)")
                 default:
-                    showToast("This file is not a scene (.ats) or an item (.ati).")
+                    showToast("This file is not a scene (.ats), an item (.ati), or a pack (.atp).")
                 }
             } catch {
                 showToast(ItemLoadError.text(error))

@@ -21,6 +21,7 @@ nonisolated final class Manifest: @unchecked Sendable {
     private var bootReloadStarted = false
     private var packsByName: [String: Pack] = [:]
     private var itemsByFullName: [String: Item] = [:]
+    private var userPackNames: Set<String> = []
     private var customsObserver: NSObjectProtocol?
 
     private init() {
@@ -107,8 +108,26 @@ nonisolated final class Manifest: @unchecked Sendable {
             let ms = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
             BootLog.say("obtain \(name) \(ms)ms items=\(loaded[name]!.items.count)")
         }
+        var userPacks = Set<String>()
+        var failed: [String] = []
+        for url in InstalledPacks.archives() {
+            let name = url.deletingPathExtension().lastPathComponent
+            if loaded[name] != nil {
+                print("manifest: skipping user pack \(name), bundled name")
+                continue
+            }
+            print("manifest: obtaining user \(name)")
+            do {
+                loaded[name] = try obtainUserPack(url)
+                userPacks.insert(name)
+            } catch {
+                print("manifest: skipping user pack \(name): \(error)")
+                failed.append(name)
+            }
+        }
         loaded[Pack.customName] = obtainCustomPack()
-        onPacksReloaded(loaded)
+        onPacksReloaded(loaded, userPacks: userPacks)
+        toastLoadFailures(failed)
         let count = packs().count
         print("manifest: reloaded \(count) pack(s), \(countItems()) item(s)")
         for pack in packs() {
@@ -126,6 +145,20 @@ nonisolated final class Manifest: @unchecked Sendable {
             AssetTemplates.prepare()
         }
         print("manifest: requestReloadPack \(name)")
+        if InstalledPacks.contains(name) {
+            do {
+                let pack = try obtainUserPack(InstalledPacks.file(sysName: name))
+                lock.lock()
+                userPackNames.insert(name)
+                lock.unlock()
+                onPackUpdated(name, pack)
+                print("manifest: updated \(name) \"\(pack.title)\" items=\(pack.items.count)")
+            } catch {
+                print("manifest: skipping user pack \(name): \(error)")
+                toastLoadFailures([name])
+            }
+            return packs().count
+        }
         let pack = obtainBundlePack(ExternalPack.bundleArchive(name))
         onPackUpdated(name, pack)
         print("manifest: updated \(name) \"\(pack.title)\" items=\(pack.items.count)")
@@ -201,6 +234,10 @@ nonisolated final class Manifest: @unchecked Sendable {
         if item.packName == AssetTemplates.packName {
             return try AssetTemplates.itemData(item.systemName)
         }
+        if isUserPack(item.packName) || InstalledPacks.contains(item.packName) {
+            let zip = try InstalledPacks.read(InstalledPacks.file(sysName: item.packName), packName: item.packName)
+            return try ZipStore.dataAtiThrowing(file: "\(item.systemName).ati", in: zip)
+        }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(item.packName))
         return try ZipStore.dataAtiThrowing(file: "\(item.systemName).ati", in: zip)
     }
@@ -220,38 +257,92 @@ nonisolated final class Manifest: @unchecked Sendable {
                 fatalError("Manifest could not read \(url.path): \(error)")
             }
         }
+        if isUserPack(packName) || InstalledPacks.contains(packName) {
+            let zip = try InstalledPacks.read(InstalledPacks.file(sysName: packName), packName: packName)
+            return try ZipStore.dataThrowing(named: "logo.png", in: zip)
+        }
         let zip = ExternalPack.mappedZip(ExternalPack.bundleArchive(packName))
         return try ZipStore.dataThrowing(named: "logo.png", in: zip)
+    }
+
+    static func parsePack(zip: Data, packName: String) throws -> Pack {
+        let meta = try PackMeta.parse(ZipStore.dataThrowing(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
+        if meta.mSysName != packName {
+            throw ZipError(message: "Manifest \(packName).atp meta.mSysName '\(meta.mSysName)' != '\(packName)'")
+        }
+        let translations = try PackTranslator.load(from: zip, packName: packName)
+        let parsed = try ManifestXML.parse(
+            ZipStore.dataThrowing(named: "manifest.xml", in: zip),
+            packName: packName,
+            translations: translations,
+            archive: zip
+        )
+        return Pack(
+            name: packName,
+            humanName: meta.mHumanName,
+            version: meta.version,
+            defScale: parsed.defScale,
+            editableItems: parsed.editableItems,
+            useCommonBg: parsed.useCommonBg,
+            items: parsed.items,
+            translations: translations
+        )
+    }
+
+    /// Same structural checks as install. A throw here skips this pack and leaves the others loading.
+    static func validateUserPack(zip: Data, packName: String) throws -> Pack {
+        let names = try ZipStore.namesThrowing(in: zip)
+        for required in ["meta.txt", "manifest.xml", "translate_en.xml", "logo.png"] {
+            if !names.contains(required) {
+                throw ZipError(message: "missing \(required)")
+            }
+        }
+        let pack = try parsePack(zip: zip, packName: packName)
+        let logo = try ZipStore.dataThrowing(named: "logo.png", in: zip)
+        _ = try PNGImage.loaded(from: logo, name: "\(packName)/logo.png")
+        for item in pack.items {
+            let ati = try ZipStore.dataAtiThrowing(file: "\(item.systemName).ati", in: zip)
+            let atiNames = try ZipStore.namesThrowing(in: ati)
+            if !atiNames.contains("model.xml") {
+                throw ZipError(message: "item '\(item.systemName)' has no model.xml")
+            }
+        }
+        return pack
     }
 
     private func obtainBundlePack(_ url: URL) -> Pack {
         let packName = url.deletingPathExtension().lastPathComponent
         let zip = ExternalPack.mappedZip(url)
         do {
-            let meta = try PackMeta.parse(ZipStore.dataThrowing(named: "meta.txt", in: zip), source: "\(packName)/meta.txt")
-            if meta.mSysName != packName {
-                throw ZipError(message: "Manifest \(url.lastPathComponent) meta.mSysName '\(meta.mSysName)' != '\(packName)'")
-            }
-            let translations = try PackTranslator.load(from: zip, packName: packName)
-            let parsed = try ManifestXML.parse(
-                ZipStore.dataThrowing(named: "manifest.xml", in: zip),
-                packName: packName,
-                translations: translations,
-                archive: zip
-            )
-            return Pack(
-                name: packName,
-                humanName: meta.mHumanName,
-                version: meta.version,
-                defScale: parsed.defScale,
-                editableItems: parsed.editableItems,
-                useCommonBg: parsed.useCommonBg,
-                items: parsed.items,
-                translations: translations
-            )
+            return try Self.parsePack(zip: zip, packName: packName)
         } catch {
             // bundled pack: a failure here ships broken, fires on first debug run
             fatalError("Manifest pack '\(packName)' is broken: \(error)")
+        }
+    }
+
+    private func obtainUserPack(_ url: URL) throws -> Pack {
+        let packName = url.deletingPathExtension().lastPathComponent
+        if !InstalledPacks.isPackSysName(packName) {
+            throw ZipError(message: "mSysName '\(packName)' is not a pack name")
+        }
+        let zip = try InstalledPacks.read(url, packName: packName)
+        return try Self.validateUserPack(zip: zip, packName: packName)
+    }
+
+    private func isUserPack(_ name: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return userPackNames.contains(name)
+    }
+
+    private func toastLoadFailures(_ names: [String]) {
+        if names.isEmpty {
+            return
+        }
+        let message = "Could not load \(names.joined(separator: ", "))"
+        DispatchQueue.main.async {
+            ToastCenter.show(message)
         }
     }
 
@@ -334,9 +425,10 @@ nonisolated final class Manifest: @unchecked Sendable {
         return false
     }
 
-    private func onPacksReloaded(_ content: [String: Pack]) {
+    private func onPacksReloaded(_ content: [String: Pack], userPacks: Set<String>) {
         lock.lock()
         packsByName = content
+        userPackNames = userPacks
         itemsByFullName = [:]
         for pack in content.values {
             index(pack)

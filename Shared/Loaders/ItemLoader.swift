@@ -11,6 +11,7 @@ struct ItemLoadError: Error, CustomStringConvertible {
         if let item = error as? ItemLoadError { return item.message }
         if let missing = error as? MissingManifestItem { return missing.message }
         if let scene = error as? SceneLoadError { return scene.message }
+        if let pack = error as? IncomingPack.Failure { return pack.description }
         if let zip = error as? ZipError { return zip.message }
         let text = String(describing: error)
         if text.isEmpty { return "Item load failed" }
@@ -91,7 +92,7 @@ enum PNGImage {
         }
     }
 
-    static func loaded(from data: Data, name: String) throws -> CGImage {
+    nonisolated static func loaded(from data: Data, name: String) throws -> CGImage {
         guard let provider = CGDataProvider(data: data as CFData) else {
             throw ItemLoadError("PNGImage '\(name)' has no data provider")
         }
@@ -131,6 +132,11 @@ struct ZipError: Error, CustomStringConvertible {
 nonisolated enum ZipStore {
     static let store: UInt16 = 0
     static let deflate: UInt16 = 8
+    /// Declared uncompressed size of one entry.
+    static let maxEntryUncompressed = 1024 * 1024 * 1024
+    /// Sum of declared uncompressed sizes.
+    static let maxTotalUncompressed = 1024 * 1024 * 1024
+    static let maxEntries = 4000
 
     /// False when the bytes have no zip end-of-central-directory record.
     static func isArchive(_ data: Data) -> Bool {
@@ -271,11 +277,20 @@ nonisolated enum ZipStore {
         if cdOffset < 0 || cdOffset >= zip.count || cdEntries <= 0 {
             throw ZipError(message: "ItemLoader zip central directory invalid")
         }
+        if cdEntries > maxEntries {
+            throw ZipError(message: "ZipStore archive has \(cdEntries) entries")
+        }
         var cursor = cdOffset
         var result: [Entry] = []
+        var seen = Set<String>()
+        var totalUncompressed = 0
         for _ in 0..<cdEntries {
             if try zip.u32(cursor) != 0x02014b50 {
                 throw ZipError(message: "ItemLoader zip central directory signature missing")
+            }
+            let flags = try zip.u16(cursor + 8)
+            if flags & 1 != 0 {
+                throw ZipError(message: "ZipStore archive is password-protected")
             }
             let method = try zip.u16(cursor + 10)
             let compressed = Int(try zip.u32(cursor + 20))
@@ -286,6 +301,25 @@ nonisolated enum ZipStore {
             let localOff = Int(try zip.u32(cursor + 42))
             let entryName = try zip.string(cursor + 46, nameLen)
             cursor += 46 + nameLen + extraLen + commentLen
+            if method != store && method != deflate {
+                throw ZipError(message: "ZipStore entry '\(entryName)' method \(method) is not STORE or DEFLATE")
+            }
+            if entryName.isEmpty || entryName.hasPrefix("/") || entryName.contains("\\")
+                || entryName.split(separator: "/", omittingEmptySubsequences: false).contains("..")
+            {
+                throw ZipError(message: "ZipStore refuses entry '\(entryName)'")
+            }
+            if seen.contains(entryName) {
+                throw ZipError(message: "ZipStore duplicate entry '\(entryName)'")
+            }
+            seen.insert(entryName)
+            if uncompressed > maxEntryUncompressed {
+                throw ZipError(message: "ZipStore entry '\(entryName)' uncompressed size \(uncompressed)")
+            }
+            totalUncompressed += uncompressed
+            if totalUncompressed > maxTotalUncompressed {
+                throw ZipError(message: "ZipStore archive uncompressed size \(totalUncompressed)")
+            }
             result.append(
                 Entry(
                     name: entryName,
@@ -344,6 +378,9 @@ nonisolated enum ZipStore {
     private static func inflate(_ packed: Data, uncompressedSize: Int) throws -> Data {
         if uncompressedSize <= 0 {
             throw ZipError(message: "ItemLoader deflate uncompressed size \(uncompressedSize)")
+        }
+        if uncompressedSize > maxEntryUncompressed {
+            throw ZipError(message: "ZipStore deflate uncompressed size \(uncompressedSize)")
         }
         var dest = [UInt8](repeating: 0, count: uncompressedSize)
         let written = packed.withUnsafeBytes { src -> Int in

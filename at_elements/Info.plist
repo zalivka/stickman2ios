@@ -30,6 +30,18 @@
 				<string>zalivka.animation.ati</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Stickman Pack</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>zalivka.animation.atp</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>The app saves exported videos to your photo library.</string>
@@ -82,6 +94,27 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>ati</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/octet-stream</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Stickman Pack</string>
+			<key>UTTypeIdentifier</key>
+			<string>zalivka.animation.atp</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>atp</string>
 				</array>
 				<key>public.mime-type</key>
 				<array>

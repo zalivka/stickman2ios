@@ -42,34 +42,16 @@ struct ItemChooserPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .customItemsDidChange)) { _ in
             Task { await refreshCustomPack() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .installedPacksDidChange)) { _ in
+            Task { await refreshPacks() }
+        }
     }
 
     private var packsList: some View {
         ScrollView {
             LazyVStack(spacing: 6) {
                 ForEach(packs, id: \.name) { pack in
-                    Button {
-                        openPack(pack.name)
-                    }                     label: {
-                        VStack(spacing: 6) {
-                            if let logo = packLogo(pack.name) {
-                                Image(decorative: logo, scale: UIScreen.main.scale)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 150, height: 150)
-                            } else {
-                                Color.white.frame(width: 150, height: 150)
-                            }
-                            Text(pack.title)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color(white: 0.25))
-                                .multilineTextAlignment(.center)
-                        }
-                        .padding(6)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.white)
-                    }
-                    .buttonStyle(.plain)
+                    packTile(pack)
                 }
             }
             .padding(.horizontal, 5)
@@ -209,6 +191,66 @@ struct ItemChooserPanel: View {
         }
     }()
 
+    @ViewBuilder
+    private func packTile(_ pack: Pack) -> some View {
+        let tile = Button {
+            openPack(pack.name)
+        } label: {
+            VStack(spacing: 6) {
+                if let logo = packLogo(pack.name) {
+                    Image(decorative: logo, scale: UIScreen.main.scale)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 150, height: 150)
+                } else {
+                    Color.white.frame(width: 150, height: 150)
+                }
+                Text(pack.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(white: 0.25))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(6)
+            .frame(maxWidth: .infinity)
+            .background(Color.white)
+        }
+        .buttonStyle(.plain)
+        if InstalledPacks.contains(pack.name) {
+            tile.contextMenu {
+                Button("Delete", role: .destructive) {
+                    deletePack(pack.name)
+                }
+            }
+        } else {
+            tile
+        }
+    }
+
+    private func deletePack(_ name: String) {
+        Task {
+            do {
+                try InstalledPacks.delete(name)
+                ThumbCache.drop(packName: name)
+                _ = await Manifest.shared.requestReload()
+                NotificationCenter.default.post(name: .installedPacksDidChange, object: nil)
+                ToastCenter.show("Pack deleted")
+            } catch {
+                ToastCenter.show(ItemLoadError.text(error))
+            }
+        }
+    }
+
+    private func refreshPacks() async {
+        packs = await Manifest.shared.queryPacks(.empty())
+        if case .items(let pack, let dir) = level {
+            guard let updated = packs.first(where: { $0.name == pack.name }) else {
+                level = .packs
+                return
+            }
+            level = .items(pack: updated, dir: dir)
+        }
+    }
+
     private func openPack(_ name: String) {
         Task {
             let matched = await Manifest.shared.queryPacks(Query(name))
@@ -235,7 +277,11 @@ struct ItemChooserPanel: View {
 
     private func packLogo(_ packName: String) -> CGImage? {
         ThumbCache.imageIfPresent("logo:" + packName) {
-            PNGImage.cgImage(from: try Manifest.shared.packLogo(packName), name: "\(packName)/logo.png")
+            let data = try Manifest.shared.packLogo(packName)
+            if InstalledPacks.contains(packName) {
+                return try PNGImage.loaded(from: data, name: "\(packName)/logo.png")
+            }
+            return PNGImage.cgImage(from: data, name: "\(packName)/logo.png")
         }
     }
 

@@ -1,6 +1,6 @@
 # Error handling — post-fatalError-cleanup policy
 
-Status after the `fatalerror` branch (Oct 2026). Live `fatalError` count: **299 → 70**, all of them annotated
+Status after the `fatalerror` branch (Oct 2026). Live `fatalError` count: **299 → 71**, all of them annotated
 build-integrity keeps. Nothing reachable from user input, file content, memory pressure, or ordinary UI state
 can trap anymore.
 
@@ -20,14 +20,17 @@ human-readable `message` and is rendered verbatim into a toast at the screen bou
 | `ItemLoadError` | `ItemLoader` (`.ati` parse), `ModelXML.serialize`, `AssetsXML`, `ItemSaver.save`/`meta` | SkeletonScreen toast, editor stays open |
 | `ZipError` | `ZipStore` — every read (`namesThrowing`, `dataThrowing`, `dataAtiThrowing`) and write (`archive`) | wrapped by the loader/saver above |
 | `BackgroundStore.Failure` | `saveDrawn`, `replaceDrawn`, `deleteUser`, `archiveURL`, `BackgroundResolver.install` | BgAnimatorScreen toast "Cannot process the background …" |
-| `IncomingScene.Failure` / `IncomingItem.Failure` | open-in-from-Files import (not-a-scene, foreign pack, illegal name, read/write) | import toast |
+| `IncomingScene.Failure` / `IncomingItem.Failure` / `IncomingPack.Failure` | open-in-from-Files import (not-a-scene, foreign pack, illegal name, bad `.atp`, read/write) | import toast `Could not install {name}: …` |
 | `VideoExport.Failure` | export pipeline → `Phase.failed(.photosDenied / .exportFailed(String))` | "allow in Settings" toast + Open Settings alert |
 
 `ZipStore` has **no non-throwing readers left** — the old `names`/`data(named:)`/`contains` facades were
 deleted, so a corrupt zip physically cannot produce a silent empty result. `ZipStore.archive` also rejects
-path traversal (`..`), duplicate entries, and oversized names before writing.
+path traversal (`..`), duplicate entries, and oversized names before writing. Every read does the same
+checks before inflate allocates: password bit, method other than store/deflate, empty names, `\`, a leading
+`/`, a `..` segment, duplicate names, more than 4000 entries, a declared uncompressed entry over 1 GB, or a
+declared total over 1 GB. A user `.atp` over 1 GB on disk is rejected before it is read.
 
-Error text funnels through `ItemLoadError.text(_:)`, which unwraps all four load types so any boundary can
+Error text funnels through `ItemLoadError.text(_:)`, which unwraps the load types so any boundary can
 display any failure with one call.
 
 ### 2. Optional + fallback — resource lookups that legitimately miss
@@ -54,6 +57,9 @@ Directory scans and per-item loops log with `print` and continue:
 - `SpeedModifier.fineSpeedValues` — malformed pivot arrays (a 1-point or descending `pivot_points` JSON
   survives decode) degrade to flat 1.0× speed with a log.
 - `DemoSeeder` — a demo that fails to copy is skipped; the app still boots.
+- `Manifest.reloadAll` — one user `.atp` that fails to parse is left out of the index. The other packs,
+  including the rest of the user packs and `@`, still load. The failed names share one toast,
+  `Could not load camp.fire, other.pack`. Bundled `packs/*.atp` are not on this path.
 
 ### 4. `assertionFailure` + continue — invariant tripwires (debug-only traps)
 
@@ -83,7 +89,7 @@ if gapIndex < 0 || gapIndex >= values.count {
 }
 ```
 
-### 5. Kept `fatalError` — annotated build-integrity boundaries (70 sites)
+### 5. Kept `fatalError` — annotated build-integrity boundaries (71 sites)
 
 Everything left is **deterministic on first debug run**: it fires only if the IPA itself is broken, and no user
 action can reach it. Each site carries a comment so a future sweep doesn't "fix" it:
@@ -91,9 +97,9 @@ action can reach it. Each site carries a comment so a future sweep doesn't "fix"
 | Annotation | Count | Meaning |
 |---|---|---|
 | `// bundled resource: a failure here ships broken…` | 48 | `chrome/*.png`, `handlers/*.png`, `fonts/*.ttf`, `testdata/*`, demo packs — static assets shipped in the bundle |
-| `// bundled pack: a failure here ships broken…` | 9 | `ExternalPack` `packs/*.atp` discovery + `Manifest`/`AssetTemplates` pack boundaries — bundled packs are not user-importable |
+| `// bundled pack: a failure here ships broken…` | 9 | `ExternalPack` `packs/*.atp` discovery + `Manifest`/`AssetTemplates` pack boundaries. These sites only see the app bundle. A user `.atp` is `IncomingPack` / `validateUserPack` and is skipped, never `fatalError` |
 | `// Info.plist: a failure here ships broken…` | 5 | `CFBundleVersion`/`CFBundleShortVersionString`/bundle identifier readers |
-| `// platform precondition: Application Support always resolves…` | 4 | `FileManager.urls(.applicationSupportDirectory)` in `SceneSaver`, `CustomItems`, `BackgroundStore`, `AssetTemplates` |
+| `// platform precondition: Application Support always resolves…` | 5 | `FileManager.urls(.applicationSupportDirectory)` in `SceneSaver`, `CustomItems`, `BackgroundStore`, `AssetTemplates`, `InstalledPacks` |
 | Core Image filters ship with the OS | 2 | `SkeletonOnion` `CIColorControls`/`CIColorMatrix` |
 | Unused `init(coder:)` traps | 2 | `SpeedCurveEditor`, `UnitPropertiesPanel` — views are built in code only |
 
@@ -110,16 +116,18 @@ internal fatal because *every* caller is a bundled-static loader; the throw woul
 - **`BgAnimatorScreen` / `CameraAnimatorScreen` / `SpeedEffectsScreen` / `FullscreenPreviewScreen`** — same
   pattern: toast at the action, screen survives.
 - **`VideoExport`** — `Phase.failed` drives the Export button UI; denied photos gets an Open Settings path.
-- **Import from Files** (`IncomingScene`/`IncomingItem`) — typed `Failure` with reviewer-facing strings
-  ("This file is not a scene. It has no model.xml.").
+- **Import from Files** (`IncomingScene`/`IncomingItem`/`IncomingPack`) — typed `Failure` with reviewer-facing strings
+  ("This file is not a scene. It has no model.xml.", "Could not install camp.fire: missing manifest.xml.").
+  A pack that fails does not reload, and does not remove any other pack.
 
 ## What this buys at review
 
 - Guideline 2.1 (performance): garbage `.ats`/`.ati`, corrupt zips, deleted backgrounds, 0/1-frame scenes,
   memory pressure during export — all produce toasts or graceful degradation, never crash reports.
 - Fuzz testing (submit TODO 1.3) is unblocked: there is no crash path left for malformed input to hit.
-- The remaining 70 traps are all provably unreachable in a correctly built IPA, and each is one commented line
-  from the build step that would catch it.
+- The remaining 71 traps are all provably unreachable in a correctly built IPA, and each is one commented line
+  from the build step that would catch it. A user-installed `.atp` that fails to parse toasts its name and
+  the other packs still load.
 
 ## Adding new code — the checklist
 
