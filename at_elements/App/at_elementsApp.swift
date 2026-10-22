@@ -24,6 +24,7 @@ struct at_elementsApp: App {
         Bugsnag.start(withApiKey: "dccd548d484444458d79bcaf1857e20f")
         Analytics.boot()
         AppSettings.boot()
+        Records.boot()
         BootLog.say("App.init")
         StickmanFonts.boot()
     }

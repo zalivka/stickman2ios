@@ -219,7 +219,7 @@ final class BonePaperPlayer: ObservableObject {
         if session.worldSize < 1 {
             fatalError("BonePaperPlayer world \(session.worldSize)")
         }
-        // Recordings from before the 1024 cap replay rebased: points and sizes are canvas-relative
+        // Recordings from another world size replay rebased: points and sizes are canvas-relative
         // document pixels, so only the canvas origin moved. Times, sizes and colours are untouched.
         migratedFrom = session.worldSize == BonePaperDocument.maxSide ? nil : session.worldSize
         guard let paperHex = session.paper else {
@@ -242,7 +242,7 @@ final class BonePaperPlayer: ObservableObject {
             originY = session.canvas.originY
             offset = .zero
         } else {
-            // The sheet is centred in the world, so it moved when the world shrank.
+            // The sheet is centred in the world, so a different world size moves the origin.
             // Shift canvas-relative points onto the new origin.
             originX = document.originX
             originY = document.originY

@@ -685,7 +685,7 @@ final class UnitAssets {
         bmName: String
     ) -> EdgeAsset? {
         let safe = max(length, 1)
-        let side = min(1024, max(2, Int(ceil(safe * 2))))
+        let side = min(BonePaperDocument.maxSide, max(2, Int(ceil(safe * 2))))
         guard let bitmap = Self.emptyBitmap(width: side, height: side) else {
             return nil
         }
