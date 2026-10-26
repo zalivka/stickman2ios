@@ -14,9 +14,14 @@ struct MainPanel: View {
     static let undo = Color(red: 0, green: 0x9a / 255, blue: 0xc4 / 255)
     static let tween = Color(red: 0, green: 0xc0 / 255, blue: 0xd8 / 255)
     static let reset = Color(red: 0xf3 / 255, green: 0x54 / 255, blue: 0x54 / 255)
+    /// Android `audio_palette_accent`, dominant color of `select_music.png`.
+    static let effects = Color(red: 0, green: 0xC6 / 255, blue: 1)
 
     var onPlay: () -> Void = {}
     var playEnabled: Bool = true
+    /// Android `audio_btn_palette`: opens the sound palette column next to the rail.
+    var onEffects: (() -> Void)? = nil
+    var effectsActivated = false
     var onDraw: (() -> Void)? = nil
     var onInsert: (() -> Void)? = nil
     var onAdd: (() -> Void)? = nil
@@ -70,6 +75,16 @@ struct MainPanel: View {
                 action: onPlay
             )
             .tutorialHole(spotlightsPlay)
+            if let onEffects {
+                chromeButton(
+                    icon: effectsActivated ? Self.musicIconSel : Self.musicIcon,
+                    title: "EFFECTS",
+                    color: effectsActivated ? .white : Self.effects,
+                    activated: effectsActivated,
+                    activatedFill: Self.effects,
+                    action: onEffects
+                )
+            }
             if let onDraw {
                 chromeButton(
                     icon: Self.drawIcon,
@@ -219,10 +234,12 @@ struct MainPanel: View {
     private static let frameIcon = chromeImage("main_btn_frames")
     private static let frameIconSel = chromeImage("main_btn_frames_sel")
     private static let undoIcon = chromeImage("main_btn_undo")
+    private static let musicIcon = chromeImage("select_music")
+    private static let musicIconSel = chromeImage("select_music_sel")
     private static let tweenIcon = chromeImage("btn_tween")
     private static let resetIcon = chromeImage("btn_reset")
 
-    private static func chromeImage(_ name: String) -> CGImage {
+    static func chromeImage(_ name: String) -> CGImage {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "chrome")
             ?? Bundle.main.url(forResource: name, withExtension: "png")
         else {

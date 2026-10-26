@@ -13,6 +13,12 @@ struct FullscreenPreviewScreen: View {
     @State private var phase: Phase = .generating
     @State private var percent = 0
     @State private var generation = UUID()
+    @StateObject private var soundtrack = PreviewSoundtrack()
+
+    /// Playback clock. Reset whenever playback (re)starts.
+    @State private var playAnchor: CFTimeInterval = 0
+    /// Movie time already consumed by earlier segments of this playback.
+    @State private var playedBeforeMs: Double = 0
 
     private static let frameNumber = Color(red: 0xfd / 255, green: 0xda / 255, blue: 0x0d / 255)
     private static let frameNumberBack = Color(white: 0.16, opacity: 0.88)
@@ -27,7 +33,7 @@ struct FullscreenPreviewScreen: View {
                 canvas(movie)
                 if phase == .finished {
                     if finishesTutorial {
-                        TutorialFinishOverlay(onStart: { dismiss() }, onReplay: startPlaying)
+                        TutorialFinishOverlay(onStart: { dismiss() }, onReplay: { startPlaying() })
                     } else {
                         ReplayOverlay(text: overlayText, onTap: tapOverlay)
                     }
@@ -130,6 +136,7 @@ struct FullscreenPreviewScreen: View {
                 movie = playing
                 if phase == .playing || phase == .finished {
                     phase = .paused
+                    soundtrack.pause()
                 }
             }
         )
@@ -183,8 +190,12 @@ struct FullscreenPreviewScreen: View {
             },
             completion: { generated in
                 guard generation == token else { return }
-                movie = generated
-                startPlaying()
+                // Android merges the soundtrack before the first frame shows.
+                soundtrack.prepare(movie: generated) { hasAudio in
+                    guard generation == token else { return }
+                    movie = generated
+                    startPlaying(hasAudio: hasAudio)
+                }
             }
         )
     }
@@ -204,30 +215,53 @@ struct FullscreenPreviewScreen: View {
         switch phase {
         case .playing:
             phase = .paused
+            soundtrack.pause()
         case .paused:
-            phase = .playing
+            if let movie {
+                resume(fromIndex: movie.currentIndex)
+                soundtrack.play(fromMs: SceneAudioTimeline.storedOffsetMs(frameIndex: movie.currentIndex))
+            }
         case .generating, .finished:
             break
         }
     }
 
-    private func startPlaying() {
+    private func startPlaying(hasAudio: Bool = true) {
         guard var playing = movie else {
             assertionFailure("FullscreenPreviewScreen play with no movie")
             return
         }
         playing.currentIndex = 0
         movie = playing
+        resume(fromIndex: 0)
+        if hasAudio {
+            soundtrack.play(fromMs: 0)
+        }
+    }
+
+    /// Restart the clock so that `index` is the frame on screen now.
+    private func resume(fromIndex index: Int) {
+        playAnchor = CACurrentMediaTime()
+        playedBeforeMs = SceneAudioTimeline.exactTimeMs(frameIndex: index)
         phase = .playing
     }
 
     private func tick() {
         guard var playing = movie else { return }
-        if playing.currentIndex >= playing.frames.count - 1 {
+        let elapsed = playedBeforeMs + (CACurrentMediaTime() - playAnchor) * 1000
+        // Match the export: the last frame stays on screen for its full frameMs,
+        // so the movie ends at frameCount * frameMs, not (frameCount - 1) * frameMs.
+        if elapsed >= SceneAudioTimeline.durationMs(frameCount: playing.frames.count) {
+            playing.currentIndex = playing.frames.count - 1
+            movie = playing
             phase = .finished
+            soundtrack.stop()
             return
         }
-        playing.currentIndex += 1
-        movie = playing
+        let index = SceneAudioTimeline.index(atMs: elapsed, frameCount: playing.frames.count)
+        if playing.currentIndex != index {
+            playing.currentIndex = index
+            movie = playing
+        }
     }
 }

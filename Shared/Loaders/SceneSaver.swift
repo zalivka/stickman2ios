@@ -49,7 +49,7 @@ enum SceneSaver {
             (name: "model.xml", data: try SceneXML.serialize(scene)),
             (name: "thumb.png", data: thumbs.small),
             (name: "thumb_big.png", data: thumbs.big),
-            (name: "metadata.txt", data: try metadata(name: name))
+            (name: "metadata.txt", data: try metadata(name: name, scene: scene))
         ]
         var seenItems = Set<String>()
         for frame in scene.frames {
@@ -94,6 +94,7 @@ enum SceneSaver {
         if !scene.cameraTweens.isEmpty {
             files.append((name: CameraTweenStorage.archiveName, data: try scene.cameraTweens.encodeArchive(scene: scene)))
         }
+        files.append(contentsOf: try SceneAudioArchive.files(scene: scene))
         for font in StickmanFonts.customFontsUsed(in: scene) {
             files.append((name: "fonts/\(font.file)", data: font.data))
         }
@@ -135,6 +136,14 @@ enum SceneSaver {
             }
             bytes.append(archive)
         }
+        if !scene.audio.isEmpty {
+            guard let files = try? SceneAudioArchive.files(scene: scene) else {
+                return nil
+            }
+            for file in files {
+                bytes.append(file.data)
+            }
+        }
         return bytes
     }
 
@@ -156,7 +165,7 @@ enum SceneSaver {
         return dir
     }
 
-    private static func metadata(name: String) throws -> Data {
+    private static func metadata(name: String, scene: StickmanScene) throws -> Data {
         guard let appName = Bundle.main.bundleIdentifier, !appName.isEmpty else {
             // Info.plist: a failure here ships broken, fires on first debug run
             fatalError("SceneSaver missing bundle identifier")
@@ -174,8 +183,10 @@ enum SceneSaver {
             mAppName: appName,
             mAppVersion: appVersion,
             mContentVersion: 0,
+            // Android `SceneMetadata.audioFormat`: 1 = multiple audio bites,
+            // which is what `audio_v1/` always writes.
             audioFormat: 1,
-            speechUsed: false
+            speechUsed: scene.audio.hasSpeech
         )
         do {
             return try JSONEncoder().encode(payload)

@@ -13,7 +13,11 @@ enum JpegVideoAssembler {
         FFmpegKit.cancel()
     }
 
-    static func assemble(frameCount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+    static func assemble(
+        frameCount: Int,
+        audio: URL? = nil,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
         if frameCount < 1 {
             completion(.failure(AssemblerError.frameCount(frameCount)))
             return
@@ -43,18 +47,31 @@ enum JpegVideoAssembler {
             }
         }
         let duration = Double(frameCount) / Double(fps) + 1
-        let args = [
-            "-y",
+        var args: [String] = ["-y"]
+        if let audio {
+            if !FileManager.default.fileExists(atPath: audio.path) {
+                completion(.failure(AssemblerError.missingAudio(audio.path)))
+                return
+            }
+            args.append(contentsOf: ["-i", audio.path])
+        }
+        args.append(contentsOf: [
             "-f", "image2",
             "-framerate", "\(fps)",
             "-start_number", "0",
             "-i", pattern,
             "-c:v", "mpeg4",
             "-qscale:v", "1",
-            "-an",
-            "-t", String(format: "%.2f", duration),
-            out.path,
-        ]
+        ])
+        if audio != nil {
+            // Android `buildFFmpegCommand` adds the codec and nothing else; the
+            // length comes from `-t`. `-shortest` would cut the movie down to
+            // the merged audio, which ends earlier than the last clip.
+            args.append(contentsOf: ["-c:a", "aac"])
+        } else {
+            args.append("-an")
+        }
+        args.append(contentsOf: ["-t", String(format: "%.2f", duration), out.path])
         FFmpegKit.execute(withArgumentsAsync: args, withCompleteCallback: { session in
             guard let session else {
                 completion(.failure(AssemblerError.ffmpegFailed(-1)))
@@ -103,6 +120,7 @@ enum JpegVideoAssembler {
     enum AssemblerError: Error {
         case frameCount(Int)
         case missingFrame(String)
+        case missingAudio(String)
         case ffmpegFailed(Int)
         case missingOutput
         case photosDenied

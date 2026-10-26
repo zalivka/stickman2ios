@@ -12,6 +12,10 @@ struct SpeedEffectsScreen: View {
     @State private var generation = UUID()
     @State private var undoStack: [SpeedModifier] = []
     @State private var needsApply = false
+    /// Playback clock. Reset whenever playback (re)starts.
+    @State private var playAnchor: CFTimeInterval = 0
+    /// Movie time already consumed by earlier segments of this playback.
+    @State private var playedBeforeMs: Double = 0
     @Environment(\.dismiss) private var dismiss
 
     private enum Phase {
@@ -289,7 +293,8 @@ struct SpeedEffectsScreen: View {
         case .playing:
             phase = .paused
         case .paused:
-            phase = .playing
+            guard let movie else { return }
+            resume(fromIndex: movie.currentIndex)
         case .generating, .finished:
             break
         }
@@ -317,18 +322,32 @@ struct SpeedEffectsScreen: View {
             playing.currentIndex = 0
             movie = playing
         }
-        phase = .playing
+        resume(fromIndex: playing.currentIndex)
         needsApply = false
+    }
+
+    /// Restart the clock so that `index` is the frame on screen now.
+    private func resume(fromIndex index: Int) {
+        playAnchor = CACurrentMediaTime()
+        playedBeforeMs = SceneAudioTimeline.exactTimeMs(frameIndex: index)
+        phase = .playing
     }
 
     private func tick() {
         guard var playing = movie else { return }
-        if playing.currentIndex >= playing.frames.count - 1 {
+        let elapsed = playedBeforeMs + (CACurrentMediaTime() - playAnchor) * 1000
+        // Match the export: the last frame holds for its full frameMs.
+        if elapsed >= SceneAudioTimeline.durationMs(frameCount: playing.frames.count) {
+            playing.currentIndex = playing.frames.count - 1
+            movie = playing
             phase = .finished
             return
         }
-        playing.currentIndex += 1
-        movie = playing
+        let index = SceneAudioTimeline.index(atMs: elapsed, frameCount: playing.frames.count)
+        if playing.currentIndex != index {
+            playing.currentIndex = index
+            movie = playing
+        }
     }
 
     private static func chrome(_ name: String) -> CGImage {

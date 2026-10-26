@@ -161,6 +161,12 @@ extension View {
     func offsetLeadingIsland() -> some View {
         modifier(LeadingIslandOffset())
     }
+
+    /// Callers ignore the horizontal/bottom safe area, so the home indicator or
+    /// an iPad bottom bar would sit on top of the content. Pad by the window inset.
+    func paddingBottomSafeArea(extra: CGFloat = 0) -> some View {
+        modifier(BottomSafeAreaPad(extra: extra))
+    }
 }
 
 private struct TrailingIslandPad: ViewModifier {
@@ -192,6 +198,26 @@ private struct LeadingIslandOffset: ViewModifier {
                 IslandInsetProbe(edge: .leading) { inset in
                     if inset != leadingInset {
                         leadingInset = inset
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+    }
+}
+
+/// Bottom gap above the home indicator / iPad bottom bar. The screen ignores the
+/// bottom safe area so its canvas reaches the edge, but the chip row must not.
+private struct BottomSafeAreaPad: ViewModifier {
+    var extra: CGFloat = 0
+    @State private var inset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.bottom, max(inset, extra))
+            .background {
+                IslandInsetProbe(edge: .bottom) { value in
+                    if value != inset {
+                        inset = value
                     }
                 }
                 .allowsHitTesting(false)
@@ -235,10 +261,15 @@ private struct IslandInsetProbe: UIViewRepresentable {
 
         func report() {
             guard let window else { return }
-            let ltr = UIView.userInterfaceLayoutDirection(for: semanticContentAttribute) == .leftToRight
-            let trailing = ltr ? window.safeAreaInsets.right : window.safeAreaInsets.left
-            let leading = ltr ? window.safeAreaInsets.left : window.safeAreaInsets.right
-            let inset = edge == .trailing ? trailing : leading
+            let inset: CGFloat
+            if edge == .bottom {
+                inset = window.safeAreaInsets.bottom
+            } else {
+                let ltr = UIView.userInterfaceLayoutDirection(for: semanticContentAttribute) == .leftToRight
+                let trailing = ltr ? window.safeAreaInsets.right : window.safeAreaInsets.left
+                let leading = ltr ? window.safeAreaInsets.left : window.safeAreaInsets.right
+                inset = edge == .trailing ? trailing : leading
+            }
             guard inset != last else { return }
             last = inset
             DispatchQueue.main.async { [weak self] in

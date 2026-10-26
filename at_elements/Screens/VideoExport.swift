@@ -51,33 +51,52 @@ final class VideoExport: ObservableObject {
                             return
                         }
                         self.finish(.failed(.exportFailed(Self.failureText(error))))
-                    case .success(let count):
+                    case .success(let rendered):
                         if active.isCancelled {
                             JpegSequenceWriter.clean()
                             self.finish(.cancelled)
                             return
                         }
-                        if count < 1 {
+                        if rendered.count < 1 {
                             JpegSequenceWriter.clean()
-                            self.finish(.failed(.exportFailed("VideoExport write produced \(count) files")))
+                            self.finish(.failed(.exportFailed("VideoExport write produced \(rendered.count) files")))
                             return
                         }
-                        JpegVideoAssembler.assemble(frameCount: count) { assembleResult in
-                            Task { @MainActor in
-                                JpegSequenceWriter.clean()
-                                if active.isCancelled {
-                                    self.finish(.cancelled)
-                                    return
+                        // ffmpeg runs for seconds; Android merges on
+                        // `Schedulers.io()`, never on the main thread.
+                        let count = rendered.count
+                        let movie = rendered.movie
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let merged: URL?
+                            do {
+                                merged = try Self.mergeSoundtrack(movie)
+                            } catch {
+                                DispatchQueue.main.async {
+                                    JpegSequenceWriter.clean()
+                                    self.finish(.failed(.exportFailed(Self.failureText(error))))
                                 }
-                                switch assembleResult {
-                                case .success:
-                                    self.finish(.saved)
-                                case .failure(let assembleError):
-                                    if let assemblerError = assembleError as? JpegVideoAssembler.AssemblerError,
-                                       case .photosDenied = assemblerError {
-                                        self.finish(.failed(.photosDenied))
-                                    } else {
-                                        self.finish(.failed(.exportFailed(Self.failureText(assembleError))))
+                                return
+                            }
+                            JpegVideoAssembler.assemble(frameCount: count, audio: merged) { assembleResult in
+                                Task { @MainActor in
+                                    JpegSequenceWriter.clean()
+                                    if let merged {
+                                        try? FileManager.default.removeItem(at: merged)
+                                    }
+                                    if active.isCancelled {
+                                        self.finish(.cancelled)
+                                        return
+                                    }
+                                    switch assembleResult {
+                                    case .success:
+                                        self.finish(.saved)
+                                    case .failure(let assembleError):
+                                        if let assemblerError = assembleError as? JpegVideoAssembler.AssemblerError,
+                                           case .photosDenied = assemblerError {
+                                            self.finish(.failed(.photosDenied))
+                                        } else {
+                                            self.finish(.failed(.exportFailed(Self.failureText(assembleError))))
+                                        }
                                     }
                                 }
                             }
@@ -95,6 +114,16 @@ final class VideoExport: ObservableObject {
         stop?.cancel()
         JpegVideoAssembler.cancel()
         finish(.cancelled)
+    }
+
+    /// Android `StageAudio.mergeAudioBlocking` on the generated movie: offsets
+    /// come from generated `originFrameIndex`, not source keyframes.
+    private static func mergeSoundtrack(_ movie: StickmanScene) throws -> URL? {
+        let timed = try movie.audio.timedFiles(movie: movie)
+        if timed.isEmpty {
+            return nil
+        }
+        return try AudioMerger.merge(timed)
     }
 
     private static func failureText(_ error: Error) -> String {

@@ -1071,6 +1071,7 @@ struct StickmanScene {
     var speedModifier = SpeedModifier()
     var unitTweens = UnitTweenStorage()
     var cameraTweens = CameraTweenStorage()
+    var audio = SceneAudio()
 
     /// Android `CartoonStage.makeOneFrameStage` — one empty frame at `LARGE_L` 640×480.
     static func empty() -> StickmanScene {
@@ -1138,6 +1139,7 @@ struct StickmanScene {
         try created.refreshAttachments()
         frames.insert(created, at: insertIndex)
         currentIndex += 1
+        audio.reconcileInsert(at: insertIndex, oldFrameCount: oldCount)
         speedModifier.adjustTo(frameCount: frames.count)
         if !appendAtEnd {
             try retweenReconciled(unitTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
@@ -1168,7 +1170,8 @@ struct StickmanScene {
         }
         let landingId = frames[landingOld].id
         let oldCount = frames.count
-        var drop = Set(unique)
+        audio.reconcileDelete(deleted: unique)
+        let drop = Set(unique)
         frames = frames.enumerated().compactMap { drop.contains($0.offset) ? nil : $0.element }
         guard let next = frames.firstIndex(where: { $0.id == landingId }) else {
             throw SceneLoadError(message: "StickmanScene removeFrames lost landing id \(landingId)")
@@ -1217,6 +1220,8 @@ struct StickmanScene {
             unitAnimations[name] = copy
         }
         speedModifier.adjustTo(frameCount: frames.count)
+        // Pasted frames push later keyframes down; keep clips attached to theirs.
+        audio.shiftClips(insertedAtOrAfter: insertAt, by: source.count)
         unitTweens.clear()
         cameraTweens.clear()
         return inserted

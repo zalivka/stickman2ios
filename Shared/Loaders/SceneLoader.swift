@@ -70,6 +70,12 @@ enum SceneLoader {
         scene.unitAnimations = try loadAnimations(zip: zip, names: names, resource: resource)
         scene.unitTweens = try loadUnitTweens(zip: zip, names: names, scene: scene, resource: resource)
         scene.cameraTweens = try loadCameraTweens(zip: zip, names: names, scene: scene, resource: resource)
+        scene.audio = try SceneAudioArchive.load(
+            zip: zip,
+            names: names,
+            sceneKey: SceneAudioStorage.key(resource: resource, zip: zip)
+        )
+        try SceneAudioArchive.validate(scene: &scene)
         // GOTCHA (doc/gotchas.md): pack items live at pack/items/name.ati, not zip root.
         // Android does not embed native (no-dot) pack items; those come from the bundled .atp.
         let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }

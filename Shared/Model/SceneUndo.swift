@@ -6,13 +6,19 @@ final class SceneUndo: ObservableObject {
     static let cap = 12
 
     enum Entry {
-        case selection(frames: [StickmanFrame], tweens: UnitTweenStorage, cameraTweens: CameraTweenStorage)
+        case selection(
+            frames: [StickmanFrame],
+            tweens: UnitTweenStorage,
+            cameraTweens: CameraTweenStorage,
+            audio: [SceneAudioClip]
+        )
         case inserted(
             ids: [Int],
             currentIndex: Int,
             animations: [String: FBFAnimation],
             tweens: UnitTweenStorage,
-            cameraTweens: CameraTweenStorage
+            cameraTweens: CameraTweenStorage,
+            audio: [SceneAudioClip]
         )
         case deleted(
             frames: [StickmanFrame],
@@ -20,7 +26,8 @@ final class SceneUndo: ObservableObject {
             currentIndex: Int,
             animations: [String: FBFAnimation],
             tweens: UnitTweenStorage,
-            cameraTweens: CameraTweenStorage
+            cameraTweens: CameraTweenStorage,
+            audio: [SceneAudioClip]
         )
         case timeline(
             frames: [StickmanFrame],
@@ -28,7 +35,8 @@ final class SceneUndo: ObservableObject {
             animations: [String: FBFAnimation],
             speed: SpeedModifier,
             tweens: UnitTweenStorage,
-            cameraTweens: CameraTweenStorage
+            cameraTweens: CameraTweenStorage,
+            audio: [SceneAudioClip]
         )
         case sceneProps(
             width: CGFloat,
@@ -51,7 +59,8 @@ final class SceneUndo: ObservableObject {
         push(.selection(
             frames: try Self.cloneFrames(scene, indices: indices),
             tweens: scene.unitTweens,
-            cameraTweens: scene.cameraTweens
+            cameraTweens: scene.cameraTweens,
+            audio: scene.audio.clips
         ))
     }
 
@@ -66,7 +75,8 @@ final class SceneUndo: ObservableObject {
         push(.selection(
             frames: try Self.cloneFrames(scene, indices: indices),
             tweens: scene.unitTweens,
-            cameraTweens: scene.cameraTweens
+            cameraTweens: scene.cameraTweens,
+            audio: scene.audio.clips
         ))
         rangeBaseline = true
     }
@@ -87,7 +97,8 @@ final class SceneUndo: ObservableObject {
         currentIndex: Int,
         animations: [String: FBFAnimation],
         tweens: UnitTweenStorage,
-        cameraTweens: CameraTweenStorage
+        cameraTweens: CameraTweenStorage,
+        audio: [SceneAudioClip]
     ) {
         if ids.isEmpty {
             assertionFailure("SceneUndo commitFramesInserted empty")
@@ -98,7 +109,8 @@ final class SceneUndo: ObservableObject {
             currentIndex: currentIndex,
             animations: animations,
             tweens: tweens,
-            cameraTweens: cameraTweens
+            cameraTweens: cameraTweens,
+            audio: audio
         ))
     }
 
@@ -108,7 +120,8 @@ final class SceneUndo: ObservableObject {
         currentIndex: Int,
         animations: [String: FBFAnimation],
         tweens: UnitTweenStorage,
-        cameraTweens: CameraTweenStorage
+        cameraTweens: CameraTweenStorage,
+        audio: [SceneAudioClip]
     ) {
         if frames.isEmpty {
             assertionFailure("SceneUndo commitFramesDeleted empty")
@@ -120,7 +133,8 @@ final class SceneUndo: ObservableObject {
             currentIndex: currentIndex,
             animations: animations,
             tweens: tweens,
-            cameraTweens: cameraTweens
+            cameraTweens: cameraTweens,
+            audio: audio
         ))
     }
 
@@ -141,7 +155,8 @@ final class SceneUndo: ObservableObject {
             animations: scene.unitAnimations,
             speed: scene.speedModifier,
             tweens: scene.unitTweens,
-            cameraTweens: scene.cameraTweens
+            cameraTweens: scene.cameraTweens,
+            audio: scene.audio.clips
         ))
     }
 
@@ -150,7 +165,7 @@ final class SceneUndo: ObservableObject {
             throw SceneLoadError(message: "SceneUndo restore empty")
         }
         switch entry {
-        case .selection(let frames, let tweens, let cameraTweens):
+        case .selection(let frames, let tweens, let cameraTweens, let audio):
             rangeBaseline = false
             for src in frames {
                 guard let index = scene.frames.firstIndex(where: { $0.id == src.id }) else {
@@ -160,7 +175,8 @@ final class SceneUndo: ObservableObject {
             }
             scene.unitTweens = tweens
             scene.cameraTweens = cameraTweens
-        case .inserted(let ids, let currentIndex, let animations, let tweens, let cameraTweens):
+            scene.audio.clips = audio
+        case .inserted(let ids, let currentIndex, let animations, let tweens, let cameraTweens, let audio):
             for id in ids {
                 if !scene.frames.contains(where: { $0.id == id }) {
                     throw SceneLoadError(message: "SceneUndo inserted id \(id) missing")
@@ -173,9 +189,10 @@ final class SceneUndo: ObservableObject {
             scene.unitAnimations = animations
             scene.unitTweens = tweens
             scene.cameraTweens = cameraTweens
+            scene.audio.clips = audio
             scene.currentIndex = min(max(currentIndex, 0), scene.frames.count - 1)
             scene.speedModifier.adjustTo(frameCount: scene.frames.count)
-        case .deleted(let frames, let at, let currentIndex, let animations, let tweens, let cameraTweens):
+        case .deleted(let frames, let at, let currentIndex, let animations, let tweens, let cameraTweens, let audio):
             if at < 0 || at > scene.frames.count {
                 throw SceneLoadError(message: "SceneUndo delete restore at \(at) out of \(scene.frames.count)")
             }
@@ -190,12 +207,13 @@ final class SceneUndo: ObservableObject {
             scene.unitAnimations = animations
             scene.unitTweens = tweens
             scene.cameraTweens = cameraTweens
+            scene.audio.clips = audio
             if currentIndex < 0 || currentIndex >= scene.frames.count {
                 throw SceneLoadError(message: "SceneUndo delete restore currentIndex \(currentIndex) out of \(scene.frames.count)")
             }
             scene.currentIndex = currentIndex
             scene.speedModifier.adjustTo(frameCount: scene.frames.count)
-        case .timeline(let frames, let currentIndex, let animations, let speed, let tweens, let cameraTweens):
+        case .timeline(let frames, let currentIndex, let animations, let speed, let tweens, let cameraTweens, let audio):
             if frames.isEmpty {
                 throw SceneLoadError(message: "SceneUndo timeline restore empty")
             }
@@ -204,6 +222,7 @@ final class SceneUndo: ObservableObject {
             scene.speedModifier = speed
             scene.unitTweens = tweens
             scene.cameraTweens = cameraTweens
+            scene.audio.clips = audio
             if currentIndex < 0 || currentIndex >= scene.frames.count {
                 throw SceneLoadError(message: "SceneUndo timeline restore currentIndex \(currentIndex) out of \(scene.frames.count)")
             }

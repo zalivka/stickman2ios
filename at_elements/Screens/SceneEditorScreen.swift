@@ -31,6 +31,7 @@ struct SceneEditorScreen: View {
     @State private var previewFinishesTutorial = false
     @State private var showingCamera = false
     @State private var showingBackground = false
+    @State private var showingAudio = false
     @State private var showingSpeedEffects = false
     @State private var showingTweenRange = false
     @State private var showingTweenEasing = false
@@ -424,6 +425,9 @@ struct SceneEditorScreen: View {
         }
         .fullScreenCover(isPresented: $showingBackground) {
             BgAnimatorScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
+        }
+        .fullScreenCover(isPresented: $showingAudio) {
+            AudioScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
         }
         .fullScreenCover(isPresented: $showingSpeedEffects) {
             SpeedEffectsScreen(scene: $scene, assets: assets, backgrounds: backgrounds)
@@ -1167,6 +1171,7 @@ struct SceneEditorScreen: View {
         let animations = scene.unitAnimations
         let tweens = scene.unitTweens
         let cameraTweens = scene.cameraTweens
+        let audio = scene.audio.clips
         do {
             try scene.addFrame()
             undo.commitFramesInserted(
@@ -1174,7 +1179,8 @@ struct SceneEditorScreen: View {
                 currentIndex: currentIndex,
                 animations: animations,
                 tweens: tweens,
-                cameraTweens: cameraTweens
+                cameraTweens: cameraTweens,
+                audio: audio
             )
         } catch {
             bail(error)
@@ -1194,6 +1200,7 @@ struct SceneEditorScreen: View {
         let animations = scene.unitAnimations
         let tweens = scene.unitTweens
         let cameraTweens = scene.cameraTweens
+        let audio = scene.audio.clips
         do {
             let deleted = try indices.map { try scene.frames[$0].clone() }
             try scene.removeFrames(at: indices)
@@ -1203,7 +1210,8 @@ struct SceneEditorScreen: View {
                 currentIndex: currentIndex,
                 animations: animations,
                 tweens: tweens,
-                cameraTweens: cameraTweens
+                cameraTweens: cameraTweens,
+                audio: audio
             )
         } catch {
             bail(error)
@@ -1236,6 +1244,7 @@ struct SceneEditorScreen: View {
         let animations = scene.unitAnimations
         let tweens = scene.unitTweens
         let cameraTweens = scene.cameraTweens
+        let audio = scene.audio.clips
         do {
             let inserted = try clipboard.pasteFrames(into: &scene)
             let ids = inserted.map { scene.frames[$0].id }
@@ -1244,7 +1253,8 @@ struct SceneEditorScreen: View {
                 currentIndex: currentIndex,
                 animations: animations,
                 tweens: tweens,
-                cameraTweens: cameraTweens
+                cameraTweens: cameraTweens,
+                audio: audio
             )
         } catch {
             bail(error)
@@ -1437,6 +1447,13 @@ struct SceneEditorScreen: View {
         }
         if action == .camera {
             showingCamera = true
+        }
+        if action == .audio {
+            if scene.frames.count < 2 {
+                showToast("Add more frames first")
+                return
+            }
+            showingAudio = true
         }
         if action == .background {
             showingBackground = true

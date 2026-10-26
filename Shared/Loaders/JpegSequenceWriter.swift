@@ -63,13 +63,20 @@ enum JpegSequenceWriter {
         }
     }
 
+    /// Rendered frame count plus the generated movie it came from, so the
+    /// caller can time the soundtrack against the same interpolation.
+    struct Rendered {
+        var count: Int
+        var movie: StickmanScene
+    }
+
     static func write(
         scene: StickmanScene,
         assets: UnitAssets,
         backgrounds: BackgroundAssets,
         stop: JpegWriteStop,
         progress: @escaping (Int) -> Void,
-        completion: @escaping (Result<Int, Error>) -> Void
+        completion: @escaping (Result<Rendered, Error>) -> Void
     ) {
         if scene.frames.count < 2 {
             completion(.failure(JpegWriteError.failed(
@@ -104,7 +111,7 @@ enum JpegSequenceWriter {
                             progress: progress
                         )
                         DispatchQueue.main.async {
-                            completion(.success(count))
+                            completion(.success(Rendered(count: count, movie: movie)))
                         }
                     } catch {
                         DispatchQueue.main.async {
