@@ -12,6 +12,8 @@ description: >-
 
 # BonePaper flat (region engine)
 
+New to the three engines? [Three ways to draw a pine tree](../../doc/pine-styles/index.html) walks one scene through the region engine, `bg --comic` and the ink engine with real stage images and numbers.
+
 One command replaces the per-job `build.py` copies (`out/camera`, `out/lion`, `out/sun`, …). The brush rules, joint formula, scene-scale rules, and the hand-drawn item route are in [common reference](../bonepaper-common/reference.md). This skill only says how to run them.
 
 Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. The tracer is still `out/bluehairsvg/build.py`.

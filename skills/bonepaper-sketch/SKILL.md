@@ -12,6 +12,8 @@ description: >-
 
 # BonePaper sketch (ink engine)
 
+New to the three engines? [Three ways to draw a pine tree](../../doc/pine-styles/index.html) walks one scene through the region engine, `bg --comic` and this engine with real stage images and numbers.
+
 One command for line-art / hybrid backgrounds and marker-wash coloring. Local
 half-width comes from the **Euclidean distance transform** (`distance_transform_edt`)
 — not `MinFilter` erosion loops or `area / length` averages. Replaces per-picture
