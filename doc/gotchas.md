@@ -63,9 +63,9 @@ Android `PACK_CUSTOM_ITEMS` is `@`: not an `.atp`. `ReloadCustomPackTask` lists 
 
 Missing `fullname=` is Android’s paid lock. iOS has no IAP: every manifest item with an `.ati` is usable (`fullname` is always `pack:sname`). Do not hide or refuse insert for a missing XML `fullname`. Android chooser also lists locked items; it only skips `readOnly`. `super.pack` is the pack that actually omits `fullname` (49 of 52). Other bundled packs already stamp `fullname` on every item. Extra `.ati` files not listed in `manifest.xml` (`vk.gr1` / `vk.gr2`) stay out, same as Android.
 
-## A slopmaxed unit is drawn at the scene scale
+## A 4× retraced unit is drawn at the scene scale
 
-A slopmaxed bone is a 4× bitmap. Playback multiplies that bitmap by the scene unit `scale` (`xOffset * unit.scale`). `meta.txt` `scale` only sizes a newly dropped rest pose. Divide the scene scale by 4 as well, or the part is four times too big. A bubble (`common:sign`) has no bitmap; leave its scale. Steps and the offset formula are in [slopmax.md](slopmax.md). The slopmaxing script is `tools/bonepaper_gen/out/camera/build.py`.
+A bone redrawn by `flat.py item` is a 4× bitmap. Playback multiplies that bitmap by the scene unit `scale` (`xOffset * unit.scale`). `meta.txt` `scale` only sizes a newly dropped rest pose. Divide the scene scale by 4 as well, or the part is four times too big. A bubble (`common:sign`) has no bitmap; leave its scale. Steps and the offset formula are in [flat-item-scene.md](flat-item-scene.md).
 
 ## Bone frames share a bitmap id
 

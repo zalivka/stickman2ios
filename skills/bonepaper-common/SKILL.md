@@ -1,13 +1,16 @@
 ---
-name: slopmax
+name: bonepaper-common
 description: >-
-  Redraws Stickman bones, scenes, and backgrounds with the BonePaper sloppy
-  brush (brush_svg, jitter 0.5, brush 14). Use when the user says slopmax,
-  sloppy brush, BonePaper trace, partial fills, stars on a background, or
-  asks to redraw a bitmap bone or a shape scene into that hand-drawn look.
+  Shared BonePaper rules for the flat and ink engines: brush (brush_svg, jitter
+  0.5, brush 14), PAD 40, SAMPLE 4, the joint formula, bone and scene scale
+  rules, and what a background zip holds. Read this before bonepaper-flat or
+  bonepaper-sketch; it holds no commands of its own.
 ---
 
-# Slopmax
+# BonePaper common rules
+
+Reference only. The commands live in [bonepaper-flat](../bonepaper-flat/SKILL.md)
+(region engine) and [bonepaper-sketch](../bonepaper-sketch/SKILL.md) (ink engine).
 
 Redraw with the existing tracer. Do not reimplement the hand, and do not edit `hand.py`.
 
@@ -43,7 +46,7 @@ The tracer is `regions()` in `bluehairsvg/build.py`. Do not put Potrace, vtracer
 
 A raster is a usable input only when it is flat colour. A photo or soft shading splits into one band per shade at merge 36, and each band gets its own outline. Build a picture like that from shapes instead. `out/storypic` does that and calls `brush_svg` once.
 
-Line art with solid areas (hair, brows, pupils) needs a hybrid split into fill regions and centre-line strokes. Prefer **[slopmax3](../../.cursor/skills/slopmax3/SKILL.md)** (`slopmax3.py sketch`): EDT half-width, hysteresis ink, optional `--wash`, ink-budget gate — no per-picture `build.py`. Hatch geometry and the wrong-attempt list stay in [reference.md](reference.md).
+Line art with solid areas (hair, brows, pupils) needs a hybrid split into fill regions and centre-line strokes. Prefer **[bonepaper-sketch](../bonepaper-sketch/SKILL.md)** (`ink.py sketch`): EDT half-width, hysteresis ink, optional `--wash`, ink-budget gate — no per-picture `build.py`. Hatch geometry and the wrong-attempt list stay in [reference.md](reference.md).
 
 ## Partial fills
 

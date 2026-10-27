@@ -1,6 +1,6 @@
-# Slopmax reference
+# BonePaper common reference
 
-Collected from `doc/slopmax.md`, `doc/vectorize-bone.md`, and the drawing sections of `doc/bone-paper-recording.md`. Those files stay the long source. Read this instead of hunting them.
+Collected from `doc/flat-item-scene.md`, `doc/vectorize-bone.md`, and the drawing sections of `doc/bone-paper-recording.md`. Those files stay the long source. Read this instead of hunting them.
 
 ## Classify a bone before tracing
 
@@ -30,7 +30,7 @@ Walk the pixel-corner edges of the mask. Interior is on the left, y down. At a c
 
 `shapely` `simplify(1.8, preserve_topology=True)` removes the pixel stairs. Those stairs sit about half a pixel off the true edge, so 1.8 turns a straight side into a straight side. The bumps on the finished limbs are not from this step.
 
-A ring loses its outline. The tracer keeps a loop only when a representative point lands inside the mask, so a star's red rim and a sword's black rim are thrown away and only the centre survives. The slopmaxing script keeps the largest loop anyway. Inner colours paint over that fill, which is how the explosion stays a red rim, an orange star, and a yellow centre.
+A ring loses its outline. The tracer keeps a loop only when a representative point lands inside the mask, so a star's red rim and a sword's black rim are thrown away and only the centre survives. `flat.py` keeps the largest loop anyway. Inner colours paint over that fill, which is how the explosion stays a red rim, an orange star, and a yellow centre.
 
 ## Brush numbers
 
@@ -56,14 +56,14 @@ None of them do the colour policy above: merge across black ink, use the white s
 
 Tracing a soft or photographic raster fails either way, because quantization makes a band per shade. Draw that kind of picture from shapes (`out/storypic`).
 
-## Hand-drawn item (`itemkit.py`, `slopmax2.py draw`)
+## Hand-drawn item (`itemkit.py`, `flat.py draw`)
 
 Nothing to trace (a mug, a hat, a new creature): the picture starts as flat
 parts. `tools/bonepaper_gen/itemkit.py` holds the whole pipeline, so an item
 script is data plus three functions and no boilerplate. One command, about 1 s:
 
 ```
-.venv/bin/python slopmax2.py draw out/beer_mug/build.py
+.venv/bin/python flat.py draw out/beer_mug/build.py
 ```
 
 The script exposes `NAME`, `W`, `H` (page px, no PAD), `JOINT` (where an edge
@@ -266,7 +266,7 @@ Three routes pick by content, all in `tools/bonepaper_gen` with `.venv/bin/pytho
 
 | Picture | Route | Entry |
 |---------|-------|-------|
-| Flat-colour regions (bay, meme) | `slopmax2.py bg` plain or `--flatten` | see slopmax2 SKILL.md |
+| Flat-colour regions (bay, meme) | `flat.py bg` plain or `--comic` | see bonepaper-flat SKILL.md |
 | Line art: strokes on one paper colour | centre-line trace, `lineart.line_art_bg` | the picture's `build.py` is data (`out/redface`, `out/lineflower`) |
 | Full-colour cartoon | flatten composition in a `build.py` | `out/whale`, `out/busnight` (local only) |
 | Line art WITH solid areas (hair, brows, pupils) | hybrid split in a `build.py` | `out/glasses` (local only) |
@@ -337,7 +337,7 @@ A dark animation frame fails three ways, all rules from the busnight run (its `b
 
 ### Canvas contract and verification
 
-A page build must `fit_page` to 640×480 before `mark_page`/`regions`. `page_svg` writes a PAGE viewBox, so shapes traced from a different canvas make an SVG that crops and rescales the scene — busnight shipped cropped before the guards existed. `slopmax2.checked(..., page=True)` (used by `cmd_bg`), `lineart.line_art_bg`, and the uniform-render check in both engines now fail loudly. Verify the shipped artifact (`bg.png` at 1280×960), never a compare image alone: `lineart.compare` fit-pages both panels, which normalized away exactly this defect once.
+A page build must `fit_page` to 640×480 before `mark_page`/`regions`. `page_svg` writes a PAGE viewBox, so shapes traced from a different canvas make an SVG that crops and rescales the scene — busnight shipped cropped before the guards existed. `flat.checked(..., page=True)` (used by `cmd_bg`), `lineart.line_art_bg`, and the uniform-render check in both engines now fail loudly. Verify the shipped artifact (`bg.png` at 1280×960), never a compare image alone: `lineart.compare` fit-pages both panels, which normalized away exactly this defect once.
 
 A stale extracted folder (`<zip name>/` beside the zip, from Archive Utility) masquerades as "the build is old" — the IDE happily keeps showing it. Check mtimes and zip-vs-disk sha before debugging.
 

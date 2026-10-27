@@ -1,14 +1,16 @@
 ---
-name: slopmax3
+name: bonepaper-sketch
 description: >-
-  EDT-based sketch backgrounds and wide-brush marker washes for line art and
-  hybrid pictures (solid areas + thin strokes + enclosed interior tints) via
-  tools/bonepaper_gen/slopmax3.py. Use when the user says slopmax3, asks to
-  sketch/vectorize line art or wash regions without a custom build.py, or when
-  slopmax2 bg/--flatten is the wrong tool for strokes-on-paper.
+  The ink engine (tools/bonepaper_gen/ink.py): EDT-based
+  sketch backgrounds and wide-brush marker washes for line art and hybrid
+  pictures (solid areas + thin strokes + enclosed interior tints). Use when the
+  user says slopmax3 (old name for this engine) or sketch, asks to vectorize
+  line art or wash regions
+  without a custom build.py, or when flat.py bg --comic is the wrong tool for
+  strokes-on-paper.
 ---
 
-# Slopmax3
+# BonePaper sketch (ink engine)
 
 One command for line-art / hybrid backgrounds and marker-wash coloring. Local
 half-width comes from the **Euclidean distance transform** (`distance_transform_edt`)
@@ -16,7 +18,7 @@ half-width comes from the **Euclidean distance transform** (`distance_transform_
 hybrid `build.py` scripts (`out/glasses`, `out/redface`, `out/wojak`, …).
 
 Detailed math, coloring geometry, and failure modes live in [reference.md](reference.md)
-and [slopmax reference](../../../skills/slopmax/reference.md).
+and [common reference](../bonepaper-common/reference.md).
 
 Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`.
 Needs `scipy` (see `requirements.txt`).
@@ -25,20 +27,20 @@ Needs `scipy` (see `requirements.txt`).
 
 | Picture | Tool |
 |---------|------|
-| Flat colour cartoon / logo | `slopmax2.py bg` |
-| Comic with fills + ink | `slopmax2.py bg --flatten` |
-| Line art / hybrid (hair fills + thin face strokes + washes) | **`slopmax3.py sketch`** |
-| Shaded photo of an object on white paper (`pirate_roller`) | Extract silhouette boundary + DoG internal seams → **`slopmax3.py sketch --tint`** |
-| Nothing to trace (draw from shapes) | `slopmax2.py draw` |
+| Flat colour cartoon / logo, nothing thin to preserve | `flat.py bg` |
+| Comic with fills + ink, colour must stay exact | `flat.py bg --comic` |
+| Line art / hybrid (hair fills + thin face strokes + washes) | **`ink.py sketch`** |
+| Shaded photo of an object on white paper (`pirate_roller`) | Extract silhouette boundary + DoG internal seams → **`ink.py sketch --tint`** |
+| Nothing to trace (draw from shapes) | `draw` — see [bonepaper-draw](../bonepaper-draw/SKILL.md) |
 
 ## Commands
 
 | Job | Command | Writes |
 |-----|---------|--------|
-| Sketch | `slopmax3.py sketch src.png -o out/name/name.zip` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `compare.png`, `edt_split.png`, `pockets.png` |
-| Sketch + hair wash | `slopmax3.py sketch src.png --wash -o out/name/name.zip` | same; hair-scale ink regions get pale wide-brush hatch |
-| Sketch + wash + auto pocket tint | `slopmax3.py sketch src.png --wash --auto-tint -o out/name/name.zip` | same; auto-colors all enclosed pockets from source RGB + `--skin-tint` for white pockets |
-| Sketch + wash + face tint | `slopmax3.py sketch src.png --wash --tint "#FCE4DC" -o out/name/name.zip` | same; enclosed face/body paper pocket washed under ink |
+| Sketch | `ink.py sketch src.png -o out/name/name.zip` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `compare.png`, `edt_split.png`, `pockets.png` |
+| Sketch + hair wash | `ink.py sketch src.png --wash -o out/name/name.zip` | same; hair-scale ink regions get pale wide-brush hatch |
+| Sketch + wash + auto pocket tint | `ink.py sketch src.png --wash --auto-tint -o out/name/name.zip` | same; auto-colors all enclosed pockets from source RGB + `--skin-tint` for white pockets |
+| Sketch + wash + face tint | `ink.py sketch src.png --wash --tint "#FCE4DC" -o out/name/name.zip` | same; enclosed face/body paper pocket washed under ink |
 
 Options:
 
@@ -55,7 +57,7 @@ Options:
 | `--tint-size FLOAT` | Brush width for `--tint` (default 30). Below 30 the cap is pulled inside and rows overlap; jitter also drops to `0.15 + 0.25*slop` |
 | `--ink #222222` | Stroke and region outline colour |
 | `--name NAME` | Zip / log label (default: output stem) |
-| `--skip-budget` | Debug only: bypass the 8×8 ink-density gate |
+| `--no-budget-check` | Debug only: bypass the 8×8 ink-density gate |
 
 ## What the pipeline does
 
@@ -84,8 +86,8 @@ Options:
 
 ## Do not
 
-- Write a per-picture `build.py` for line art, hybrid ink+fill, or face/hair washes — run `slopmax3.py sketch`.
-- Feed a continuous-tone shaded photo directly into `slopmax3.py sketch` — `ink_hysteresis` only sees the dark cast-shadow side as ink and drops the lit contour entirely (`pirate_roller`). Convert the object's silhouette boundary + internal DoG creases into synthetic line art first, then wash with `--tint`.
+- Write a per-picture `build.py` for line art, hybrid ink+fill, or face/hair washes — run `ink.py sketch`.
+- Feed a continuous-tone shaded photo directly into `ink.py sketch` — `ink_hysteresis` only sees the dark cast-shadow side as ink and drops the lit contour entirely (`pirate_roller`). Convert the object's silhouette boundary + internal DoG creases into synthetic line art first, then wash with `--tint`.
 - Pass pre-translated (`+PAD`) geometry to `tracer._stamp` — `_stamp` adds `PAD` internally (double-offset shifts pupils onto cheeks).
 - Wash small regions (`short < 70`) with a wide brush or slice un-inset polygons.
 - Tint every white pocket from the log. A pocket between two strokes that nearly touch (stem and leaf, arm and body) is the gap, not the interior. See the reference.

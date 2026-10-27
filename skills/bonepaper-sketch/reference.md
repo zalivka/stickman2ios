@@ -1,6 +1,6 @@
 # Slopmax3 reference
 
-EDT sketch and marker-wash engine (`tools/bonepaper_gen/slopmax3.py`). Distilled
+EDT sketch and marker-wash engine (`tools/bonepaper_gen/ink.py`). Distilled
 from `glasses`, `wojak`, `redface`, `lineflower`, `busnight`, and `whale`.
 
 ## Why EDT + L-corner pruning
@@ -52,7 +52,7 @@ Controlled by `--slop FLOAT` (`default = 1.0`, `0.0` = clean/tight, `>1.0` = loo
    - At `slop <= 0.05`, draws a single closed ring (`closed=True`).
    - Otherwise coarsens `geom.exterior` (`simplify(2.0 + 5.5*slop)`), perturbs control points (`±4.5*slop px`), splits the perimeter into 3 overlapping open arcs with `(2.0*slop)..(7.0*slop) px` tangent tail overshoots, and draws them with `jitter = 0.8 + 1.4*slop` so the border looks loosely hand-sketched.
 3. **Serpentine tip linking (avoiding bald spike tips & `SLOP` crashes)**:
-   - `hand.py` fatally aborts on any stroke with travel `< 12 px` (`shape_lint.SLOP`), and raises `IndexError: list index out of range` (`start = samples[0]`) when a curved or hooked stroke with raw reach `13..14 px` shrinks below `12 px` after `simplify(1.0)` + Catmull-Rom + wobble. `slopmax3.py` guards stroke chains at `reach < SLOP + 3` (`15 px`) and stretches kept short ticks to `15.6 px`.
+   - `hand.py` fatally aborts on any stroke with travel `< 12 px` (`shape_lint.SLOP`), and raises `IndexError: list index out of range` (`start = samples[0]`) when a curved or hooked stroke with raw reach `13..14 px` shrinks below `12 px` after `simplify(1.0)` + Catmull-Rom + wobble. `ink.py` guards stroke chains at `reach < SLOP + 3` (`15 px`) and stretches kept short ticks to `15.6 px`.
    - Slicing hair spikes or acute corners produces short scanlines (`3–12 px`). Dropping them leaves white uncolored tips; connecting *every* scanline draws ugly boundary lines across wide bays.
    - Rule: link a scanline to the active chain **only** when either segment is `< SLOP + 1` (13 px) **and** the step between their endpoints is `<= 1.9 * spacing`. Keep long scanlines independent with alternating direction (`flip = not flip`).
 4. **Two-pass `--tint` for grain & gap-free coverage (`pirate_roller`)**:
@@ -61,16 +61,16 @@ Controlled by `--slop FLOAT` (`default = 1.0`, `0.0` = clean/tight, `>1.0` = loo
 
 ## Shaded photo on white paper → synthetic line art (`pirate_roller`)
 
-Feeding a continuous-tone product photo directly into `slopmax3.py sketch` fails badly: `ink_hysteresis` looks for near-black pixels (`luma < 55`) or sharp local contrast (`>= 40`). On a lit 3D object (like warm brown wood on white paper), the sunlit upper edge has almost zero luma contrast against white paper and disappears, while the dark underside shadow becomes a floating gray blob.
+Feeding a continuous-tone product photo directly into `ink.py sketch` fails badly: `ink_hysteresis` looks for near-black pixels (`luma < 55`) or sharp local contrast (`>= 40`). On a lit 3D object (like warm brown wood on white paper), the sunlit upper edge has almost zero luma contrast against white paper and disappears, while the dark underside shadow becomes a floating gray blob.
 
-To convert a clean object photo into a `slopmax3` sketch + wash:
+To convert a clean object photo into a `bonepaper-sketch` sketch + wash:
 
 1. **Crop UI chrome / marketplace captions** (`Хуй пирата / 999 ₽`, grey letterbox bars) before fitting the page.
 2. **Extract the object silhouette** against white paper using chroma + luma (`(spread >= 25) | (luma < 225)`), closed with `binary_closing(..., ones(7, 7))`.
 3. **Build synthetic ink**:
    - **Outer contour**: `sil & ~binary_erosion(sil, ones(5, 5))` (5 px wide → EDT half-width `2.5` → crisp `size = 5.0` stroke).
    - **Internal structural seams**: inside `binary_erosion(sil, ones(6, 6))`, threshold Difference of Gaussians (`gaussian_filter(luma, 4.0) - gaussian_filter(luma, 1.0) >= 7.5`) and keep connected components `>= 60 px` so wood grain noise is ignored while turned-wood collar grooves survive.
-4. **Run `slopmax3.py sketch`** on the synthetic line-art PNG with two `--tint` washes along the object's main axis (`@-26` / `@-24`) using the photo's median object tones and `--skip-budget` (since the source is a synthetic contour).
+4. **Run `ink.py sketch`** on the synthetic line-art PNG with two `--tint` washes along the object's main axis (`@-26` / `@-24`) using the photo's median object tones and `--no-budget-check` (since the source is a synthetic contour).
 
 ## Flat fills that must stay fills
 

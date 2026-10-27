@@ -3,13 +3,13 @@
 A hand-drawn part is (color, geom) or (color, geom, expect) in page pixels,
 y down, no PAD. brush() lints those parts and stamps them through bluehairsvg
 exactly the way a traced shape list is stamped, so the wobble, the fill and the
-4x raster match `slopmax2.py item`. What tracing gives for free — a near-black
+4x raster match `flat.py item`. What tracing gives for free — a near-black
 outline — is ink_under(): every coloured part grows a black silhouette under it.
 Parts that cannot be shapes (a C-shaped handle fails the elongated test, so it
 would come out as a compact outline instead of a stroke) go through `underlay`
 as strokes spliced below every part, where their ends can hide.
 
-An item script is data plus three functions, and `slopmax2.py draw` runs it:
+An item script is data plus three functions, and `flat.py draw` runs it:
 
     NAME = "beer_mug"
     W, H = 260, 260
@@ -36,10 +36,10 @@ from shapely.ops import unary_union
 GEN = Path(__file__).resolve().parent
 sys.path.insert(0, str(GEN))
 import shape_lint
-import slopmax2
+import flat
 from hand import Hand
 
-src = slopmax2.tracer
+src = flat.tracer
 SAMPLE = src.SAMPLE
 PAD = src.PAD
 JITTER = src.JITTER
@@ -137,7 +137,7 @@ class Drawing:
 
     def raster(self):
         """The 4x bitmap, uncropped, so the joint stays where pack() puts it."""
-        return slopmax2.rasterize(self.svg, self.canvas[0] * SAMPLE, self.canvas[1] * SAMPLE)
+        return flat.rasterize(self.svg, self.canvas[0] * SAMPLE, self.canvas[1] * SAMPLE)
 
 
 def rescale(svg, canvas):
@@ -189,7 +189,7 @@ def brush(parts, size, name, underlay=None, jitter=None):
         if geom.is_empty or geom.geom_type != "Polygon" or geom.area < 30:
             raise SystemExit(f"{color} is not a shape of area >= 30")
         shapes.append((geom.area, color, geom))
-    seed = slopmax2.seed_for(name)
+    seed = flat.seed_for(name)
     dummy = type("Png", (), {"size": tuple(size)})()
     own = src.JITTER
     src.JITTER = jitter
@@ -213,7 +213,7 @@ def brush(parts, size, name, underlay=None, jitter=None):
 def pack(drawing, out_dir, name, joint, edge_len):
     """Write <out_dir>/<name>.ati with one bone. The joint is in page px.
 
-    new_offset = -((joint + PAD) * SAMPLE), the formula `slopmax2.py item`
+    new_offset = -((joint + PAD) * SAMPLE), the formula `flat.py item`
     derives from the old offset. Android groups frames by `bm_<id>_state_<n>`,
     so the bone is bm_1_state_0.png.
     """

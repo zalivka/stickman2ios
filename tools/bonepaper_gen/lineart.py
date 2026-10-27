@@ -22,15 +22,15 @@ from shapely.geometry import LineString
 
 GEN = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(GEN))
-import slopmax2
+import flat
 import shape_lint
 from hand import Hand
 
-tracer = slopmax2.tracer
+tracer = flat.tracer
 svg_export = tracer.svg_export
 PAD = tracer.PAD
 JITTER = tracer.JITTER
-INK_MIN = slopmax2.INK_MIN
+INK_MIN = flat.INK_MIN
 
 
 def close_breaks(ink):
@@ -43,10 +43,10 @@ def close_breaks(ink):
 def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
                 CONTACT=5.0, COS_MIN=0.65, FADE=None, quiet=False):
     """SRC through the centre-line tracer. Writes bg.svg/bg.png/thumb/zip beside SRC."""
-    im = slopmax2.fit_page(Image.open(SRC).convert("RGB"))
+    im = flat.fit_page(Image.open(SRC).convert("RGB"))
     arr = np.array(im).astype(np.int16)
-    if im.size != slopmax2.PAGE:
-        raise SystemExit(f"{NAME}: page is {im.size[0]}x{im.size[1]}, wanted {slopmax2.PAGE}; "
+    if im.size != flat.PAGE:
+        raise SystemExit(f"{NAME}: page is {im.size[0]}x{im.size[1]}, wanted {flat.PAGE}; "
                          "fit_page failed")
     ink = close_breaks(PAPER(arr))
     if not ink.any():
@@ -68,7 +68,7 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
         fade_test, max_walk = FADE
         # raw (unclosed) core mask: fades must not bridge across the close
         core = PAPER(arr)
-        sk_raw = slopmax2.skeleton(core)
+        sk_raw = flat.skeleton(core)
         ends = []
         # endpoint isolation on the RAW skeleton: a pixel with one neighbour
         pts = set(zip(*[v.tolist() for v in np.nonzero(sk_raw)]))
@@ -111,7 +111,7 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
         print(f"fade: {len(ends)} raw ends, {added} px extended")
         ink = close_breaks(core)
 
-    hand = Hand(slopmax2.seed_for(NAME), (0, 0))
+    hand = Hand(flat.seed_for(NAME), (0, 0))
     padded = (w + PAD * 2, h + PAD * 2)
     session = {
         "version": 1, "started": "generated", "duration": 0, "device": "hand.py",
@@ -135,7 +135,7 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
         x0, x1 = max(0, xs.min() - 1), min(w, xs.max() + 2)
         blob = np.zeros((y1 - y0, x1 - x0), bool)
         blob[ys - y0, xs - x0] = True
-        sk = slopmax2.skeleton(blob)
+        sk = flat.skeleton(blob)
         length = int(sk.sum())
         if length == 0:
             dropped += 1
@@ -143,7 +143,7 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
         size = float(np.clip(len(pixels) / length + 1.5, 3.5, MAX_SIZE))
         tone = "#{:02X}{:02X}{:02X}".format(*[int(v) for v in np.median(
             arr[ys.clip(0, h - 1), xs.clip(0, w - 1)], axis=0)])
-        for path in slopmax2.skeleton_paths(sk):
+        for path in flat.skeleton_paths(sk):
             if len(path) < INK_MIN:
                 continue
             pts = [(x + x0 + 0.5, y + y0 + 0.5) for y, x in path]
@@ -253,13 +253,13 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
     if not quiet:
         print(f"{NAME}: paper={paper} paths={len(paths)} chains={strokes} speck blobs dropped={dropped}")
     session["duration"] = round(hand.t, 3)
-    svg = slopmax2.page_svg(scene, paper)
+    svg = flat.page_svg(scene, paper)
     # The SVG window is PAGE; strokes live on the padded canvas. If the shape
     # data came from a different canvas the viewBox crops/rescales the scene,
     # so verify before rendering.
-    if (w, h) != slopmax2.PAGE:
-        raise SystemExit(f"{NAME}: page-svg from a {w}x{h} canvas, wanted {slopmax2.PAGE}")
-    png = slopmax2.rasterize(svg, 1280, 960)
+    if (w, h) != flat.PAGE:
+        raise SystemExit(f"{NAME}: page-svg from a {w}x{h} canvas, wanted {flat.PAGE}")
+    png = flat.rasterize(svg, 1280, 960)
     extrema = png.convert("RGB").getextrema()
     if all(v[1] - v[0] < 8 for v in extrema):
         raise SystemExit(f"{NAME}: render is a uniform colour; the scene content was lost")
@@ -267,7 +267,7 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
     out.mkdir(parents=True, exist_ok=True)
     out.joinpath("bg.svg").write_text(svg)
     png.save(out / "bg.png")
-    slopmax2.cover_thumb(png).save(out / "thumb.png")
+    flat.cover_thumb(png).save(out / "thumb.png")
     with zipfile.ZipFile(out / f"{NAME}.zip", "w", compression=zipfile.ZIP_DEFLATED) as z:
         for name in ("bg.png", "bg.svg", "thumb.png"):
             z.write(out / name, name)
@@ -278,7 +278,7 @@ def line_art_bg(NAME, SRC, PAPER, out=None, MIN_BLOB=40, MAX_SIZE=8.0,
 
 def compare(src_path, out_path, bg_path=None):
     """Vertical review stack: the fit_page'd source over the brushed bg, both 640x480."""
-    a = slopmax2.fit_page(Image.open(src_path).convert("RGB"))
+    a = flat.fit_page(Image.open(src_path).convert("RGB"))
     b = Image.open(bg_path or Path(out_path).parent / "bg.png").convert("RGB")
     if b.size != (1280, 960):
         raise SystemExit(f"bg is {b.size}, expected the 1280x960 raster")

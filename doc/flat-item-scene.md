@@ -1,8 +1,14 @@
-# Slopmax
+# Retrace a bitmap item or scene
 
-Slopmaxing an item redraws each bone bitmap with the sloppy brush and packs a 4× `.ati`. Slopmaxing a scene does that for every drawable unit, embeds the new items, and divides those units' scene scales by 4.
+`flat.py item` redraws each bone bitmap with the sloppy brush and packs a 4× `.ati`. `flat.py scene` does that for every drawable unit, embeds the new items, and divides those units' scene scales by 4.
 
-The slopmaxing script for a scene is `tools/bonepaper_gen/out/camera/build.py` (`demo_camera` → `demo_camera2`). One-item runs live beside it (`out/sun`, `out/shuttle`, `out/earth`, `out/space_rest`, `out/lion`). The tracer they call is `tools/bonepaper_gen/out/bluehairsvg/build.py`, written up in [vectorize-bone.md](vectorize-bone.md). Do not edit `hand.py`.
+```bash
+.venv/bin/python flat.py item newstickman:sword
+.venv/bin/python flat.py item /tmp/lion.ati --name lion
+.venv/bin/python flat.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats
+```
+
+They replace the per-job `build.py` copies (`out/camera` for `demo_camera` → `demo_camera2`, plus the one-item runs beside it: `out/sun`, `out/shuttle`, `out/earth`, `out/space_rest`, `out/lion`). The tracer they call is `tools/bonepaper_gen/out/bluehairsvg/build.py`, written up in [vectorize-bone.md](vectorize-bone.md). Do not edit `hand.py`.
 
 Python is `tools/bonepaper_gen/.venv/bin/python`. Plain `python3` has no Pillow.
 
@@ -24,7 +30,7 @@ Classify the solid pixels (`alpha > 200`) before tracing.
 
 Colour centres merge when the max channel difference is `<= 36`. The moon's craters are gray 128 against gray 160 (difference 32), so that disk becomes one blob. The moon run merges at 16. Put the tighter merge back when that item is done.
 
-A ring loses its outline. The tracer keeps a loop only when a representative point lands inside the mask, so a star's red rim and a sword's black rim are thrown away and only the centre survives. The slopmaxing script keeps the largest loop anyway. Inner colours paint over that fill, which is how the explosion stays a red rim, an orange star, and a yellow centre.
+A ring loses its outline. The tracer keeps a loop only when a representative point lands inside the mask, so a star's red rim and a sword's black rim are thrown away and only the centre survives. `flat.py` keeps the largest loop anyway. Inner colours paint over that fill, which is how the explosion stays a red rim, an orange star, and a yellow centre.
 
 Brush constants are the tracer's: `JITTER = 0.5`, brush 14, `PAD = 40`, `SAMPLE = 4`. A limb (short side `< 42` and long side `> short × 2.2`) is one stroke. A compact part is a flat fill of the shape, then the closed outline, then a fill tap for every colour still showing inside. The flat fill is painted when the shape is drawn. One tap leaves the other colour showing. A fill bigger than 85% of the canvas is a leak. Stop.
 

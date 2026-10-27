@@ -1,11 +1,14 @@
-"""Slopmax in one command: item, scene, background, or a shape lint.
+"""BonePaper jobs: item, scene, background, or a shape lint.
 
-  .venv/bin/python slopmax2.py item newstickman:sword
-  .venv/bin/python slopmax2.py item /tmp/lion.ati --name lion
-  .venv/bin/python slopmax2.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats
-  .venv/bin/python slopmax2.py bg picture.png -o out/picture/picture.zip
-  .venv/bin/python slopmax2.py lint out/storypic/build.py
-  .venv/bin/python slopmax2.py draw out/beer_mug/build.py
+`bg` is the flat engine: closed colour regions, no ink model. Line art and
+hybrid pictures are `ink.py sketch`.
+
+  .venv/bin/python flat.py item newstickman:sword
+  .venv/bin/python flat.py item /tmp/lion.ati --name lion
+  .venv/bin/python flat.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats
+  .venv/bin/python flat.py bg picture.png -o out/picture/picture.zip
+  .venv/bin/python flat.py lint out/storypic/build.py
+  .venv/bin/python flat.py draw out/beer_mug/build.py
 
 `draw` is the hand-drawn route: the script is data (NAME, W, H, JOINT, EDGE,
 parts(), optional underlay/details) and itemkit does lint, brush, 4x raster
@@ -362,7 +365,7 @@ def deploy(device, source, dest):
 def cmd_item(args):
     data, stem = item_source(args.source)
     name = args.name or stem
-    out_dir = Path(args.out) if args.out else GEN / "out" / name
+    out_dir = Path(args.output) if args.output else GEN / "out" / name
     out_dir.mkdir(parents=True, exist_ok=True)
     built = convert_ati(data, name, args, out_dir)
     path = out_dir / f"{name}.ati"
@@ -545,7 +548,7 @@ def flatten(im, colors):
     luma = (arr @ np.array([299, 587, 114]) // 1000).astype(np.uint8)
     local = np.array(Image.fromarray(luma).filter(ImageFilter.MedianFilter(9))).astype(np.int16)
     core = (luma < INK_LUMA) | (luma.astype(np.int16) < local - INK_CONTRAST)
-    # Large dark masses are fills, not strokes (same EDT split as slopmax3's
+    # Large dark masses are fills, not strokes (same EDT split as ink.py's
     # region_mask): seed half-width >= 7, grow back 6.5 on the seed's island.
     protected = np.zeros_like(core)
     seeds = core & (distance_transform_edt(core) >= 7.0)
@@ -866,7 +869,7 @@ def cmd_draw(args):
     import itemkit
 
     module = load_script(args.script, "_item")
-    itemkit.item(module, args.out)
+    itemkit.item(module, args.output)
 
 
 def main():
@@ -874,29 +877,33 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     def trace_opts(p, bones=True):
-        p.add_argument("--merge", type=int, default=36, help="colour centre merge (16 splits gray 128 from 160)")
+        p.add_argument("--color-merge", "--merge", dest="merge", type=int, default=36,
+                       metavar="DIST", help="merge colour centres closer than DIST (default 36; 16 splits gray 128 from 160)")
         if bones:
-            p.add_argument("--kind", choices=("ink", "line", "color"), help="force the bone class for every bitmap")
+            p.add_argument("--bone-class", "--kind", dest="kind", choices=("ink", "line", "color"),
+                           help="force the bone class for every bitmap")
         p.add_argument("--deploy", metavar="DEVICE", help="devicectl device id; run outside the sandbox")
 
     p = sub.add_parser("item", help="redraw one .ati")
     p.add_argument("source", help="path/to/x.ati or pack:item")
     p.add_argument("--name", help="system name, default the item name")
-    p.add_argument("--out", help="output dir, default out/<name>")
+    p.add_argument("-o", "--output", help="output directory, default out/<name>")
     trace_opts(p)
     p.set_defaults(run=cmd_item)
 
     p = sub.add_parser("scene", help="redraw every bitmap unit of an .ats")
     p.add_argument("source")
-    p.add_argument("-o", "--output", required=True)
-    p.add_argument("--skip", action="append", default=[], metavar="UNIT", help="base unit name to leave as is")
+    p.add_argument("-o", "--output", required=True, metavar="ATS", help="output .ats path")
+    p.add_argument("--skip-unit", "--skip", dest="skip", action="append", default=[], metavar="UNIT",
+                   help="base unit name to leave as is (repeatable)")
     trace_opts(p)
     p.set_defaults(run=cmd_scene)
 
     p = sub.add_parser("bg", help="redraw a flat-colour 4:3 picture as a background zip")
     p.add_argument("source")
-    p.add_argument("-o", "--output", required=True, help="zip path; bg.png, bg.svg, thumb.png go beside it")
-    p.add_argument("--flatten", type=int, nargs="?", const=24, metavar="COLORS", help="line art or comic: drop ink and text, octree to COLORS (24), mode filter")
+    p.add_argument("-o", "--output", required=True, metavar="ZIP", help="zip path; bg.png, bg.svg, thumb.png go beside it")
+    p.add_argument("--comic", "--flatten", dest="flatten", type=int, nargs="?", const=24, metavar="COLORS",
+                   help="comic or line art with flats: drop ink and text, octree to COLORS (24), mode filter")
     trace_opts(p, bones=False)
     p.set_defaults(run=cmd_bg)
 
@@ -906,7 +913,7 @@ def main():
 
     p = sub.add_parser("draw", help="brush and pack a hand-drawn item script")
     p.add_argument("script", help="out/<name>/build.py with NAME, W, H, JOINT, EDGE, parts()")
-    p.add_argument("--out", help="output dir, default the script's dir")
+    p.add_argument("-o", "--output", help="output directory, default the script's dir")
     p.set_defaults(run=cmd_draw)
 
     args = parser.parse_args()

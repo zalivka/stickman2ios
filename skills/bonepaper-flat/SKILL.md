@@ -1,11 +1,18 @@
 ---
-name: slopmax2
-description: Runs the whole slopmax job as one command (tools/bonepaper_gen/slopmax2.py) for an item, a scene, or a flat-colour background, and lints shape lists before the BonePaper brush draws them. Use when the user says slopmax2, asks to slopmax an item, scene, or picture without writing a new build.py, or asks to check shapes before brushing.
+name: bonepaper-flat
+description: >-
+  The region engine (tools/bonepaper_gen/flat.py). Traces a
+  flat-colour picture into closed colour regions and brushes them, and redraws
+  an existing .ati / .ats. Use when the user says slopmax or slopmax2 (old
+  names for this engine), to
+  redraw an item, scene, or flat cartoon background without writing a build.py,
+  for `bg --comic` on a comic with ink over flats, or to lint a shape list
+  before the brush draws it.
 ---
 
-# Slopmax2
+# BonePaper flat (region engine)
 
-One command replaces the per-job `build.py` copies (`out/camera`, `out/lion`, `out/sun`, …). The brush rules, joint formula, scene-scale rules, and the hand-drawn item route are in [slopmax reference](../slopmax/reference.md). This skill only says how to run them.
+One command replaces the per-job `build.py` copies (`out/camera`, `out/lion`, `out/sun`, …). The brush rules, joint formula, scene-scale rules, and the hand-drawn item route are in [common reference](../bonepaper-common/reference.md). This skill only says how to run them.
 
 Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. The tracer is still `out/bluehairsvg/build.py`.
 
@@ -13,15 +20,14 @@ Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. T
 
 | Job | Command | Writes |
 |-----|---------|--------|
-| Item | `slopmax2.py item newstickman:sword` or `item /tmp/lion.ati --name lion` | `out/<name>/<name>.ati`, one review PNG per bone |
-| Scene | `slopmax2.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats` | the `.ats`, plus every `.ati` and bone PNG in `out/<output stem>/` |
-| Background | `slopmax2.py bg picture.png -o out/picture/picture.zip` | zip with `bg.png` (1280×960), `bg.svg` (640×480 page), `thumb.png` (100×100), and the three files beside it |
-| Lint | `slopmax2.py lint out/storypic/build.py` | prints the plan, exits 1 on any issue |
-| Hand-drawn item | `slopmax2.py draw out/beer_mug/build.py` | `out/<dir>/<name>.ati`, `drawing.svg`, the bone PNG. Lint, brush, 4× raster, pack — one run, ~1 s |
+| Item | `flat.py item newstickman:sword` or `item /tmp/lion.ati --name lion` | `out/<name>/<name>.ati`, one review PNG per bone |
+| Scene | `flat.py scene ../../at_elements/demo/demo_camera.ats -o ../../at_elements/demo/demo_camera2.ats` | the `.ats`, plus every `.ati` and bone PNG in `out/<output stem>/` |
+| Background | `flat.py bg picture.png -o out/picture/picture.zip` | zip with `bg.png` (1280×960), `bg.svg` (640×480 page), `thumb.png` (100×100), and the three files beside it |
+| Lint | `flat.py lint out/storypic/build.py` | prints the plan, exits 1 on any issue |
 
-**Nothing exists to trace** (a mug, a hat, a new creature): use `draw`, not `item`. The script is data — `NAME`, `W`, `H`, `JOINT`, `EDGE`, `parts()`, optional `underlay(hand)` / `details(hand)` — and `itemkit.py` does the rest. Do not write a per-job `build.py` with its own `poly`/`disc`/zip code; those copies are what this replaced. Worked examples in `out/`: `beer_mug` (handle as underlay), `shotgun`, and `corvette` (curvy vehicle, the reference). The part rules, the vehicle recipe, and the two failure modes lint does not catch (a shallow part rejected as `expected compact`; a sub-12 px stroke dying at render time) are in [slopmax reference](../slopmax/reference.md), "Hand-drawn item".
+**Nothing exists to trace** (a mug, a hat, a new creature): `draw`, not `item`, and read [bonepaper-draw](../bonepaper-draw/SKILL.md). The script is data — `NAME`, `W`, `H`, `JOINT`, `EDGE`, `parts()`, optional `underlay(hand)` / `details(hand)` — and `itemkit.py` does the rest. Do not write a per-job `build.py` with its own `poly`/`disc`/zip code; those copies are what this replaced. Worked examples in `out/`: `beer_mug` (handle as underlay), `shotgun`, and `corvette` (curvy vehicle, the reference). The part rules, the vehicle recipe, and the two failure modes lint does not catch (a shallow part rejected as `expected compact`; a sub-12 px stroke dying at render time) are in [common reference](../bonepaper-common/reference.md), "Hand-drawn item".
 
-**The picture is line art (strokes on one paper colour) or a hybrid with solid areas**: `bg` is the wrong tool — use **[slopmax3](../slopmax3/SKILL.md)** (`slopmax3.py sketch`). A full-colour comic with ink on top of flats can still use `bg --flatten`. Per-picture ink tests, bridge/fade rules, object removal, and canvas-contract guards are in [slopmax reference](../slopmax/reference.md); EDT constants and ink-budget rules are in the slopmax3 reference.
+**The picture is line art (strokes on one paper colour) or a hybrid with solid areas**: `bg` is the wrong tool — use **[bonepaper-sketch](../bonepaper-sketch/SKILL.md)** (`ink.py sketch`). A full-colour comic with ink on top of flats can still use `bg --comic`. Per-picture ink tests, bridge/fade rules, object removal, and canvas-contract guards are in [common reference](../bonepaper-common/reference.md); EDT constants and ink-budget rules are in the sketch reference.
 
 `pack:item` resolves `newstickman` or `zalivka.newstickman` to exactly one `at_elements/packs/*.atp`, then reads `items/<item>.ati`.
 
@@ -29,10 +35,11 @@ Options:
 
 | Option | Use |
 |--------|-----|
-| `--merge 16` | Colour centres closer than 36 merge. Gray 128 on 160 (moon craters) and gray rocks on a cream sky need 16. |
-| `--kind ink\|line\|color` | Force the bone class for every bitmap when the auto test is wrong. Not on `bg`. |
-| `--skip UNIT` | Scene only. Leave that base unit name untouched (no trace, no scale change). |
+| `--color-merge DIST` | Merge colour centres closer than DIST (default 36). Gray 128 on 160 (moon craters) and gray rocks on a cream sky need 16. |
+| `--bone-class ink\|line\|color` | Force the bone class for every bitmap when the auto test is wrong. Not on `bg`. |
+| `--skip-unit UNIT` | Scene only. Leave that base unit name untouched (no trace, no scale change). Repeatable. |
 | `--deploy DEVICE` | `devicectl` copy to the at_elements container: `.ats` to `saved/`, `.ati` to `customs/`, background to `bgs/<millis>.zip` (`usermade:<millis>`). Runs outside the sandbox. Do not build. |
+| `-o, --output` | `item`/`draw`: output directory. `scene`: the `.ats` path. `bg`: the `.zip` path. |
 
 ## What each mode does
 
@@ -42,14 +49,14 @@ Options:
 
 **Background.** Any aspect ratio is padded to 4:3: a wide picture gets top rows in the top-row colour, and a tall one gets side columns in each side's colour. Then the picture is scaled to 640×480 with LANCZOS. The input should be flat colour. Gradients, soft shading, and translucent marks split into bands or vanish. On a small flat cartoon LANCZOS invents extra shades (one blue head becomes several blues), those become shapes, and a short ink path then dies with `stroke shorter than slop`. Resize to 640×480 with nearest-neighbor first, so this scale is a no-op.
 
-`--flatten [COLORS]` is for line art and comics, with a default of 24 colours. It writes `flat.png` beside the zip.
+`--comic [COLORS]` is for line art and comics, with a default of 24 colours. It writes `flat.png` beside the zip.
 1. Ink is removed and the neighbouring colours grow over it. Ink is luma `< 90`, or 35 darker than the 9 px median around it, grown by 1 px. Large dark masses (EDT half-width `>= 7`, grown back 6.5 px on their own ink island) are protected and kept as flat colour — a navy suit or black silhouette is a fill, not a stroke, and no longer dies as "ink pixels left after 64 grow steps".
 2. The palette is cut with an octree to COLORS. Median cut drops the small saturated parts, such as sails.
 3. A 7 px mode filter erases the hatching. The flat regions are traced and brushed as usual.
-4. The ink is redrawn as hand strokes on top. It is thinned to centre lines (Zhang-Suen) and split at junctions. `skeleton_paths` starts with `prune_l_corners`, the same fix as slopmax3. An 8-connected diagonal (a chin, a nose) is a junction at every staircase corner, and each crumb is then stretched to a 14 px dash. A horizontal mouth stays one stroke. Each piece is one stroke in the median source colour under it, so outlines stay near-black and grass ticks dark green. The width is the blob's ink area over its centre-line length, clamped to 3.5–7. A tick shorter than 12 px is stretched to 14.
+4. The ink is redrawn as hand strokes on top. It is thinned to centre lines (Zhang-Suen) and split at junctions. `skeleton_paths` starts with `prune_l_corners`, the same fix as the ink engine. An 8-connected diagonal (a chin, a nose) is a junction at every staircase corner, and each crumb is then stretched to a 14 px dash. A horizontal mouth stays one stroke. Each piece is one stroke in the median source colour under it, so outlines stay near-black and grass ticks dark green. The width is the blob's ink area over its centre-line length, clamped to 3.5–7. A tick shorter than 12 px is stretched to 14.
 5. An ink blob whose surroundings are more than 90% page colour is a caption or leader line, and it is dropped. Ink joined to the art stays. A flag pole touching its tower stays, and a lone stroke in the sky goes.
 
-This is one command and about 3 s, with merge 36. The bay picture gave 56 shapes and 310 ink strokes. Fills can come out patchy (trees, tower beige drifting to gray), but the line art carries the picture. When exact colours and parts matter, build it from shapes (`out/meme_bay/build.py`), which takes much longer.
+This is one command and about 3 s, with `--color-merge 36`. The bay picture gave 56 shapes and 310 ink strokes. Fills can come out patchy (trees, tower beige drifting to gray), but the line art carries the picture. When exact colours and parts matter, build it from shapes (`out/meme_bay/build.py`), which takes much longer.
 - White (`rgb >= 240`) and black (`rgb <= 40`) are marked with sentinels before tracing and painted back afterwards (`#FFFFFF`, `#222222`). If the picture already contains a sentinel colour, the run stops.
 - The largest shape that reaches at least three page edges becomes the paper `<rect>`. A sky touches the top and both sides, and the ground covers the bottom. If no shape does, the run stops.
 - A page is a partition, so each compact outline is pulled in by `size/2 - 2.5` and stays inside its region. Without that, rocks drawn after a figure eat its legs.

@@ -2,7 +2,7 @@
 
 The app stores a skeleton as a tree of points. One point is the base and has no `par`. Every other point has exactly one `par`. A bone is the straight segment from a point to its parent. A loop is not a skeleton: closing the head would give the crown two parents. Y points down, the same way as image rows. A genskel unit looks like `stickman/app/helpers/genskel/ostrich_model.xml`: `id`, `x`, `y`, `name`, and `par` on every point except the base.
 
-Zhang-Suen thinning is `skeleton` in `tools/bonepaper_gen/slopmax2.py`. `lineart.py` and `slopmax3.py` call it. `skeleton_paths` then walks the centre line and splits it where a pixel has a neighbour count other than 2. It starts with `prune_l_corners`. An 8-connected diagonal is a junction at every staircase corner until those corners are removed, and a chin comes out as a row of dashes.
+Zhang-Suen thinning is `skeleton` in `tools/bonepaper_gen/flat.py`. `lineart.py` and `ink.py` call it. `skeleton_paths` then walks the centre line and splits it where a pixel has a neighbour count other than 2. It starts with `prune_l_corners`, which also lives in `flat.py`. An 8-connected diagonal is a junction at every staircase corner until those corners are removed, and a chin comes out as a row of dashes.
 
 scikit-image `skeletonize(..., method="zhang")` and `cv2.ximgproc.thinning(..., THINNING_ZHANGSUEN)` (in `opencv-contrib-python`) are the same algorithm. Neither is in the bonepaper venv. Neither removes the L-corners, so `prune_l_corners` stays.
 

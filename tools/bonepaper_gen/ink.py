@@ -1,9 +1,10 @@
-"""Slopmax3: EDT-based sketch backgrounds (no per-picture build.py).
+"""BonePaper sketch: EDT-based line-art and hybrid backgrounds.
 
-  .venv/bin/python slopmax3.py sketch picture.png -o out/picture/picture.zip
-  .venv/bin/python slopmax3.py sketch picture.png --wash -o out/picture/picture.zip
+  .venv/bin/python ink.py sketch picture.png -o out/picture/picture.zip
+  .venv/bin/python ink.py sketch picture.png --wash -o out/picture/picture.zip
 
-Replaces the hybrid MinFilter-depth scripts (glasses, redface, …). Local half-width
+`ink.py sketch` replaces the hybrid MinFilter-depth background scripts
+(glasses, redface, …). Local half-width
 comes from the Euclidean distance transform; stroke width is 2*r at each skeleton
 pixel; region cores are r >= REGION_R grown only +2 px on their own ink island.
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -25,15 +27,15 @@ GEN = Path(__file__).resolve().parent
 sys.path.insert(0, str(GEN))
 import lineart
 import shape_lint
-import slopmax2
+import flat
 from hand import Hand
 
-tracer = slopmax2.tracer
+tracer = flat.tracer
 svg_export = tracer.svg_export
-PAD = slopmax2.PAD
-PAGE = slopmax2.PAGE
+PAD = flat.PAD
+PAGE = flat.PAGE
 JITTER = tracer.JITTER
-INK_MIN = slopmax2.INK_MIN
+INK_MIN = flat.INK_MIN
 
 # EDT half-width (px) at which a pixel is a region core, not a stroke.
 # Matches the glasses depth>=7 lesson: brows ~5 stay strokes; pupils/hair cores.
@@ -72,7 +74,7 @@ def extend_fade_ends(core: np.ndarray, fade_mask: np.ndarray, max_walk: int = 24
     fattening strokes or welding parallel strands.
     """
     h, w = core.shape
-    sk_raw = prune_l_corners(slopmax2.skeleton(core))
+    sk_raw = flat.prune_l_corners(flat.skeleton(core))
     pts = set(zip(*[v.tolist() for v in np.nonzero(sk_raw)]))
     ends = []
     for y, x in pts:
@@ -187,30 +189,6 @@ def region_mask(ink: np.ndarray, radius: np.ndarray) -> np.ndarray:
         grown = (dist <= (REGION_R - 0.5)) & (islands == isl)
         regions |= grown
     return regions
-
-
-def prune_l_corners(sk: np.ndarray) -> np.ndarray:
-    """Remove 8-connected L-corner redundant pixels so diagonal curves have degree 2.
-
-    Without this, Zhang-Suen staircase pixels have 3 eight-neighbors and
-    skeleton_paths shatters smooth curves into hundreds of 2-px fragments.
-    """
-    sk = sk.copy()
-    h, w = sk.shape
-    pts = list(zip(*np.nonzero(sk)))
-    for y, x in pts:
-        if not sk[y, x]:
-            continue
-        n = sk[y - 1, x] if y > 0 else False
-        s = sk[y + 1, x] if y + 1 < h else False
-        west = sk[y, x - 1] if x > 0 else False
-        e = sk[y, x + 1] if x + 1 < w else False
-        if (n and e and not (y + 1 < h and x > 0 and sk[y + 1, x - 1])) or \
-           (n and west and not (y + 1 < h and x + 1 < w and sk[y + 1, x + 1])) or \
-           (s and e and not (y > 0 and x > 0 and sk[y - 1, x - 1])) or \
-           (s and west and not (y > 0 and x + 1 < w and sk[y - 1, x + 1])):
-            sk[y, x] = False
-    return sk
 
 
 def path_radii(path, radius, y0, x0):
@@ -345,16 +323,32 @@ def glue_chains(paths, contact=5.0, cos_min=0.65):
     return chains
 
 
-def hatch_region(geom, angle_deg=-20, spacing=20, brush_size=30.0, seed=42, slop=1.0):
+def _wash_keys(line):
+    """Page points for one wash stroke, or None when the hand would reject it.
+
+    A hatch slice whose farthest point is under 15 px from the start shrinks
+    below the hand's 12 px minimum once it is curved, and hand.stroke aborts.
+    """
+    if len(line) < 2:
+        return None
+    reach = max(math.dist(line[0], q) for q in line[1:])
+    if reach < shape_lint.SLOP + 3:
+        return None
+    return [(x + PAD, y + PAD) for x, y in line]
+
+
+def hatch_region(geom, angle_deg=-20, spacing=20, brush_size=30.0, seed=42, slop=1.0, inset_frac=0.15):
     """Wide, slightly randomized marker wash strokes that stay better inside the contour.
 
     Uses a light inward buffer (-0.15 * brush_size) so round brush caps only
     barely kiss or slightly cross the outline rather than shooting far outside,
     while scaling spacing, tilt, bow, and width variation with `slop` (1.0 = default).
+    `inset_frac` is that buffer as a fraction of the brush. A smaller brush passes
+    a larger fraction so the round cap stays inside the pocket.
     """
     rng = np.random.default_rng(seed)
     s = max(0.0, float(slop))
-    inset = geom.buffer(-brush_size * 0.15, join_style="round", quad_segs=4)
+    inset = geom.buffer(-brush_size * inset_frac, join_style="round", quad_segs=4)
     if inset.is_empty or inset.area < 40:
         inset = geom
     rot = rotate(inset, -angle_deg, origin=(0, 0))
@@ -574,7 +568,7 @@ def discover_pockets(ink: np.ndarray, reg: np.ndarray, arr: np.ndarray, min_px: 
     return pockets
 
 
-def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str) -> np.ndarray:
+def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str, close: int = 15) -> np.ndarray:
     """Extract enclosed paper silhouette (face/skin/body) bounded by ink strokes.
 
     Closes contour gaps up to 45 px and seals open bottom collars on a temporary
@@ -585,7 +579,7 @@ def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str)
     h, w = ink.shape
     unwelded = enclosed_interior_mask(ink, reg)
     if seed_spec == "auto":
-        return binary_closing(unwelded, structure=np.ones((15, 15), bool)) & ~binary_dilation(
+        return binary_closing(unwelded, structure=np.ones((close, close), bool)) & ~binary_dilation(
             reg, structure=np.ones((3, 3), bool)
         )
 
@@ -602,7 +596,7 @@ def extract_enclosed_tint_mask(ink: np.ndarray, reg: np.ndarray, seed_spec: str)
     if lbl == 0:
         raise SystemExit(f"tint seed ({sx},{sy}) did not land inside an enclosed pocket")
     pocket = comp_lab == lbl
-    return binary_closing(pocket, structure=np.ones((15, 15), bool)) & ~binary_dilation(
+    return binary_closing(pocket, structure=np.ones((close, close), bool)) & ~binary_dilation(
         reg, structure=np.ones((3, 3), bool)
     )
 
@@ -767,7 +761,8 @@ def remap_color(hex_col: str, remap_rules: list[tuple[tuple[int, int, int], str]
 def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_budget: bool,
            tints=None, wash_color: str | None = None, slop: float = 1.0,
            wash_opacity: float | None = None, auto_tint: bool = False,
-           skin_tint: str = "#FCE4DC", remaps: list[str] | None = None):
+           skin_tint: str = "#FCE4DC", remaps: list[str] | None = None,
+           tint_size: float = 30.0):
     # RGBA PNGs drop their alpha channel on convert("RGB"), keeping the raw RGB
     # under transparent pixels (usually black) — that black then masquerades as
     # paper and the ink mask finds halos around strokes instead of strokes.
@@ -777,7 +772,7 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
         rgba = src_im.convert("RGBA")
         paper_im = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
         src_im = Image.alpha_composite(paper_im, rgba)
-    im = slopmax2.fit_page(src_im.convert("RGB"))
+    im = flat.fit_page(src_im.convert("RGB"))
     arr_u8 = maybe_lift(np.array(im))
     arr = arr_u8.astype(np.int16)
     if im.size != PAGE:
@@ -798,7 +793,7 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
     if all(int(v) >= 240 for v in np.median(arr[:4].reshape(-1, 3), axis=0)):
         paper = "#FFFFFF"
 
-    hand = Hand(slopmax2.seed_for(name), (0, 0))
+    hand = Hand(flat.seed_for(name), (0, 0))
     padded = (w + PAD * 2, h + PAD * 2)
     session = {
         "version": 1, "started": "generated", "duration": 0, "device": "hand.py",
@@ -831,35 +826,50 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
 
     for spec_i, tint_spec in enumerate(effective_tints):
         seed_spec, t_color, t_angle = parse_tint_spec(tint_spec)
-        t_mask = extract_enclosed_tint_mask(ink, regions_m, seed_spec)
-        t_geoms = region_geoms(t_mask)
-        if not t_geoms:
-            raise SystemExit(f"{name}: tint '{tint_spec}' produced no region >= 60 px")
-        # If 'auto', take the largest enclosed region (main face/body silhouette)
-        target_geoms = t_geoms[:1] if seed_spec == "auto" else t_geoms
         old_op = hand.opacity
         hand.opacity = wash_opacity if wash_opacity is not None else 0.45
         t_strokes = 0
         wash_jitter = 0.4 + 0.55 * max(0.0, float(slop))
         outline_jitter = 0.8 + 1.4 * max(0.0, float(slop))
+        # 30 px is the face/body wash: caps kiss the outline, rows 21 px apart,
+        # pockets welded across 15 px gaps. A smaller brush is a tight fill —
+        # cap pulled inside, rows overlapping, only hairline gaps welded.
+        tight = tint_size < 29.5
+        close_px = 5 if tight else 15
+        if tight:
+            # Proportional, no floor. A 0.15 floor made --slop 0.5 look like 0.7.
+            wash_jitter = 0.40 * max(0.0, float(slop))
+        t_mask = extract_enclosed_tint_mask(ink, regions_m, seed_spec, close=close_px)
+        # recompute geoms from the (possibly tighter) mask
+        t_geoms = region_geoms(t_mask)
+        if not t_geoms:
+            raise SystemExit(f"{name}: tint '{tint_spec}' produced no region >= 60 px")
+        target_geoms = t_geoms[:1] if seed_spec == "auto" else t_geoms
         # Offset seed by spec_i * 17 so stacked --tint passes (e.g. two-tone wood
         # grain on pirate_roller) don't trace identical scanline rows and wobble.
         for ti, tg in enumerate(target_geoms):
+            minx, miny, maxx, maxy = tg.bounds
+            short = max(1.0, min(maxx - minx, maxy - miny))
+            size = min(float(tint_size), max(6.0, short * 0.72)) if tight else float(tint_size)
+            inset_frac = max(0.15, 0.5 - 2.0 / size) if tight else 0.15
+            spacing = max(5.0, size * 0.62) if tight else 21.0
             lines = hatch_region(
-                tg, angle_deg=t_angle, spacing=21, brush_size=30.0,
-                seed=100 + spec_i * 17 + ti, slop=slop,
+                tg, angle_deg=t_angle, spacing=spacing, brush_size=size,
+                seed=100 + spec_i * 17 + ti, slop=slop, inset_frac=inset_frac,
             )
             if not lines and ti == 0:
                 lines = hatch_region(
-                    tg, angle_deg=0.0, spacing=14, brush_size=22.0,
-                    seed=100 + spec_i * 17 + ti, slop=slop,
+                    tg, angle_deg=t_angle, spacing=max(5.0, size * 0.5),
+                    brush_size=max(6.0, size * 0.8),
+                    seed=100 + spec_i * 17 + ti, slop=slop, inset_frac=0.15,
                 )
             for line, sw in lines:
-                keys = [(x + PAD, y + PAD) for x, y in line]
-                if len(keys) >= 2:
-                    hand.stroke(hand.curve(keys), t_color, size=sw, jitter=wash_jitter)
-                    scene.stroke(hand.ops[-1])
-                    t_strokes += 1
+                keys = _wash_keys(line)
+                if keys is None:
+                    continue
+                hand.stroke(hand.curve(keys), t_color, size=sw, jitter=wash_jitter)
+                scene.stroke(hand.ops[-1])
+                t_strokes += 1
         hand.opacity = old_op
         print(f"{name}: tint {t_color} ({seed_spec}) painted {t_strokes} wash strokes")
 
@@ -871,6 +881,8 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
     region_wash_color = wash_color or ink_color
     wash_jitter = 0.4 + 0.55 * max(0.0, float(slop))
     outline_jitter = 0.8 + 1.4 * max(0.0, float(slop))
+    # Centre-line ink ignored --slop before, so a coal outline stayed put when slop dropped.
+    ink_jitter = JITTER * max(0.0, float(slop))
     for gi, geom in enumerate(geoms):
         minx, miny, maxx, maxy = geom.bounds
         short = min(maxx - minx, maxy - miny)
@@ -884,10 +896,11 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
             old = hand.opacity
             hand.opacity = wash_opacity if wash_opacity is not None else 0.32
             for line, sw in hatch_region(geom, angle_deg=angle, spacing=spacing, brush_size=size, seed=200 + gi, slop=slop):
-                keys = [(x + PAD, y + PAD) for x, y in line]
-                if len(keys) >= 2:
-                    hand.stroke(hand.curve(keys), region_wash_color, size=sw, jitter=wash_jitter)
-                    scene.stroke(hand.ops[-1])
+                keys = _wash_keys(line)
+                if keys is None:
+                    continue
+                hand.stroke(hand.curve(keys), region_wash_color, size=sw, jitter=wash_jitter)
+                scene.stroke(hand.ops[-1])
             hand.opacity = old
             is_closed_outline = slop <= 0.05
             for arc in sloppy_outline_strokes(geom, seed=300 + gi, slop=slop):
@@ -906,7 +919,7 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
             ring = list(geom.exterior.coords)
             keys = [(x + PAD, y + PAD) for x, y in ring]
             if len(keys) >= 3:
-                hand.stroke(hand.curve(keys, closed=True), ink_color, size=outline_size(geom), jitter=JITTER)
+                hand.stroke(hand.curve(keys, closed=True), ink_color, size=outline_size(geom), jitter=ink_jitter)
                 scene.stroke(hand.ops[-1])
 
     # --- strokes: EDT per-run width, then glue what thinning split --------------
@@ -920,10 +933,10 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
         x0, x1 = max(0, xs.min() - 1), min(w, xs.max() + 2)
         blob = np.zeros((y1 - y0, x1 - x0), bool)
         blob[ys - y0, xs - x0] = True
-        sk = prune_l_corners(slopmax2.skeleton(blob))
+        sk = flat.skeleton(blob)  # skeleton_paths prunes the L-corners itself
         if int(sk.sum()) == 0:
             continue
-        comp_paths = [p for p in slopmax2.skeleton_paths(sk) if len(p) >= INK_MIN]
+        comp_paths = [p for p in flat.skeleton_paths(sk) if len(p) >= INK_MIN]
         # Feature cluster: a tiny blob (stubble patch, arm-hair ticks) is a
         # deliberate drawing feature even when it shatters into several short
         # paths; junction crumbs come from big stroke blobs instead.
@@ -949,16 +962,17 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
             # Stretch isolated features (nose ticks, short hair spikes) to ~15.6 px
             # along their tangent so hand.py draws them instead of dropping them.
             (ax, ay), (bx, by) = pts[0], pts[-1]
-            d = math.dist((ax, ay), (bx, by)) or 1.0
-            ux, uy = (bx - ax) / d, (by - ay) / d
-            if d < 1.0:
+            d = math.dist((ax, ay), (bx, by))
+            if d > 0.0:
+                ux, uy = (bx - ax) / d, (by - ay) / d
+            else:
                 ux, uy = 0.0, 1.0
             mx, my = (ax + bx) / 2, (ay + by) / 2
             drawn = [(mx - ux * 7.8, my - uy * 7.8), (mx + ux * 7.8, my + uy * 7.8)]
         else:
             drawn = list(LineString(pts).simplify(1.0).coords)
         keys = [(x + PAD, y + PAD) for x, y in drawn]
-        hand.stroke(hand.curve(keys), tone, size=size, jitter=JITTER)
+        hand.stroke(hand.curve(keys), tone, size=size, jitter=ink_jitter)
         scene.stroke(hand.ops[-1])
         strokes += 1
 
@@ -967,10 +981,10 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
     print(f"{name}: stroke chains={strokes} (raw={len(raw_paths)}, dropped_short={dropped_short})")
 
     session["duration"] = round(hand.t, 3)
-    svg = slopmax2.page_svg(scene, paper)
+    svg = flat.page_svg(scene, paper)
     if (w, h) != PAGE:
         raise SystemExit(f"{name}: page-svg from a {w}x{h} canvas, wanted {PAGE}")
-    png = slopmax2.rasterize(svg, 1280, 960)
+    png = flat.rasterize(svg, 1280, 960)
     extrema = png.convert("RGB").getextrema()
     if all(v[1] - v[0] < 8 for v in extrema):
         raise SystemExit(f"{name}: render is a uniform colour; the scene content was lost")
@@ -983,7 +997,7 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
 
     out_dir.joinpath("bg.svg").write_text(svg)
     png.save(out_dir / "bg.png")
-    slopmax2.cover_thumb(png).save(out_dir / "thumb.png")
+    flat.cover_thumb(png).save(out_dir / "thumb.png")
     dbg = np.zeros((h, w, 3), np.uint8)
     dbg[:] = 255
     dbg[stroke_m] = (40, 40, 40)
@@ -1005,7 +1019,7 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="Slopmax3 EDT sketch backgrounds")
+    p = argparse.ArgumentParser(description="BonePaper sketch backgrounds (EDT line art + marker wash)")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sketch", help="line-art / hybrid picture -> bg zip")
     s.add_argument("src", type=Path)
@@ -1027,9 +1041,12 @@ def main(argv=None):
                    help="looseness of wash & region outline (0.0=clean, 1.0=default, >1.0=wilder)")
     s.add_argument("--wash-opacity", type=float, default=None,
                    help="opacity for tint and region wash strokes (default: 0.45 tint / 0.32 region)")
+    s.add_argument("--tint-size", type=float, default=30.0,
+                   help="brush width for --tint washes (default 30). Below 30 the stroke is pulled inside the pocket and the rows overlap")
     s.add_argument("--ink", default="#222222")
-    s.add_argument("--skip-budget", action="store_true",
-                   help="do not fail on 8x8 ink-density mismatch (debug only)")
+    s.add_argument("--no-budget-check", "--skip-budget", dest="skip_budget", action="store_true",
+                   help="debug only: do not fail on 8x8 ink-density mismatch")
+    s.add_argument("--deploy", metavar="DEVICE", help="devicectl device id; run outside the sandbox")
     args = p.parse_args(argv)
     if args.cmd == "sketch":
         if args.name:
@@ -1041,7 +1058,10 @@ def main(argv=None):
         sketch(args.src, args.out, name, args.wash, args.ink, args.skip_budget,
                tints=args.tint, wash_color=args.wash_color, slop=args.slop,
                wash_opacity=args.wash_opacity, auto_tint=args.auto_tint,
-               skin_tint=args.skin_tint, remaps=args.remap)
+               skin_tint=args.skin_tint, remaps=args.remap, tint_size=args.tint_size)
+        if args.deploy:
+            zip_path = args.out if args.out.suffix == ".zip" else args.out / f"{name}.zip"
+            flat.deploy(args.deploy, zip_path, f"bgs/{int(time.time() * 1000)}.zip")
     else:
         raise SystemExit(f"unknown command {args.cmd}")
 

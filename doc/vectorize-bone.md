@@ -2,11 +2,11 @@
 
 The intro man (`AT_Man.ati` inside `demo/intro_scene.ats`) was turned into the custom item `@:bluehairsvg` by tracing each bone PNG to outlines and stroking those outlines with the BonePaper hand. The script is `tools/bonepaper_gen/out/bluehairsvg/build.py`.
 
-Slopmaxing an item or a scene uses this tracer, then packs a 4× `.ati` and divides the scene scale by 4. The white-paint sentinel, the ring keep, and the scene rewrite are in [slopmax.md](slopmax.md). The slopmaxing script is `tools/bonepaper_gen/out/camera/build.py`.
+`flat.py item` or `flat.py scene` uses this tracer, then packs a 4× `.ati` and divides the scene scale by 4. The white-paint sentinel, the ring keep, and the scene rewrite are in [flat-item-scene.md](flat-item-scene.md).
 
 The source is the raster, `bm_*_state_0.png`. Black marks are dropped. What remains is split by colour, and each blob becomes a simplified polygon. That polygon is what gets brushed.
 
-Write redrawn frames back under that same name: `bm_<id>_state_<n>.png`, one `<id>` per bone, `<n>` equal to the edge `state`. Android and the iOS gallery both collapse that id to one bone. A name like `sun_0.png` does not. Details are in [slopmax.md](slopmax.md).
+Write redrawn frames back under that same name: `bm_<id>_state_<n>.png`, one `<id>` per bone, `<n>` equal to the edge `state`. Android and the iOS gallery both collapse that id to one bone. A name like `sun_0.png` does not. Details are in [flat-item-scene.md](flat-item-scene.md).
 
 ## Colour split
 
@@ -41,6 +41,6 @@ Rasterize with `rsvg-convert` at 4× (`SAMPLE = 4`) and keep those pixels. A 1×
 
 Bone points are multiplied by 4. `x_offset` / `y_offset` become the joint's place in the 4× bitmap, negated. Item `meta.txt` `scale` is `0.5 / 4 = 0.125`, so a newly dropped item is the same size as the original `AT_Man` (whose scale is 0.5) rather than four times bigger.
 
-`bluehairsvg` cropped each bone to its alpha box. Slopmaxing does not. Cropping moves the joint, and two frames cropped apart will not share one. The offset is the joint in the full padded canvas. See [slopmax.md](slopmax.md).
+`bluehairsvg` cropped each bone to its alpha box. `flat.py item` does not. Cropping moves the joint, and two frames cropped apart will not share one. The offset is the joint in the full padded canvas. See [flat-item-scene.md](flat-item-scene.md).
 
 An item already placed in a scene keeps the old skeleton and the old scale. Remove it and add `bluehairsvg` again.
