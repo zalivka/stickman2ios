@@ -1,11 +1,11 @@
-# Slopmax3 reference
+# Ink engine reference
 
 EDT sketch and marker-wash engine (`tools/bonepaper_gen/ink.py`). Distilled
 from `glasses`, `wojak`, `redface`, `lineflower`, `busnight`, and `whale`.
 
 ## Why EDT + L-corner pruning
 
-| Old (`build.py` copies) | Failure | Slopmax3 fix |
+| Old (`build.py` copies) | Failure | `ink.py` fix |
 |---|---|---|
 | Pass/fail `MinFilter(11)` | Brows (half-width ~5) became blob regions | Continuous `r = edt(ink)`; `r >= 7.0` is region core |
 | `MaxFilter(21)` grow | Pupils swelled 25→45 px outside eyes | Exact EDT distance grow `dist(~seed) <= REGION_R - 0.5` on own island |

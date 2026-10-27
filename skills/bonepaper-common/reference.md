@@ -154,7 +154,7 @@ What `stroke()` does, in order:
 
 ## Joint and 4× pixels
 
-Rasterize the full padded canvas with `rsvg-convert` at 4×. Do not crop to the alpha box. `bluehairsvg` cropped each bone. Slopmaxing does not. Cropping moves the joint, and two frames cropped apart will not share one.
+Rasterize the full padded canvas with `rsvg-convert` at 4×. Do not crop to the alpha box. `bluehairsvg` cropped each bone. `flat.py item` does not. Cropping moves the joint, and two frames cropped apart will not share one.
 
 ```text
 joint in the source bitmap = (-old_x_offset, -old_y_offset)
@@ -262,14 +262,17 @@ Day, evening, and night of one layout share one seed (`17 + sum(name) % 80` on t
 
 ## Backgrounds from a picture
 
-Three routes pick by content, all in `tools/bonepaper_gen` with `.venv/bin/python`. Worked examples live only on the working machine under `out/` (git-ignored), not in the repo: `out/redface` (marker face on red), `out/lineflower` (one-line flower on white), `out/whale` (cartoon minus water), `out/busnight` (dark Futurama still). Each is a data script plus its outputs; recreate them from the rules here.
+Three commands pick by content, all in `tools/bonepaper_gen` with `.venv/bin/python`. Worked examples live only on the working machine under `out/` (git-ignored), not in the repo: `out/redface` (marker face on red), `out/lineflower` (one-line flower on white), `out/whale` (cartoon minus water), `out/busnight` (dark Futurama still). Each is an input picture plus its outputs; recreate them from the rules here.
 
-| Picture | Route | Entry |
-|---------|-------|-------|
-| Flat-colour regions (bay, meme) | `flat.py bg` plain or `--comic` | see bonepaper-flat SKILL.md |
-| Line art: strokes on one paper colour | centre-line trace, `lineart.line_art_bg` | the picture's `build.py` is data (`out/redface`, `out/lineflower`) |
-| Full-colour cartoon | flatten composition in a `build.py` | `out/whale`, `out/busnight` (local only) |
-| Line art WITH solid areas (hair, brows, pupils) | hybrid split in a `build.py` | `out/glasses` (local only) |
+| Picture | Command | Notes |
+|---------|---------|-------|
+| Flat-colour regions (bay, meme) | `flat.py bg picture.png` | Region engine, no ink model. See bonepaper-flat SKILL.md |
+| Full-colour cartoon with ink over flats | `flat.py bg picture.png --comic` | Ink is stripped, the palette is cut, the ink is redrawn as centre lines |
+| Line art: strokes on one paper colour | `ink.py sketch picture.png` | Centre-line route (`out/redface`, `out/lineflower`) |
+
+Line art that also has solid areas (hair, brows, pupils) needs no extra flag: `ink.py sketch` splits the ink by width automatically, so wide ink becomes a filled region and thin ink stays a stroke (`out/glasses`). `--auto-tint` is only about colour — it washes the enclosed pockets.
+
+The older per-picture entry point `lineart.line_art_bg` is still in `lineart.py`, and `ink.py` imports its helpers (`close_breaks`, `compare`), but `ink.py sketch` replaced it as the route to run. Do not write a new `build.py` for a picture.
 
 `regions()` is never the route for curvy line art: every stroke blob is a limb brushed along its rotated-rect axis, so wiggly strokes come out as disconnected straight sausages.
 
@@ -321,19 +324,19 @@ Flat vector fills (`_stamp` with solid `<path fill=...>`) look like mechanical s
    - Invert outside flood-fill to get the enclosed silhouette.
    - Subtract the hair mask trimmed to `MaxFilter(3)` (not `MaxFilter(7)`, which bites into the upper forehead) and clamp to the actual hairline (`y >= 50`, not arbitrary brow cutoffs like `y >= 150` which leaves the forehead white).
 
-### Removing an object from a flatten build (whale)
+### Removing an object from a `--comic` build (whale)
 
 Wave stripes shared exact palette colours with the whale body (`(103,198,252)` spans both), so no colour test inside a bounding box separates them. What separates them is topology: flood the page borders through non-ink pixels; every blue or pink pixel reachable from outside is water. Erase dark pixels per COMPONENT, never per pixel — the whale outline touches both its interior and the water, so per-pixel rules bite slits into it, and a bitten shape dies later as `FATAL loop never gets 12 px` (a 107 px crescent). Keep a component that borders the interior; drop one that only borders water. Water pockets erased from between belly plates leave notches: close the silhouette (Max31→Min31) and repaint each closed-in notch with its surrounding colour, iterating — one close only seals a gulf's mouth, each repainted ring lets the next close reach deeper. Lines whose fills vanished become ink-on-white and the caption rule drops them by itself: whiten the fills before `ink_strokes` runs.
 
 ### Dark stills (busnight)
 
-A dark animation frame fails three ways, all rules from the busnight run (its `build.py` is local-only under `out/`):
+A dark animation frame fails three ways, all rules from the busnight run (local-only under `out/`):
 
 1. Key colours sit below the tracer's floor (`peak ≥ 110`; gray needs `peak ≥ 70`). Gamma-lift the source: `(v/255)^g × 255`. The lift must clear the floor for the PAD band too — `fit_page` pads with the darkest edge shade, and g = 0.55 left it at peak 104, so nothing touched the top edge and the run stopped at "no shape reaches three page edges". g = 0.45 worked.
 2. Letterbox bars are player chrome, not content: trim near-black full-height/width strips before lifting. Guard the trim: the kept box must stay ≥ half the frame.
 3. Shading gradients quantize into tiny rings (area < 250, fitting a 24 px box) that fatally fail the 12 px loop test and the brush cannot draw. Drop them loudly in the build script.
 
-`--flatten` cannot run on a dark still: its ink test (luma < 90 or local contrast) reads the whole night as ink, and 64 grow steps cannot fill it.
+`--comic` cannot run on a dark still: its ink test (luma < 90 or local contrast) reads the whole night as ink, and 64 grow steps cannot fill it.
 
 ### Canvas contract and verification
 

@@ -779,16 +779,16 @@ def cmd_bg(args):
     The largest shape reaching three page edges is the page colour (a sky stops at
     the ground, which covers the bottom of the rect). It becomes
     a rect, not a brushed shape. White and black are marked first, so they stay.
-    With --flatten, line art and comics are flattened first (see flatten()).
+    With --comic, line art and comics are flattened first (see flatten()).
     """
     w, h = PAGE
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     im = fit_page(Image.open(args.source).convert("RGB"))
     lines = []
-    if args.flatten:
+    if args.comic:
         source = im
-        im, ink = flatten(source, args.flatten)
+        im, ink = flatten(source, args.comic)
         im.save(output.parent / "flat.png")
         lines = ink_strokes(source, ink, im)
     work = mark_page(im.convert("RGBA"))
@@ -902,7 +902,7 @@ def main():
     p = sub.add_parser("bg", help="redraw a flat-colour 4:3 picture as a background zip")
     p.add_argument("source")
     p.add_argument("-o", "--output", required=True, metavar="ZIP", help="zip path; bg.png, bg.svg, thumb.png go beside it")
-    p.add_argument("--comic", "--flatten", dest="flatten", type=int, nargs="?", const=24, metavar="COLORS",
+    p.add_argument("--comic", dest="comic", type=int, nargs="?", const=24, metavar="COLORS",
                    help="comic or line art with flats: drop ink and text, octree to COLORS (24), mode filter")
     trace_opts(p, bones=False)
     p.set_defaults(run=cmd_bg)

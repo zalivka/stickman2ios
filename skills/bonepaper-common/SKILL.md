@@ -24,7 +24,7 @@ Full tables, the joint formula, scene rules, and pack storage are in [reference.
 |------|--------|
 | Python | `tools/bonepaper_gen/.venv/bin/python`. Plain `python3` has no Pillow. |
 | Tracer | `tools/bonepaper_gen/out/bluehairsvg/build.py` (`brush_svg`) |
-| Item or scene packer | `tools/bonepaper_gen/out/camera/build.py` |
+| Item or scene packer | `flat.py item` / `flat.py scene` (they replaced the `out/camera/build.py` per-job copy) |
 | One-item runs | `out/sun`, `out/shuttle`, `out/earth`, `out/space_rest`, `out/lion` |
 
 ## Brush
