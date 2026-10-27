@@ -80,6 +80,7 @@ the uncropped padded canvas at 4×, and packs `@:<NAME>`.
 | `details(hand)` | Strokes on top: light edge, shade edge, bubbles, cusps. `stroke(hand, points, color, size)` takes page px and adds PAD itself. |
 | Minimum feature | Still 2× the brush: ≥ 22 px wide, ≥ 20 px clear inside a part you tap, a ring needs radius ≥ 8 px to get 12 px from its start. |
 | Colours | Outline and fill must sit well over 0.06 OKLab apart, or one fill tap runs through both. |
+| Source of truth | When the same art also runs through `ink.py svg` or any other renderer, one hand-authored SVG owns geometry, colours, and page size. `build.py` ports its coordinates 1:1 — no redesign, no simplification. Deviate only when the user says so. |
 
 Joint and packing match the traced route: offset `-((JOINT + PAD) * 4)`, bone
 `bm_1_state_0.png`, `meta.txt` scale `0.25`, unit name `@:<NAME>`, one edge point

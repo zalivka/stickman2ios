@@ -16,6 +16,14 @@ or [bonepaper-sketch](../bonepaper-sketch/SKILL.md).
 
 Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`.
 
+**A source SVG is the single source of truth.** When the same art also goes
+through `ink.py svg` (or any other renderer), one hand-authored SVG owns the
+geometry, colours, and page size; `build.py` ports its coordinates 1:1 — same
+page, same palette, no redesign. Author the source at the full 640×480 page:
+a small canvas forces the port to drop features to satisfy the fixed 14 px
+brush and 10 px rim. Fixes land in the SVG first, then every engine re-runs.
+Deviate only when the user says so.
+
 ## Command
 
 ```bash
