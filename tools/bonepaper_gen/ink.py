@@ -12,16 +12,19 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from scipy.ndimage import binary_closing, binary_dilation, distance_transform_edt, label, median_filter
-from shapely.affinity import rotate, translate
-from shapely.geometry import LineString, MultiLineString, Polygon
+from shapely.affinity import rotate, scale as geom_scale, translate
+from shapely.geometry import LineString, MultiLineString, Point, Polygon
+from shapely.ops import unary_union
 
 GEN = Path(__file__).resolve().parent
 sys.path.insert(0, str(GEN))
@@ -1018,6 +1021,618 @@ def sketch(src: Path, out: Path, name: str, wash: bool, ink_color: str, skip_bud
     return zip_path
 
 
+# --- Direct SVG -> Sketch ----------------------------------------------------
+
+_SVG_PATH_RE = re.compile(r"[MmLlHhVvCcSsQqTtZz]|-?\d+(?:\.\d+)?(?:e[+-]?\d+)?")
+
+
+def _cubic_pts(p0, p1, p2, p3, step=2.0):
+    length = math.dist(p0, p1) + math.dist(p1, p2) + math.dist(p2, p3)
+    n = max(2, int(length / step))
+    out = []
+    for k in range(1, n + 1):
+        u = k / n
+        v = 1.0 - u
+        x = v**3 * p0[0] + 3 * v * v * u * p1[0] + 3 * v * u * u * p2[0] + u**3 * p3[0]
+        y = v**3 * p0[1] + 3 * v * v * u * p1[1] + 3 * v * u * u * p2[1] + u**3 * p3[1]
+        out.append((x, y))
+    return out
+
+
+def _quad_pts(p0, p1, p2, step=2.0):
+    length = math.dist(p0, p1) + math.dist(p1, p2)
+    n = max(2, int(length / step))
+    out = []
+    for k in range(1, n + 1):
+        u = k / n
+        v = 1.0 - u
+        x = v * v * p0[0] + 2 * v * u * p1[0] + u * u * p2[0]
+        y = v * v * p0[1] + 2 * v * u * p1[1] + u * u * p2[1]
+        out.append((x, y))
+    return out
+
+
+def _parse_svg_path(d: str):
+    """Parse SVG path data into list of (points, closed) subpaths."""
+    tokens = _SVG_PATH_RE.findall(d)
+    subpaths = []
+    pts = []
+    cur = (0.0, 0.0)
+    start = (0.0, 0.0)
+    last_ctrl = None
+    last_cmd = None
+    i = 0
+    cmd = None
+    while i < len(tokens):
+        t = tokens[i]
+        if t.isalpha():
+            cmd = t
+            i += 1
+            if cmd in ("Z", "z"):
+                if pts:
+                    subpaths.append((pts, True))
+                    pts = []
+                cur = start
+                last_ctrl = None
+                last_cmd = cmd
+            continue
+        if cmd is None:
+            raise SystemExit(f"svg path starts without command: {d[:40]}")
+        rel = cmd.islower()
+        up = cmd.upper()
+        if up == "M":
+            if pts:
+                subpaths.append((pts, False))
+            x, y = float(tokens[i]), float(tokens[i + 1])
+            i += 2
+            cur = (cur[0] + x, cur[1] + y) if rel else (x, y)
+            start = cur
+            pts = [cur]
+            cmd = "l" if rel else "L"
+            last_ctrl = None
+        elif up == "L":
+            x, y = float(tokens[i]), float(tokens[i + 1])
+            i += 2
+            cur = (cur[0] + x, cur[1] + y) if rel else (x, y)
+            pts.append(cur)
+            last_ctrl = None
+        elif up == "H":
+            x = float(tokens[i])
+            i += 1
+            cur = (cur[0] + x, cur[1]) if rel else (x, cur[1])
+            pts.append(cur)
+            last_ctrl = None
+        elif up == "V":
+            y = float(tokens[i])
+            i += 1
+            cur = (cur[0], cur[1] + y) if rel else (cur[0], y)
+            pts.append(cur)
+            last_ctrl = None
+        elif up == "C":
+            x1, y1, x2, y2, x, y = (float(tokens[i + k]) for k in range(6))
+            i += 6
+            p1 = (cur[0] + x1, cur[1] + y1) if rel else (x1, y1)
+            p2 = (cur[0] + x2, cur[1] + y2) if rel else (x2, y2)
+            p3 = (cur[0] + x, cur[1] + y) if rel else (x, y)
+            pts.extend(_cubic_pts(cur, p1, p2, p3))
+            cur = p3
+            last_ctrl = p2
+        elif up == "S":
+            x2, y2, x, y = (float(tokens[i + k]) for k in range(4))
+            i += 4
+            if last_cmd in ("C", "c", "S", "s") and last_ctrl is not None:
+                p1 = (2 * cur[0] - last_ctrl[0], 2 * cur[1] - last_ctrl[1])
+            else:
+                p1 = cur
+            p2 = (cur[0] + x2, cur[1] + y2) if rel else (x2, y2)
+            p3 = (cur[0] + x, cur[1] + y) if rel else (x, y)
+            pts.extend(_cubic_pts(cur, p1, p2, p3))
+            cur = p3
+            last_ctrl = p2
+        elif up == "Q":
+            x1, y1, x, y = (float(tokens[i + k]) for k in range(4))
+            i += 4
+            p1 = (cur[0] + x1, cur[1] + y1) if rel else (x1, y1)
+            p2 = (cur[0] + x, cur[1] + y) if rel else (x, y)
+            pts.extend(_quad_pts(cur, p1, p2))
+            cur = p2
+            last_ctrl = p1
+        elif up == "T":
+            x, y = float(tokens[i]), float(tokens[i + 1])
+            i += 2
+            if last_cmd in ("Q", "q", "T", "t") and last_ctrl is not None:
+                p1 = (2 * cur[0] - last_ctrl[0], 2 * cur[1] - last_ctrl[1])
+            else:
+                p1 = cur
+            p2 = (cur[0] + x, cur[1] + y) if rel else (x, y)
+            pts.extend(_quad_pts(cur, p1, p2))
+            cur = p2
+            last_ctrl = p1
+        else:
+            raise SystemExit(f"unsupported svg path command {cmd!r}")
+        last_cmd = cmd
+    if pts:
+        closed = len(pts) >= 3 and math.dist(pts[0], pts[-1]) < 1.5
+        subpaths.append((pts, closed))
+    return subpaths
+
+
+def _parse_points_attr(s: str):
+    nums = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", s)]
+    return [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
+
+
+def _apply_svg_transform(geom, transform_str: str):
+    if not transform_str:
+        return geom
+    ops = re.findall(r"(\w+)\s*\(([^)]*)\)", transform_str)
+    for fn, arg_s in reversed(ops):
+        vals = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", arg_s)]
+        if fn == "translate":
+            tx = vals[0]
+            ty = vals[1] if len(vals) > 1 else 0.0
+            geom = translate(geom, xoff=tx, yoff=ty)
+        elif fn == "rotate":
+            ang = vals[0]
+            origin = (vals[1], vals[2]) if len(vals) >= 3 else (0.0, 0.0)
+            geom = rotate(geom, ang, origin=origin)
+        elif fn == "scale":
+            sx = vals[0]
+            sy = vals[1] if len(vals) > 1 else sx
+            geom = geom_scale(geom, xfact=sx, yfact=sy, origin=(0.0, 0.0))
+        else:
+            raise SystemExit(f"unsupported svg transform {fn!r}")
+    return geom
+
+
+def _svg_rotation_deg(transform_str: str) -> float:
+    total = 0.0
+    for fn, arg_s in re.findall(r"(\w+)\s*\(([^)]*)\)", transform_str or ""):
+        if fn == "rotate":
+            vals = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", arg_s)]
+            if vals:
+                total += vals[0]
+    return total
+
+
+def _elem_style(el, inherited: dict) -> dict:
+    st = dict(inherited)
+    if "style" in el.attrib:
+        for kv in el.attrib["style"].split(";"):
+            if ":" in kv:
+                k, v = kv.split(":", 1)
+                st[k.strip()] = v.strip()
+    for k in ("fill", "stroke", "stroke-width", "opacity", "fill-opacity", "stroke-opacity"):
+        if k in el.attrib:
+            st[k] = el.attrib[k].strip()
+    for k in ("data-angle", "data-wash"):
+        if k in el.attrib:
+            st[k] = el.attrib[k].strip()
+        elif k in st and el.tag.split("}")[-1] not in ("svg", "g"):
+            st.pop(k, None)
+    return st
+
+
+def _norm_color(val: str | None) -> str | None:
+    if not val or val.lower() == "none":
+        return None
+    val = val.strip()
+    if val.startswith("#"):
+        if len(val) == 4:
+            return "#" + "".join(c * 2 for c in val[1:]).upper()
+        return val.upper()
+    raise SystemExit(f"use hex colours in source SVG, got {val!r}")
+
+
+def _rounded_rect_poly(x: float, y: float, w: float, h: float, rx: float, ry: float) -> Polygon:
+    if rx <= 0 and ry <= 0:
+        return Polygon([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
+    rx = min(rx, w / 2)
+    ry = min(ry if ry > 0 else rx, h / 2)
+    pts = []
+    corners = [
+        (x + w - rx, y + ry, -math.pi / 2, 0.0),
+        (x + w - rx, y + h - ry, 0.0, math.pi / 2),
+        (x + rx, y + h - ry, math.pi / 2, math.pi),
+        (x + rx, y + ry, math.pi, 3 * math.pi / 2),
+    ]
+    for cx, cy, a0, a1 in corners:
+        for k in range(7):
+            a = a0 + (a1 - a0) * k / 6
+            pts.append((cx + rx * math.cos(a), cy + ry * math.sin(a)))
+    return Polygon(pts)
+
+
+def _poly_pca_angle(poly: Polygon) -> float:
+    minx, miny, maxx, maxy = poly.bounds
+    xs = np.linspace(minx, maxx, 28)
+    ys = np.linspace(miny, maxy, 28)
+    pts = [(x, y) for y in ys for x in xs if poly.contains(Point(x, y))]
+    if len(pts) < 6:
+        pts = list(poly.exterior.coords)[:-1]
+    arr = np.array(pts, dtype=np.float64)
+    cx, cy = arr[:, 0].mean(), arr[:, 1].mean()
+    dx, dy = arr[:, 0] - cx, arr[:, 1] - cy
+    cov_xx = float((dx * dx).mean())
+    cov_yy = float((dy * dy).mean())
+    cov_xy = float((dx * dy).mean())
+    ang = 0.5 * math.degrees(math.atan2(2.0 * cov_xy, cov_xx - cov_yy))
+    if ang > 65:
+        ang -= 90
+    elif ang < -65:
+        ang += 90
+    return round(ang, 1)
+
+
+def _poly_short_long(poly: Polygon) -> tuple[float, float]:
+    rect = poly.minimum_rotated_rectangle
+    coords = list(rect.exterior.coords)[:4]
+    if len(coords) < 4:
+        minx, miny, maxx, maxy = poly.bounds
+        w, h = maxx - minx, maxy - miny
+        return min(w, h), max(w, h)
+    edges = [math.dist(coords[i], coords[(i + 1) % 4]) for i in range(4)]
+    return min(edges), max(edges)
+
+
+def _load_svg_scene(svg_path: Path):
+    """Parse a 640x480 SVG into (paper_hex, items) in painter's order.
+
+    Each item is a dict:
+      kind: 'poly' | 'line'
+      geom: Polygon or LineString in page coords (0..640, 0..480)
+      fill: '#HEX' or None
+      stroke: '#HEX' or None
+      stroke_width: float
+      fill_opacity: float
+      stroke_opacity: float
+      angle: float | None  (optional data-angle override)
+      wash_mode: str | None (optional data-wash='stamp'|'hatch')
+    """
+    tree = ET.parse(svg_path)
+    root = tree.getroot()
+    vb = root.attrib.get("viewBox")
+    if vb:
+        vals = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", vb)]
+        if len(vals) == 4 and (round(vals[2]), round(vals[3])) != PAGE:
+            raise SystemExit(f"{svg_path.name}: viewBox is {vals[2]}x{vals[3]}, wanted {PAGE[0]}x{PAGE[1]}")
+    else:
+        w = float(re.sub(r"[^0-9.]", "", root.attrib.get("width", "640")))
+        h = float(re.sub(r"[^0-9.]", "", root.attrib.get("height", "480")))
+        if (round(w), round(h)) != PAGE:
+            raise SystemExit(f"{svg_path.name}: size is {w}x{h}, wanted {PAGE[0]}x{PAGE[1]}")
+
+    paper = "#FFFFFF"
+    items = []
+
+    def walk(el, inherited, tf_chain):
+        tag = el.tag.split("}")[-1]
+        if tag in ("defs", "title", "desc", "metadata", "text"):
+            return
+        st = _elem_style(el, inherited)
+        tf = el.attrib.get("transform", "")
+        cur_tf = (tf_chain + " " + tf).strip() if tf else tf_chain
+        if tag in ("svg", "g"):
+            for child in el:
+                walk(child, st, cur_tf)
+            return
+
+        fill = _norm_color(st.get("fill", "#000000"))
+        stroke = _norm_color(st.get("stroke", "none"))
+        sw = float(re.sub(r"[^0-9.]", "", st.get("stroke-width", "3"))) if stroke else 0.0
+        op = float(st.get("opacity", "1.0"))
+        fill_op = op * float(st.get("fill-opacity", "1.0"))
+        stroke_op = op * float(st.get("stroke-opacity", "1.0"))
+        ang = (float(st["data-angle"]) + _svg_rotation_deg(cur_tf)) if "data-angle" in st else None
+        wash_mode = st.get("data-wash") or inherited.get("data-wash")
+
+        geoms = []
+        if tag == "rect":
+            x = float(el.attrib.get("x", "0"))
+            y = float(el.attrib.get("y", "0"))
+            w = float(el.attrib.get("width", "0"))
+            h = float(el.attrib.get("height", "0"))
+            rx = float(el.attrib.get("rx", "0"))
+            ry = float(el.attrib.get("ry", rx))
+            if w <= 0 or h <= 0:
+                return
+            poly = _apply_svg_transform(_rounded_rect_poly(x, y, w, h, rx, ry), cur_tf)
+            if not items and stroke is None and fill and poly.area >= PAGE[0] * PAGE[1] * 0.95:
+                nonlocal paper
+                paper = fill
+                return
+            geoms.append(("poly", poly))
+        elif tag == "circle":
+            cx = float(el.attrib.get("cx", "0"))
+            cy = float(el.attrib.get("cy", "0"))
+            r = float(el.attrib.get("r", "0"))
+            if r <= 0:
+                return
+            quads = max(8, int(round(math.pi * r / 2 / 4)))
+            poly = _apply_svg_transform(Point(cx, cy).buffer(r, quad_segs=quads), cur_tf)
+            geoms.append(("poly", poly))
+        elif tag == "ellipse":
+            cx = float(el.attrib.get("cx", "0"))
+            cy = float(el.attrib.get("cy", "0"))
+            rx = float(el.attrib.get("rx", "0"))
+            ry = float(el.attrib.get("ry", "0"))
+            if rx <= 0 or ry <= 0:
+                return
+            quads = max(8, int(round(math.pi * max(rx, ry) / 2 / 4)))
+            unit_c = Point(0, 0).buffer(1.0, quad_segs=quads)
+            poly = translate(geom_scale(unit_c, rx, ry), cx, cy)
+            poly = _apply_svg_transform(poly, cur_tf)
+            geoms.append(("poly", poly))
+        elif tag == "polygon":
+            pts = _parse_points_attr(el.attrib.get("points", ""))
+            if len(pts) >= 3:
+                poly = _apply_svg_transform(Polygon(pts), cur_tf)
+                geoms.append(("poly", poly))
+        elif tag == "polyline":
+            pts = _parse_points_attr(el.attrib.get("points", ""))
+            if len(pts) >= 2:
+                if fill is not None and len(pts) >= 3:
+                    poly = _apply_svg_transform(Polygon(pts), cur_tf)
+                    geoms.append(("poly", poly))
+                else:
+                    ls = _apply_svg_transform(LineString(pts), cur_tf)
+                    geoms.append(("line", ls))
+        elif tag == "line":
+            x1 = float(el.attrib.get("x1", "0"))
+            y1 = float(el.attrib.get("y1", "0"))
+            x2 = float(el.attrib.get("x2", "0"))
+            y2 = float(el.attrib.get("y2", "0"))
+            ls = _apply_svg_transform(LineString([(x1, y1), (x2, y2)]), cur_tf)
+            geoms.append(("line", ls))
+        elif tag == "path":
+            d = el.attrib.get("d", "")
+            subs = _parse_svg_path(d)
+            for pts, closed in subs:
+                if (closed or fill is not None) and len(pts) >= 3:
+                    poly = Polygon(pts)
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                    poly = _apply_svg_transform(poly, cur_tf)
+                    for part in svg_export.polygons_of(poly):
+                        geoms.append(("poly", part))
+                elif len(pts) >= 2:
+                    ls = _apply_svg_transform(LineString(pts), cur_tf)
+                    geoms.append(("line", ls))
+
+        for kind, g in geoms:
+            if g.is_empty:
+                continue
+            if kind == "poly":
+                if not g.is_valid:
+                    g = g.buffer(0)
+                for part in svg_export.polygons_of(g):
+                    if part.area >= 4.0:
+                        items.append({
+                            "kind": "poly", "geom": part, "fill": fill, "stroke": stroke,
+                            "stroke_width": sw, "fill_opacity": fill_op, "stroke_opacity": stroke_op,
+                            "angle": ang, "wash_mode": wash_mode,
+                        })
+            elif kind == "line" and g.length >= 1.5:
+                items.append({
+                    "kind": "line", "geom": g, "fill": None, "stroke": stroke or fill,
+                    "stroke_width": sw if sw > 0 else 3.0, "fill_opacity": fill_op,
+                    "stroke_opacity": stroke_op, "angle": ang, "wash_mode": wash_mode,
+                })
+
+    walk(root, {"fill": "#000000", "stroke": "none", "stroke-width": "3"}, "")
+    return paper, items
+
+
+def _emit_hand_line(hand: Hand, scene: svg_export.Scene, pts: list[tuple[float, float]],
+                    color: str, size: float, jitter: float, closed: bool = False) -> bool:
+    """Emit one hand.py stroke in page coords, stretching short open ticks to clear SLOP."""
+    if len(pts) < 2:
+        return False
+    size = float(np.clip(size, SIZE_LO, 14.0))
+    reach = path_reach(pts)
+    if closed:
+        if reach < shape_lint.SLOP + 2:
+            return False
+        keys = [(x + PAD, y + PAD) for x, y in pts]
+        hand.stroke(hand.curve(keys, closed=True), color, size=size, jitter=jitter, closed=True)
+        scene.stroke(hand.ops[-1])
+        return True
+    if reach < shape_lint.SLOP + 3:
+        (ax, ay), (bx, by) = pts[0], pts[-1]
+        d = math.dist((ax, ay), (bx, by))
+        ux, uy = ((bx - ax) / d, (by - ay) / d) if d > 0 else (1.0, 0.0)
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        drawn = [(mx - ux * 7.8, my - uy * 7.8), (mx + ux * 7.8, my + uy * 7.8)]
+    else:
+        drawn = list(LineString(pts).simplify(0.8).coords)
+    keys = [(x + PAD, y + PAD) for x, y in drawn]
+    hand.stroke(hand.curve(keys), color, size=size, jitter=jitter)
+    scene.stroke(hand.ops[-1])
+    return True
+
+
+def svg_sketch(src_svg: Path, out: Path, name: str, slop: float = 0.65,
+               wash_opacity: float = 0.68, tint_size: float = 16.0,
+               occlude_fills: bool = True) -> Path:
+    """Direct SVG -> BonePaper sketch without rasterization or pixel tracing.
+
+    1. Parses vector shapes and strokes directly from a 640x480 SVG.
+    2. Washes filled polygons with `hatch_region` (auto-sizing brush to each
+       part's short side, or stamping tiny dots/spots directly so they never
+       vanish as `painted 0` or crash `hand.py` SLOP).
+    3. Draws polygon outlines and open curves/lines on top with `hand.stroke`.
+    """
+    paper, items = _load_svg_scene(src_svg)
+    if not items:
+        raise SystemExit(f"{name}: no drawable elements in {src_svg}")
+
+    w, h = PAGE
+    hand = Hand(flat.seed_for(name), (0, 0))
+    padded = (w + PAD * 2, h + PAD * 2)
+    session = {
+        "version": 1, "started": "generated", "duration": 0, "device": "hand.py",
+        "screenScale": 2, "mode": "sheet", "worldSize": 2048, "sample": 2,
+        "canvas": {"width": padded[0], "height": padded[1], "originX": 0, "originY": 0, "fixed": True},
+        "final": {"width": padded[0], "height": padded[1], "extraLeft": 0, "extraTop": 0},
+        "paper": None, "ops": hand.ops,
+    }
+    scene = svg_export.Scene(session)
+
+    s = max(0.0, float(slop))
+    wash_jitter = 0.35 * s
+    ink_jitter = JITTER * max(0.35, s)
+    outline_jitter = 0.6 + 1.1 * s
+
+    poly_items = [(idx, it) for idx, it in enumerate(items) if it["kind"] == "poly" and it["fill"]]
+
+    # --- 1. Wash / fill pass (bottom layer, in SVG painter's order) ------------
+    wash_strokes = 0
+    stamps = 0
+    for order_i, (idx, it) in enumerate(poly_items):
+        poly = it["geom"]
+        fill_col = it["fill"]
+        short, long_len = _poly_short_long(poly)
+        mode = it["wash_mode"]
+
+        # Tiny spots, eyes, nostrils, or explicit stamp parts are emitted in pass 1b
+        if mode == "stamp" or (short < 18.0 and poly.area < 450.0):
+            continue
+
+        # Subtract later opaque-filled polygons (except small spots/markings or child
+        # shading patches sitting inside this polygon) so background washes don't
+        # muddy foreground silhouettes.
+        target_geom = poly
+        if occlude_fills:
+            blockers = []
+            for _, later in poly_items[order_i + 1:]:
+                if later["wash_mode"] == "stamp":
+                    continue
+                l_poly = later["geom"]
+                l_short, _ = _poly_short_long(l_poly)
+                if l_short >= 28.0 and l_poly.area >= 900.0 and later["fill_opacity"] >= 0.5:
+                    if l_poly.area < poly.area * 0.92 and poly.intersects(l_poly):
+                        # Only occlude when poly is a much larger background shape
+                        # (>2.2x area of l_poly) and they don't share the same colour.
+                        if poly.area < l_poly.area * 2.2 or later["fill"] == fill_col:
+                            continue
+                        inside_ratio = poly.intersection(l_poly).area / max(1.0, l_poly.area)
+                        if inside_ratio > 0.88 and l_poly.area < poly.area * 0.45:
+                            continue
+                        blockers.append(l_poly.buffer(-2.0))
+            if blockers:
+                diff = poly.difference(unary_union(blockers))
+                if not diff.is_empty and diff.area >= 60.0:
+                    target_geom = diff
+
+        parts = [p for p in svg_export.polygons_of(target_geom) if p.area >= 40.0]
+        if not parts:
+            parts = [poly]
+
+        old_op = hand.opacity
+        base_op = wash_opacity if it["fill_opacity"] >= 0.99 else (wash_opacity * it["fill_opacity"])
+        hand.opacity = float(np.clip(base_op, 0.08, 0.95))
+
+        full_angle = it["angle"] if it["angle"] is not None else _poly_pca_angle(poly)
+        b_size = min(float(tint_size), max(6.0, short * 0.68))
+        inset_frac = max(0.06, 0.18 - 0.8 / b_size) if b_size < 20.0 else 0.14
+        spacing = max(3.5, b_size * 0.52)
+
+        for pi, part in enumerate(parts):
+            p_short, _ = _poly_short_long(part)
+            part_b = min(b_size, max(6.0, p_short * 0.72))
+            part_sp = max(3.5, part_b * 0.52)
+            lines = hatch_region(
+                part, angle_deg=full_angle, spacing=part_sp, brush_size=part_b,
+                seed=100 + idx * 13 + pi, slop=s, inset_frac=inset_frac,
+            )
+            if not lines:
+                lines = hatch_region(
+                    part, angle_deg=full_angle, spacing=max(4.0, part_b * 0.45),
+                    brush_size=max(5.0, part_b * 0.75),
+                    seed=100 + idx * 13 + pi, slop=s, inset_frac=0.10,
+                )
+            part_painted = 0
+            for line, sw in lines:
+                keys = _wash_keys(line)
+                if keys is None:
+                    continue
+                hand.stroke(hand.curve(keys), fill_col, size=sw, jitter=wash_jitter)
+                scene.stroke(hand.ops[-1])
+                wash_strokes += 1
+                part_painted += 1
+            if part_painted == 0:
+                grown = translate(part, PAD, PAD)
+                for sp in svg_export.polygons_of(grown):
+                    if sp.area >= 1.0:
+                        scene.layers.append(svg_export.Layer("fill", sp, fill_col, hand.opacity))
+                        stamps += 1
+        hand.opacity = old_op
+
+    # --- 1b. Stamp pass (always above washes, below ink outlines) -------------
+    for idx, it in poly_items:
+        poly = it["geom"]
+        short, _ = _poly_short_long(poly)
+        if it["wash_mode"] == "stamp" or (short < 18.0 and poly.area < 450.0):
+            op = min(1.0, it["fill_opacity"] if it["fill_opacity"] < 0.99 else 0.90)
+            wobbled = translate(poly, PAD, PAD)
+            for part in svg_export.polygons_of(wobbled):
+                if part.area >= 1.0:
+                    scene.layers.append(svg_export.Layer("fill", part, it["fill"], op))
+                    stamps += 1
+
+    # --- 2. Outlines & strokes pass (top layer, in SVG painter's order) --------
+    ink_strokes = 0
+    for idx, it in enumerate(items):
+        stroke_col = it["stroke"]
+        if not stroke_col or it["stroke_width"] <= 0:
+            continue
+        old_op = hand.opacity
+        hand.opacity = float(np.clip(it["stroke_opacity"], 0.08, 1.0))
+        sw = it["stroke_width"]
+        if it["kind"] == "poly":
+            poly = it["geom"]
+            if s >= 0.85 and poly.area >= 2500:
+                for arc in sloppy_outline_strokes(poly, seed=300 + idx, slop=s * 0.7):
+                    if _emit_hand_line(hand, scene, arc, stroke_col, sw, outline_jitter, closed=False):
+                        ink_strokes += 1
+            else:
+                ring = list(poly.exterior.coords)[:-1]
+                if _emit_hand_line(hand, scene, ring, stroke_col, sw, ink_jitter, closed=True):
+                    ink_strokes += 1
+        elif it["kind"] == "line":
+            pts = list(it["geom"].coords)
+            closed = len(pts) >= 3 and math.dist(pts[0], pts[-1]) < 1.5
+            if closed:
+                pts = pts[:-1]
+            if _emit_hand_line(hand, scene, pts, stroke_col, sw, ink_jitter, closed=closed):
+                ink_strokes += 1
+        hand.opacity = old_op
+
+    session["duration"] = round(hand.t, 3)
+    svg = flat.page_svg(scene, paper)
+    png = flat.rasterize(svg, 1280, 960)
+    src_png = flat.rasterize(src_svg.read_text(), 640, 480)
+
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = out.parent if out.suffix == ".zip" else out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = out if out.suffix == ".zip" else out_dir / f"{name}.zip"
+
+    src_render_path = out_dir / "src_svg.png"
+    src_png.convert("RGB").save(src_render_path)
+    out_dir.joinpath("bg.svg").write_text(svg)
+    png.save(out_dir / "bg.png")
+    flat.cover_thumb(png).save(out_dir / "thumb.png")
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for n in ("bg.png", "bg.svg", "thumb.png"):
+            z.write(out_dir / n, n)
+    lineart.compare(src_render_path, out_dir / "compare.png", out_dir / "bg.png")
+    print(f"{name}: paper={paper} wash_strokes={wash_strokes} stamps={stamps} ink_strokes={ink_strokes}")
+    print("wrote", zip_path, zip_path.stat().st_size)
+    return zip_path
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="BonePaper sketch backgrounds (EDT line art + marker wash)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1047,20 +1662,44 @@ def main(argv=None):
     s.add_argument("--no-budget-check", "--skip-budget", dest="skip_budget", action="store_true",
                    help="debug only: do not fail on 8x8 ink-density mismatch")
     s.add_argument("--deploy", metavar="DEVICE", help="devicectl device id; run outside the sandbox")
+
+    sv = sub.add_parser("svg", help="direct 640x480 SVG -> sketch bg zip (no pixel tracing)")
+    sv.add_argument("src", type=Path, help="source 640x480 SVG")
+    sv.add_argument("-o", "--out", type=Path, required=True, help="output zip or directory")
+    sv.add_argument("--name", default=None)
+    sv.add_argument("--slop", "--sloppiness", dest="slop", type=float, default=0.65,
+                    help="looseness of wash & outlines (default 0.65)")
+    sv.add_argument("--wash-opacity", type=float, default=0.68,
+                    help="base opacity for wash strokes (default 0.68)")
+    sv.add_argument("--tint-size", type=float, default=16.0,
+                    help="max brush width for polygon washes (default 16)")
+    sv.add_argument("--no-occlude", action="store_true",
+                    help="do not subtract upper polygons from lower washes")
+    sv.add_argument("--deploy", metavar="DEVICE", help="devicectl device id; run outside the sandbox")
+
     args = p.parse_args(argv)
+    if args.name:
+        name = args.name
+    elif args.out.suffix == ".zip":
+        name = args.out.stem
+    else:
+        name = args.out.name
     if args.cmd == "sketch":
-        if args.name:
-            name = args.name
-        elif args.out.suffix == ".zip":
-            name = args.out.stem
-        else:
-            name = args.out.name
-        sketch(args.src, args.out, name, args.wash, args.ink, args.skip_budget,
-               tints=args.tint, wash_color=args.wash_color, slop=args.slop,
-               wash_opacity=args.wash_opacity, auto_tint=args.auto_tint,
-               skin_tint=args.skin_tint, remaps=args.remap, tint_size=args.tint_size)
+        zip_path = sketch(
+            args.src, args.out, name, args.wash, args.ink, args.skip_budget,
+            tints=args.tint, wash_color=args.wash_color, slop=args.slop,
+            wash_opacity=args.wash_opacity, auto_tint=args.auto_tint,
+            skin_tint=args.skin_tint, remaps=args.remap, tint_size=args.tint_size,
+        )
         if args.deploy:
-            zip_path = args.out if args.out.suffix == ".zip" else args.out / f"{name}.zip"
+            flat.deploy(args.deploy, zip_path, f"bgs/{int(time.time() * 1000)}.zip")
+    elif args.cmd == "svg":
+        zip_path = svg_sketch(
+            args.src, args.out, name, slop=args.slop,
+            wash_opacity=args.wash_opacity, tint_size=args.tint_size,
+            occlude_fills=not args.no_occlude,
+        )
+        if args.deploy:
             flat.deploy(args.deploy, zip_path, f"bgs/{int(time.time() * 1000)}.zip")
     else:
         raise SystemExit(f"unknown command {args.cmd}")
