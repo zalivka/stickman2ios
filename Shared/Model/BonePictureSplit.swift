@@ -25,12 +25,13 @@ enum BonePictureSplit {
         yOffset: CGFloat,
         splitDistance: CGFloat,
         radius: CGFloat,
+        shape: BoneSplitShape = .circle,
         name: String
     ) throws -> Pair {
         if splitDistance <= 0 {
             throw SceneLoadError(message: "BonePictureSplit '\(name)' splitDistance \(splitDistance) <= 0")
         }
-        if radius <= 0 {
+        if shape != .line && radius <= 0 {
             throw SceneLoadError(message: "BonePictureSplit '\(name)' radius \(radius) <= 0")
         }
         let width = bitmap.width
@@ -41,12 +42,13 @@ enum BonePictureSplit {
 
         let xSplit = -xOffset + splitDistance
         let ySplit = -yOffset
+        let overlap: CGFloat = shape == .line ? 0 : radius
 
         // Tight horizontal crop bounds in 1x pixel coordinates (integer-aligned so 2x buffer scales exact).
         let proxMinX = 0
-        let proxMaxX = min(width, max(1, Int(ceil(xSplit + radius))))
+        let proxMaxX = min(width, max(1, Int(ceil(xSplit + overlap))))
 
-        let distMinX = max(0, min(width - 1, Int(floor(xSplit - radius))))
+        let distMinX = max(0, min(width - 1, Int(floor(xSplit - overlap))))
         let distMaxX = width
 
         let proxImage = try renderHalf(
@@ -57,6 +59,7 @@ enum BonePictureSplit {
             xSplit: xSplit,
             ySplit: ySplit,
             radius: radius,
+            shape: shape,
             isProximal: true,
             name: name
         )
@@ -68,6 +71,7 @@ enum BonePictureSplit {
             xSplit: xSplit,
             ySplit: ySplit,
             radius: radius,
+            shape: shape,
             isProximal: false,
             name: name
         )
@@ -88,6 +92,7 @@ enum BonePictureSplit {
                 xSplit: xSplit * s,
                 ySplit: ySplit * s,
                 radius: radius * s,
+                shape: shape,
                 isProximal: true,
                 name: name
             ), proxBufImg.width == proxImage.width * sample,
@@ -102,6 +107,7 @@ enum BonePictureSplit {
                 xSplit: xSplit * s,
                 ySplit: ySplit * s,
                 radius: radius * s,
+                shape: shape,
                 isProximal: false,
                 name: name
             ), distBufImg.width == distImage.width * sample,
@@ -182,6 +188,7 @@ enum BonePictureSplit {
         xSplit: CGFloat,
         ySplit: CGFloat,
         radius: CGFloat,
+        shape: BoneSplitShape,
         isProximal: Bool,
         name: String
     ) throws -> CGImage {
@@ -211,14 +218,20 @@ enum BonePictureSplit {
                     clipPath.addRect(CGRect(x: xSplit, y: 0, width: fullW - xSplit, height: fullH))
                 }
             }
-            clipPath.addEllipse(
-                in: CGRect(
-                    x: xSplit - radius,
-                    y: ySplit - radius,
-                    width: radius * 2,
-                    height: radius * 2
-                )
+            let jointRect = CGRect(
+                x: xSplit - radius,
+                y: ySplit - radius,
+                width: radius * 2,
+                height: radius * 2
             )
+            switch shape {
+            case .circle:
+                clipPath.addEllipse(in: jointRect)
+            case .square:
+                clipPath.addRect(jointRect)
+            case .line:
+                break
+            }
             cg.addPath(clipPath)
             cg.clip(using: .winding)
 

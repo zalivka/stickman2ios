@@ -293,34 +293,69 @@ struct SkeletonScreen: View {
     }
 
     private var boneSplitConfirmBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                setBoneSplit(nil)
-            } label: {
-                Text("Cancel")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(SkeletonChrome.pane))
-            }
-            .buttonStyle(.plain)
+        let activeShape = boneSplit?.shape ?? .circle
+        return HStack(spacing: 10) {
+            HStack(spacing: 12) {
+                Button {
+                    setBoneSplit(nil)
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(SkeletonChrome.pane))
+                }
+                .buttonStyle(.plain)
 
-            Button {
-                applyBoneSplit()
-            } label: {
-                Text("Split Bone")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(SkeletonChrome.bonesAccent))
+                Button {
+                    applyBoneSplit()
+                } label: {
+                    Text("Split Bone")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(SkeletonChrome.bonesAccent))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(6)
+            .background(Capsule().fill(Color.black.opacity(0.65)))
+            .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+
+            HStack(spacing: 6) {
+                splitShapeButton(.circle, icon: "circle", label: "Circle split", active: activeShape == .circle)
+                splitShapeButton(.square, icon: "square", label: "Square split", active: activeShape == .square)
+                splitShapeButton(.line, icon: "line.diagonal", label: "Line split", active: activeShape == .line)
+            }
+            .padding(6)
+            .background(Capsule().fill(Color.black.opacity(0.65)))
+            .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
         }
-        .padding(6)
-        .background(Capsule().fill(Color.black.opacity(0.65)))
-        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+    }
+
+    private func splitShapeButton(
+        _ shape: BoneSplitShape,
+        icon: String,
+        label: String,
+        active: Bool
+    ) -> some View {
+        Button {
+            guard var draft = boneSplit else { return }
+            draft.shape = shape
+            setBoneSplit(draft)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(active ? .black : .white)
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle().fill(active ? SkeletonChrome.bonesAccent : SkeletonChrome.pane)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private struct BonePaperEdit: Identifiable {
@@ -556,9 +591,6 @@ struct SkeletonScreen: View {
         if shiftHoldMode {
             return "Hold the button and drag the bone picture"
         }
-        if boneSplit != nil {
-            return "Drag center to slide, drag rim handle to resize joint"
-        }
         return nil
     }
 
@@ -643,7 +675,8 @@ struct SkeletonScreen: View {
                 to: draft.edgeTo,
                 unitName: unit.name,
                 splitDistance: splitDistance,
-                radius: draft.radius
+                radius: draft.radius,
+                shape: draft.shape
             )
             setBoneSplit(nil)
             writeUnit(unit)

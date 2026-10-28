@@ -1,6 +1,12 @@
 import CoreGraphics
 import Foundation
 
+enum BoneSplitShape: CaseIterable, Equatable {
+    case circle
+    case square
+    case line
+}
+
 struct BoneSplitDraft: Equatable {
     /// Minimum distance from either bone endpoint in unscaled item-pixel units.
     static let minEndMargin: CGFloat = 10
@@ -11,8 +17,9 @@ struct BoneSplitDraft: Equatable {
     var edgeTo: Int
     /// Normalized position along `edgeFrom → edgeTo` in `(0, 1)`.
     var t: CGFloat
-    /// Joint circle radius in unscaled item-pixel units.
+    /// Joint circle/square half-extent in unscaled item-pixel units.
     var radius: CGFloat
+    var shape: BoneSplitShape = .circle
 
     static func clampT(_ raw: CGFloat, boneLength: CGFloat) -> CGFloat {
         guard boneLength > minEndMargin * 2 else { return 0.5 }

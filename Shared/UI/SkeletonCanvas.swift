@@ -337,6 +337,7 @@ struct SkeletonCanvas: View {
                                 return
                             }
                             if mode == .skeleton, var draft = boneSplit.wrappedValue ?? editSession?.boneSplit,
+                               draft.shape != .line,
                                let current = layout,
                                let geom = splitScreenGeometry(draft: draft, layout: current) {
                                 draft.radius = BoneSplitDraft.clampRadius(
@@ -662,40 +663,74 @@ struct SkeletonCanvas: View {
         guard let geom = splitScreenGeometry(draft: draft, layout: layout) else { return }
 
         let accent = SkeletonChrome.bonesAccent
-        let circleRect = Self.square(around: geom.centerScreen, radius: geom.radiusScreen)
-
-        context.fill(
-            Path(ellipseIn: circleRect),
-            with: .color(accent.opacity(0.22))
-        )
+        let r = geom.radiusScreen
+        let c = geom.centerScreen
+        let nx = geom.normal.x
+        let ny = geom.normal.y
+        let ux = ny
+        let uy = -nx
 
         var cutLine = Path()
-        cutLine.move(
-            to: CGPoint(
-                x: geom.centerScreen.x - geom.normal.x * geom.radiusScreen,
-                y: geom.centerScreen.y - geom.normal.y * geom.radiusScreen
-            )
-        )
-        cutLine.addLine(
-            to: CGPoint(
-                x: geom.centerScreen.x + geom.normal.x * geom.radiusScreen,
-                y: geom.centerScreen.y + geom.normal.y * geom.radiusScreen
-            )
-        )
-        context.stroke(
-            cutLine,
-            with: .color(accent.opacity(0.9)),
-            style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
-        )
+        cutLine.move(to: CGPoint(x: c.x - nx * r, y: c.y - ny * r))
+        cutLine.addLine(to: CGPoint(x: c.x + nx * r, y: c.y + ny * r))
 
-        context.stroke(
-            Path(ellipseIn: circleRect),
-            with: .color(accent),
-            style: StrokeStyle(lineWidth: 2)
-        )
+        switch draft.shape {
+        case .circle:
+            let circleRect = Self.square(around: c, radius: r)
+            context.fill(Path(ellipseIn: circleRect), with: .color(accent.opacity(0.22)))
+            context.stroke(
+                cutLine,
+                with: .color(accent.opacity(0.9)),
+                style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+            )
+            context.stroke(
+                Path(ellipseIn: circleRect),
+                with: .color(accent),
+                style: StrokeStyle(lineWidth: 2)
+            )
+        case .square:
+            var squarePath = Path()
+            let corners = [
+                CGPoint(x: c.x - ux * r - nx * r, y: c.y - uy * r - ny * r),
+                CGPoint(x: c.x + ux * r - nx * r, y: c.y + uy * r - ny * r),
+                CGPoint(x: c.x + ux * r + nx * r, y: c.y + uy * r + ny * r),
+                CGPoint(x: c.x - ux * r + nx * r, y: c.y - uy * r + ny * r),
+            ]
+            squarePath.addLines(corners)
+            squarePath.closeSubpath()
+            context.fill(squarePath, with: .color(accent.opacity(0.22)))
+            context.stroke(
+                cutLine,
+                with: .color(accent.opacity(0.9)),
+                style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+            )
+            context.stroke(
+                squarePath,
+                with: .color(accent),
+                style: StrokeStyle(lineWidth: 2)
+            )
+        case .line:
+            let lineHalf = max(r, 28)
+            var fullCut = Path()
+            let p1 = CGPoint(x: c.x - nx * lineHalf, y: c.y - ny * lineHalf)
+            let p2 = CGPoint(x: c.x + nx * lineHalf, y: c.y + ny * lineHalf)
+            fullCut.move(to: p1)
+            fullCut.addLine(to: p2)
+            let tickHalf: CGFloat = 6
+            fullCut.move(to: CGPoint(x: p1.x - ux * tickHalf, y: p1.y - uy * tickHalf))
+            fullCut.addLine(to: CGPoint(x: p1.x + ux * tickHalf, y: p1.y + uy * tickHalf))
+            fullCut.move(to: CGPoint(x: p2.x - ux * tickHalf, y: p2.y - uy * tickHalf))
+            fullCut.addLine(to: CGPoint(x: p2.x + ux * tickHalf, y: p2.y + uy * tickHalf))
+            context.stroke(
+                fullCut,
+                with: .color(accent),
+                style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+            )
+        }
 
         let handleRadius: CGFloat = 7
-        for pt in [geom.centerScreen, geom.rimScreen] {
+        let handles = draft.shape == .line ? [c] : [c, geom.rimScreen]
+        for pt in handles {
             let rect = Self.square(around: pt, radius: handleRadius)
             context.fill(Path(ellipseIn: rect), with: .color(.white))
             context.stroke(
@@ -1538,7 +1573,7 @@ struct SkeletonCanvas: View {
             let distRim = hypot(location.x - geom.rimScreen.x, location.y - geom.rimScreen.y)
             let distCenter = hypot(location.x - geom.centerScreen.x, location.y - geom.centerScreen.y)
             let distRing = abs(hypot(location.x - geom.centerScreen.x, location.y - geom.centerScreen.y) - geom.radiusScreen)
-            if distRim <= Self.hitRadius {
+            if draft.shape != .line && distRim <= Self.hitRadius {
                 dragRef.splitKind = .rim
                 dragRef.lastScreen = location
                 return true
@@ -1548,7 +1583,7 @@ struct SkeletonCanvas: View {
                 dragRef.lastScreen = location
                 return true
             }
-            if distRing <= 18 {
+            if draft.shape != .line && distRing <= 18 {
                 dragRef.splitKind = .rim
                 dragRef.lastScreen = location
                 return true

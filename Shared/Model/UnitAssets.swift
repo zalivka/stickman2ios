@@ -429,7 +429,8 @@ final class UnitAssets {
         to: Int,
         unitName: String,
         splitDistance: CGFloat,
-        radius: CGFloat
+        radius: CGFloat,
+        shape: BoneSplitShape = .circle
     ) throws {
         let name = Self.removeNumber(unitName)
         let matchingKeys = edgeAssets.keys.filter { key in
@@ -519,6 +520,7 @@ final class UnitAssets {
                         yOffset: asset.yOffset,
                         splitDistance: splitDistance,
                         radius: radius,
+                        shape: shape,
                         name: asset.bmName
                     )
                     let proxBm = uniqueBmName(start: from, end: mid, extraUsed: reservedNames)
