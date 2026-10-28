@@ -403,6 +403,154 @@ final class UnitAssets {
         }
     }
 
+    /// Splits every state/flip asset on edge `from → to` into proximal (`from → mid`) and distal (`mid → to`)
+    /// assets using `BonePictureSplit`, keeps the original default-state asset in `looseBones` if unused
+    /// elsewhere, and places distal draw weight directly above proximal (`weight + 1`).
+    func splitEdgeAssets(
+        from: Int,
+        mid: Int,
+        to: Int,
+        unitName: String,
+        splitDistance: CGFloat,
+        radius: CGFloat
+    ) throws {
+        let name = Self.removeNumber(unitName)
+        let matchingKeys = edgeAssets.keys.filter { key in
+            key.unitName == name
+                && ((key.start == from && key.end == to) || (key.start == to && key.end == from))
+        }
+        if matchingKeys.isEmpty {
+            return
+        }
+
+        var collected: [(key: EdgeKey, states: [Int: EdgeAsset])] = []
+        for key in matchingKeys {
+            if let states = edgeAssets.removeValue(forKey: key), !states.isEmpty {
+                collected.append((key, states))
+            }
+        }
+        if collected.isEmpty {
+            return
+        }
+
+        for (_, states) in collected {
+            if let original = states[Self.stateDefault] ?? states.values.first {
+                let stillUsed = edgeAssets.values.contains { otherStates in
+                    otherStates.values.contains { $0.bmName == original.bmName }
+                }
+                if !stillUsed && looseBones[original.bmName] == nil {
+                    var loose = original
+                    loose.start = -1
+                    loose.end = -1
+                    looseBones[original.bmName] = loose
+                }
+            }
+        }
+
+        let baseWeight = collected
+            .flatMap { $0.states.values.map(\.weight) }
+            .min() ?? nextWeight(unitName: name)
+
+        for (otherKey, otherStates) in edgeAssets where otherKey.unitName == name {
+            var updatedStates = otherStates
+            var changed = false
+            for (st, var asset) in otherStates where asset.weight > baseWeight {
+                asset.weight += 1
+                updatedStates[st] = asset
+                changed = true
+            }
+            if changed {
+                edgeAssets[otherKey] = updatedStates
+            }
+        }
+        for (looseName, var loose) in looseBones where loose.unitName == name && loose.weight > baseWeight {
+            loose.weight += 1
+            looseBones[looseName] = loose
+        }
+
+        var splitCache: [String: (proxBm: String, distBm: String, pair: BonePictureSplit.Pair)] = [:]
+        var reservedNames = Set<String>()
+
+        for (oldKey, states) in collected {
+            let proxKey = EdgeKey(
+                unitName: name,
+                start: from,
+                end: mid,
+                flipped: oldKey.flipped,
+                faceId: oldKey.faceId
+            )
+            let distKey = EdgeKey(
+                unitName: name,
+                start: mid,
+                end: to,
+                flipped: oldKey.flipped,
+                faceId: oldKey.faceId
+            )
+            var proxStates = edgeAssets[proxKey] ?? [:]
+            var distStates = edgeAssets[distKey] ?? [:]
+
+            for (state, asset) in states {
+                let cacheKey = "\(asset.bmName)|\(asset.xOffset)|\(asset.yOffset)"
+                let cached: (proxBm: String, distBm: String, pair: BonePictureSplit.Pair)
+                if let existing = splitCache[cacheKey] {
+                    cached = existing
+                } else {
+                    let pair = try BonePictureSplit.split(
+                        bitmap: asset.bitmap,
+                        paintBuffer: asset.paintBuffer,
+                        xOffset: asset.xOffset,
+                        yOffset: asset.yOffset,
+                        splitDistance: splitDistance,
+                        radius: radius,
+                        name: asset.bmName
+                    )
+                    let proxBm = uniqueBmName(start: from, end: mid, extraUsed: reservedNames)
+                    reservedNames.insert(proxBm)
+                    let distBm = uniqueBmName(start: mid, end: to, extraUsed: reservedNames)
+                    reservedNames.insert(distBm)
+                    cached = (proxBm, distBm, pair)
+                    splitCache[cacheKey] = cached
+                }
+
+                let proxAsset = EdgeAsset(
+                    unitName: name,
+                    start: from,
+                    end: mid,
+                    xOffset: cached.pair.proximal.xOffset,
+                    yOffset: cached.pair.proximal.yOffset,
+                    weight: baseWeight,
+                    state: state,
+                    nativeFlipped: asset.nativeFlipped,
+                    bmName: cached.proxBm,
+                    bitmap: cached.pair.proximal.image,
+                    paintBuffer: cached.pair.proximal.paintBuffer,
+                    svgName: nil,
+                    commandScale: nil
+                )
+                let distAsset = EdgeAsset(
+                    unitName: name,
+                    start: mid,
+                    end: to,
+                    xOffset: cached.pair.distal.xOffset,
+                    yOffset: cached.pair.distal.yOffset,
+                    weight: baseWeight + 1,
+                    state: state,
+                    nativeFlipped: asset.nativeFlipped,
+                    bmName: cached.distBm,
+                    bitmap: cached.pair.distal.image,
+                    paintBuffer: cached.pair.distal.paintBuffer,
+                    svgName: nil,
+                    commandScale: nil
+                )
+                proxStates[state] = proxAsset
+                distStates[state] = distAsset
+            }
+
+            edgeAssets[proxKey] = proxStates
+            edgeAssets[distKey] = distStates
+        }
+    }
+
     /// Slide by `dx`/`dy`, then scale and rotate the bitmap around the joint (`-xOffset`, `-yOffset`).
     func applyShift(bmName: String, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) throws {
         if scale <= 0 {
@@ -729,8 +877,8 @@ final class UnitAssets {
         return used
     }
 
-    private func uniqueBmName(start: Int, end: Int) -> String {
-        let used = usedBmNames()
+    private func uniqueBmName(start: Int, end: Int, extraUsed: Set<String> = []) -> String {
+        let used = usedBmNames().union(extraUsed)
         let base = "bone_\(start)_\(end).png"
         if !used.contains(base) {
             return base

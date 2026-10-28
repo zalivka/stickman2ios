@@ -1,11 +1,37 @@
 import CoreGraphics
 import Foundation
 
+struct BoneSplitDraft: Equatable {
+    /// Minimum distance from either bone endpoint in unscaled item-pixel units.
+    static let minEndMargin: CGFloat = 10
+    static let minRadius: CGFloat = 4
+    static let maxRadiusCap: CGFloat = 125
+
+    var edgeFrom: Int
+    var edgeTo: Int
+    /// Normalized position along `edgeFrom → edgeTo` in `(0, 1)`.
+    var t: CGFloat
+    /// Joint circle radius in unscaled item-pixel units.
+    var radius: CGFloat
+
+    static func clampT(_ raw: CGFloat, boneLength: CGFloat) -> CGFloat {
+        guard boneLength > minEndMargin * 2 else { return 0.5 }
+        let marginT = minEndMargin / boneLength
+        return min(max(raw, marginT), 1 - marginT)
+    }
+
+    static func clampRadius(_ raw: CGFloat, boneLength: CGFloat) -> CGFloat {
+        let maxR = max(minRadius, min(boneLength * 0.9, maxRadiusCap))
+        return min(max(raw, minRadius), maxR)
+    }
+}
+
 /// Shared mutable editor session so canvas touch callbacks always see live hold/selection state.
 final class SkeletonEditSession {
     let undo = SkeletonUndo()
     var boneCreateHoldMode = false
     var shiftHoldMode = false
+    var boneSplit: BoneSplitDraft?
     var selectedPointId: Int?
     /// When true, canvas draws green vacant-point circles (Android `toggleVacantPoints`).
     var exposeVacantPoints = false
@@ -23,6 +49,11 @@ final class SkeletonEditSession {
 
     func setShiftHold(_ on: Bool) {
         shiftHoldMode = on
+        revision += 1
+    }
+
+    func setBoneSplit(_ draft: BoneSplitDraft?) {
+        boneSplit = draft
         revision += 1
     }
 

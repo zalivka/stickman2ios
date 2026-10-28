@@ -30,6 +30,7 @@ struct SkeletonScreen: View {
     @State private var canUndo = false
     @State private var canRedo = false
     @State private var pointProps: PointPropsEdit?
+    @State private var boneSplit: BoneSplitDraft?
     @Environment(\.dismiss) private var dismiss
 
     init(item: CustomItems.Item) {
@@ -58,6 +59,7 @@ struct SkeletonScreen: View {
                     mode: .skeleton,
                     editSession: editSession,
                     selectedPointId: $selectedPointId,
+                    boneSplit: $boneSplit,
                     layerEpoch: layerEpoch,
                     exposeVacantPoints: exposeVacantPoints,
                     onPrepareUndo: { prepareUndo() },
@@ -73,6 +75,7 @@ struct SkeletonScreen: View {
                     onSelect: { next in
                         if next != .bones {
                             setHoldMode(false)
+                            setBoneSplit(nil)
                         }
                         if next != .draw {
                             setShiftHold(false)
@@ -91,11 +94,22 @@ struct SkeletonScreen: View {
                     SkeletonSecondaryPanel(
                         accent: SkeletonChrome.bonesAccent,
                         content: .bones(
-                            onBoneHoldStart: { setHoldMode(true) },
+                            onBoneHoldStart: {
+                                setBoneSplit(nil)
+                                setHoldMode(true)
+                            },
                             onBoneHoldEnd: { setHoldMode(false) },
-                            onProps: openPointProps,
+                            onProps: {
+                                setBoneSplit(nil)
+                                openPointProps()
+                            },
                             canProps: selectedPointId != nil,
-                            onDelete: deleteSelected,
+                            onSplit: startBoneSplit,
+                            canSplit: canSplitBone,
+                            onDelete: {
+                                setBoneSplit(nil)
+                                deleteSelected()
+                            },
                             onMoveDown: { moveSelected(up: false) },
                             onMoveUp: { moveSelected(up: true) }
                         )
@@ -180,6 +194,12 @@ struct SkeletonScreen: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .bottom) {
+            if boneSplit != nil {
+                boneSplitConfirmBar
+                    .padding(.bottom, 24)
+            }
+        }
         .background(SkeletonCanvas.checkerLight)
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .ignoresSafeArea(edges: [.horizontal, .bottom])
@@ -260,6 +280,48 @@ struct SkeletonScreen: View {
         return unit.upperEdge(of: id) != nil
     }
 
+    private var canSplitBone: Bool {
+        guard let unit = optionalUnit, let id = selectedPointId else { return false }
+        guard let edge = unit.upperEdge(of: id),
+              let start = unit.point(optionalId: edge.from),
+              let end = unit.point(optionalId: edge.to)
+        else { return false }
+        let unitScale = max(unit.scale, 0.01)
+        let length = hypot(end.x - start.x, end.y - start.y) / unitScale
+        return length >= BoneSplitDraft.minEndMargin * 2
+    }
+
+    private var boneSplitConfirmBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                setBoneSplit(nil)
+            } label: {
+                Text("Cancel")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(SkeletonChrome.pane))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                applyBoneSplit()
+            } label: {
+                Text("Split Bone")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(SkeletonChrome.bonesAccent))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(6)
+        .background(Capsule().fill(Color.black.opacity(0.65)))
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+    }
+
     private struct BonePaperEdit: Identifiable {
         let id = UUID()
         let source: CGImage
@@ -286,6 +348,7 @@ struct SkeletonScreen: View {
     }
 
     private func openBonePaper() {
+        setBoneSplit(nil)
         guard let unit = optionalUnit else {
             bail("edit with no unit")
             return
@@ -486,6 +549,9 @@ struct SkeletonScreen: View {
         if shiftHoldMode {
             return "Hold the button and drag the bone picture"
         }
+        if boneSplit != nil {
+            return "Drag center to slide, drag rim handle to resize joint"
+        }
         return nil
     }
 
@@ -497,6 +563,90 @@ struct SkeletonScreen: View {
     private func setShiftHold(_ on: Bool) {
         editSession.shiftHoldMode = on
         shiftHoldMode = on
+    }
+
+    private func setBoneSplit(_ draft: BoneSplitDraft?) {
+        editSession.setBoneSplit(draft)
+        boneSplit = draft
+    }
+
+    private func startBoneSplit() {
+        guard let unit = optionalUnit, let assets, let id = selectedPointId else { return }
+        guard let edge = unit.upperEdge(of: id),
+              let start = unit.point(optionalId: edge.from),
+              let end = unit.point(optionalId: edge.to)
+        else { return }
+        let unitScale = max(unit.scale, 0.01)
+        let length = hypot(end.x - start.x, end.y - start.y) / unitScale
+        guard length >= BoneSplitDraft.minEndMargin * 2 else {
+            showToast("Bone is too short to split")
+            return
+        }
+        let t = BoneSplitDraft.clampT(0.5, boneLength: length)
+        let splitDist = t * length
+        let key = UnitAssets.EdgeKey(
+            unitName: UnitAssets.removeNumber(unit.name),
+            start: edge.from,
+            end: edge.to,
+            flipped: false
+        )
+        let radius: CGFloat
+        if let asset = assets.getDrawable(key, state: unit.assetsState) {
+            radius = BoneSplitDraft.clampRadius(
+                BonePictureSplit.defaultRadius(
+                    bitmap: asset.bitmap,
+                    xOffset: asset.xOffset,
+                    yOffset: asset.yOffset,
+                    splitDistance: splitDist,
+                    boneLength: length
+                ),
+                boneLength: length
+            )
+        } else {
+            radius = BoneSplitDraft.clampRadius(min(max(length * 0.18, 8), 60), boneLength: length)
+        }
+        setBoneSplit(
+            BoneSplitDraft(
+                edgeFrom: edge.from,
+                edgeTo: edge.to,
+                t: t,
+                radius: radius
+            )
+        )
+    }
+
+    private func applyBoneSplit() {
+        guard var unit = optionalUnit, let assets, let draft = boneSplit else { return }
+        guard let start = unit.point(optionalId: draft.edgeFrom),
+              let end = unit.point(optionalId: draft.edgeTo)
+        else {
+            setBoneSplit(nil)
+            return
+        }
+        let unitScale = max(unit.scale, 0.01)
+        let length = hypot(end.x - start.x, end.y - start.y) / unitScale
+        let splitDistance = draft.t * length
+
+        prepareUndo(includeAssets: true)
+        do {
+            let midId = try unit.splitEdge(from: draft.edgeFrom, to: draft.edgeTo, t: draft.t)
+            try assets.splitEdgeAssets(
+                from: draft.edgeFrom,
+                mid: midId,
+                to: draft.edgeTo,
+                unitName: unit.name,
+                splitDistance: splitDistance,
+                radius: draft.radius
+            )
+            setBoneSplit(nil)
+            writeUnit(unit)
+            selectedPointId = midId
+            editSession.select(midId)
+            layerEpoch += 1
+        } catch {
+            setBoneSplit(nil)
+            showToast("Could not split bone: \(ItemLoadError.text(error))")
+        }
     }
 
     private func clearArtwork() {
@@ -701,6 +851,7 @@ struct SkeletonScreen: View {
     }
 
     private func performUndo() {
+        setBoneSplit(nil)
         guard let previous = editSession.undo.peek() else {
             return
         }
@@ -714,6 +865,7 @@ struct SkeletonScreen: View {
     }
 
     private func performRedo() {
+        setBoneSplit(nil)
         guard let next = editSession.undo.takeRedo() else {
             return
         }
@@ -754,6 +906,7 @@ struct SkeletonScreen: View {
     }
 
     private func toggleMenu() {
+        setBoneSplit(nil)
         showingMenu.toggle()
     }
 

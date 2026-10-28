@@ -257,12 +257,14 @@ struct SkeletonSecondaryPanel: View {
                 switch content {
                 case .empty:
                     SkeletonChrome.pane
-                case .bones(let onBoneHoldStart, let onBoneHoldEnd, let onProps, let canProps, let onDelete, let onMoveDown, let onMoveUp):
+                case .bones(let onBoneHoldStart, let onBoneHoldEnd, let onProps, let canProps, let onSplit, let canSplit, let onDelete, let onMoveDown, let onMoveUp):
                     SkeletonBonesTools(
                         onBoneHoldStart: onBoneHoldStart,
                         onBoneHoldEnd: onBoneHoldEnd,
                         onProps: onProps,
                         canProps: canProps,
+                        onSplit: onSplit,
+                        canSplit: canSplit,
                         onDelete: onDelete,
                         onMoveDown: onMoveDown,
                         onMoveUp: onMoveUp
@@ -290,6 +292,8 @@ enum SkeletonSecondaryContent {
         onBoneHoldEnd: () -> Void,
         onProps: () -> Void,
         canProps: Bool,
+        onSplit: () -> Void,
+        canSplit: Bool,
         onDelete: () -> Void,
         onMoveDown: () -> Void,
         onMoveUp: () -> Void
@@ -301,12 +305,14 @@ enum SkeletonSecondaryContent {
     )
 }
 
-/// Android `skeleton_node_tools`: New (hold), Props, Delete, Down, Up.
+/// Android `skeleton_node_tools`: New (hold), Props, Split, Delete, Down, Up.
 struct SkeletonBonesTools: View {
     var onBoneHoldStart: () -> Void
     var onBoneHoldEnd: () -> Void
     var onProps: () -> Void
     var canProps: Bool
+    var onSplit: () -> Void
+    var canSplit: Bool
     var onDelete: () -> Void
     var onMoveDown: () -> Void
     var onMoveUp: () -> Void
@@ -316,12 +322,36 @@ struct SkeletonBonesTools: View {
         VStack(spacing: 0) {
             boneNewButton
             toolButton(title: "Props", icon: "skel_edit_point_active", enabled: canProps, action: onProps)
+            splitButton
             toolButton(title: "Delete", icon: "skel_btn_del_active", action: onDelete)
             toolButton(title: "Down", icon: "bone_down_active", action: onMoveDown)
             toolButton(title: "Up", icon: "bone_up_active", action: onMoveUp)
         }
         .padding(.top, 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var splitButton: some View {
+        Button(action: onSplit) {
+            VStack(spacing: 2) {
+                Image(systemName: "scissors")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.bonesAccent)
+                    .frame(width: 36, height: 36)
+                Text("Split")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(canSplit ? 1 : 0.35)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSplit)
+        .accessibilityLabel("Split bone")
     }
 
     private var boneNewButton: some View {

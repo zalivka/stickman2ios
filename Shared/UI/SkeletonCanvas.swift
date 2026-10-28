@@ -186,6 +186,7 @@ struct SkeletonCanvas: View {
     /// Live hold/selection flags — reference type so touch closures never see a stale copy.
     var editSession: SkeletonEditSession?
     var selectedPointId: Binding<Int?> = .constant(nil)
+    var boneSplit: Binding<BoneSplitDraft?> = .constant(nil)
     /// Scene-editor selection. `nil` means no unit is active.
     var selectedUnitName: Binding<String?> = .constant(nil)
     /// Android captured point — unit name while a finger is down on a unit or handler.
@@ -227,9 +228,15 @@ struct SkeletonCanvas: View {
     /// Android `ExposedPointsUseCase` — finger is on a straying unit's move handle or base.
     @State private var attachHold = false
 
+    private enum SplitDragKind {
+        case center
+        case rim
+    }
+
     private final class DragRef {
         var nodeId: Int?
         var handler: ItemHandlerKind?
+        var splitKind: SplitDragKind?
         var lastScreen: CGPoint?
         var handlerX: CGFloat = 0
         var handlerY: CGFloat = 0
@@ -283,6 +290,7 @@ struct SkeletonCanvas: View {
                         drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
                     drawBoneCreatePreview(context: &context, layout: layout)
+                    drawBoneSplitGizmo(context: &context, layout: layout)
                     if exposeVacantPoints {
                         drawVacantPoints(liveUnit, context: &context, layout: layout)
                     }
@@ -326,6 +334,17 @@ struct SkeletonCanvas: View {
                                 if FeatureFlags.shiftPinchScale {
                                     boneShift.pinch(factor)
                                 }
+                                return
+                            }
+                            if mode == .skeleton, var draft = boneSplit.wrappedValue ?? editSession?.boneSplit,
+                               let current = layout,
+                               let geom = splitScreenGeometry(draft: draft, layout: current) {
+                                draft.radius = BoneSplitDraft.clampRadius(
+                                    draft.radius * factor,
+                                    boneLength: geom.boneLengthItem
+                                )
+                                boneSplit.wrappedValue = draft
+                                editSession?.setBoneSplit(draft)
                                 return
                             }
                             handlePinch(focus: focus, factor: factor)
@@ -636,6 +655,102 @@ struct SkeletonCanvas: View {
         context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 4, lineCap: .round))
         let tipRadius = Self.boneNodeRadius * 1.5
         context.fill(Path(ellipseIn: Self.square(around: to, radius: tipRadius)), with: .color(color))
+    }
+
+    private func drawBoneSplitGizmo(context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard let draft = boneSplit.wrappedValue ?? editSession?.boneSplit else { return }
+        guard let geom = splitScreenGeometry(draft: draft, layout: layout) else { return }
+
+        let accent = SkeletonChrome.bonesAccent
+        let circleRect = Self.square(around: geom.centerScreen, radius: geom.radiusScreen)
+
+        context.fill(
+            Path(ellipseIn: circleRect),
+            with: .color(accent.opacity(0.22))
+        )
+
+        var cutLine = Path()
+        cutLine.move(
+            to: CGPoint(
+                x: geom.centerScreen.x - geom.normal.x * geom.radiusScreen,
+                y: geom.centerScreen.y - geom.normal.y * geom.radiusScreen
+            )
+        )
+        cutLine.addLine(
+            to: CGPoint(
+                x: geom.centerScreen.x + geom.normal.x * geom.radiusScreen,
+                y: geom.centerScreen.y + geom.normal.y * geom.radiusScreen
+            )
+        )
+        context.stroke(
+            cutLine,
+            with: .color(accent.opacity(0.9)),
+            style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+        )
+
+        context.stroke(
+            Path(ellipseIn: circleRect),
+            with: .color(accent),
+            style: StrokeStyle(lineWidth: 2)
+        )
+
+        let handleRadius: CGFloat = 7
+        for pt in [geom.centerScreen, geom.rimScreen] {
+            let rect = Self.square(around: pt, radius: handleRadius)
+            context.fill(Path(ellipseIn: rect), with: .color(.white))
+            context.stroke(
+                Path(ellipseIn: rect),
+                with: .color(accent),
+                style: StrokeStyle(lineWidth: 2.5)
+            )
+        }
+    }
+
+    private struct SplitScreenGeometry {
+        var startScene: CGPoint
+        var endScene: CGPoint
+        var boneLengthItem: CGFloat
+        var centerScene: CGPoint
+        var centerScreen: CGPoint
+        var rimScreen: CGPoint
+        var radiusScreen: CGFloat
+        var normal: CGPoint
+    }
+
+    private func splitScreenGeometry(draft: BoneSplitDraft, layout: SkeletonLayout) -> SplitScreenGeometry? {
+        guard let from = liveUnit.point(optionalId: draft.edgeFrom),
+              let to = liveUnit.point(optionalId: draft.edgeTo)
+        else { return nil }
+        let unitScale = max(liveUnit.scale, 0.01)
+        let dx = to.x - from.x
+        let dy = to.y - from.y
+        let sceneLen = hypot(dx, dy)
+        guard sceneLen > 1e-4 else { return nil }
+        let boneLengthItem = sceneLen / unitScale
+        let ux = dx / sceneLen
+        let uy = dy / sceneLen
+        let nx = -uy
+        let ny = ux
+
+        let cx = from.x + draft.t * dx
+        let cy = from.y + draft.t * dy
+        let centerScene = CGPoint(x: cx, y: cy)
+        let centerScreen = layout.screenPoint(x: cx, y: cy)
+        let radiusScreen = draft.radius * unitScale * layout.scale
+        let rimScreen = CGPoint(
+            x: centerScreen.x + nx * radiusScreen,
+            y: centerScreen.y + ny * radiusScreen
+        )
+        return SplitScreenGeometry(
+            startScene: CGPoint(x: from.x, y: from.y),
+            endScene: CGPoint(x: to.x, y: to.y),
+            boneLengthItem: boneLengthItem,
+            centerScene: centerScene,
+            centerScreen: centerScreen,
+            rimScreen: rimScreen,
+            radiusScreen: radiusScreen,
+            normal: CGPoint(x: nx, y: ny)
+        )
     }
 
     private func drawAttachExpose(context: inout GraphicsContext, layout: SkeletonLayout) {
@@ -1048,6 +1163,11 @@ struct SkeletonCanvas: View {
             handleBoneCreate(at: location, layout: current, began: began)
             return
         }
+        if mode == .skeleton, let draft = boneSplit.wrappedValue ?? editSession?.boneSplit {
+            if handleBoneSplitDrag(at: location, layout: current, began: began, draft: draft) {
+                return
+            }
+        }
         if began {
             if mode == .editor, showsHandlers, editorHandlersOn,
                let handle = hitHandler(at: location, layout: current) {
@@ -1238,6 +1358,7 @@ struct SkeletonCanvas: View {
         touchScreen = nil
         dragRef.nodeId = nil
         dragRef.handler = nil
+        dragRef.splitKind = nil
         dragRef.lastScreen = nil
         dragRef.panning = false
         dragRef.undoPushed = false
@@ -1402,6 +1523,78 @@ struct SkeletonCanvas: View {
     private func resetBoneCreateGesture() {
         boneCreateStartId = nil
         boneCreateEnd = nil
+    }
+
+    private func handleBoneSplitDrag(
+        at location: CGPoint,
+        layout: SkeletonLayout,
+        began: Bool,
+        draft: BoneSplitDraft
+    ) -> Bool {
+        guard let geom = splitScreenGeometry(draft: draft, layout: layout) else {
+            return false
+        }
+        if began {
+            let distRim = hypot(location.x - geom.rimScreen.x, location.y - geom.rimScreen.y)
+            let distCenter = hypot(location.x - geom.centerScreen.x, location.y - geom.centerScreen.y)
+            let distRing = abs(hypot(location.x - geom.centerScreen.x, location.y - geom.centerScreen.y) - geom.radiusScreen)
+            if distRim <= Self.hitRadius {
+                dragRef.splitKind = .rim
+                dragRef.lastScreen = location
+                return true
+            }
+            if distCenter <= Self.hitRadius {
+                dragRef.splitKind = .center
+                dragRef.lastScreen = location
+                return true
+            }
+            if distRing <= 18 {
+                dragRef.splitKind = .rim
+                dragRef.lastScreen = location
+                return true
+            }
+            if hitNode(at: location, layout: layout) != nil {
+                dragRef.splitKind = nil
+                boneSplit.wrappedValue = nil
+                editSession?.setBoneSplit(nil)
+                return false
+            }
+            dragRef.splitKind = nil
+            dragRef.panning = allowsSceneMovements
+            dragRef.lastScreen = location
+            return true
+        }
+
+        if let kind = dragRef.splitKind {
+            var next = draft
+            let graph = layout.graphPoint(screen: location)
+            let unitScale = max(liveUnit.scale, 0.01)
+            switch kind {
+            case .center:
+                let dx = geom.endScene.x - geom.startScene.x
+                let dy = geom.endScene.y - geom.startScene.y
+                let lenSq = dx * dx + dy * dy
+                if lenSq > 1e-6 {
+                    let rawT = ((graph.x - geom.startScene.x) * dx + (graph.y - geom.startScene.y) * dy) / lenSq
+                    next.t = BoneSplitDraft.clampT(rawT, boneLength: geom.boneLengthItem)
+                }
+            case .rim:
+                let distScene = hypot(graph.x - geom.centerScene.x, graph.y - geom.centerScene.y)
+                next.radius = BoneSplitDraft.clampRadius(distScene / unitScale, boneLength: geom.boneLengthItem)
+            }
+            boneSplit.wrappedValue = next
+            editSession?.setBoneSplit(next)
+            dragRef.lastScreen = location
+            return true
+        }
+
+        if dragRef.panning, let last = dragRef.lastScreen {
+            let nextLayout = layout.panned(dx: location.x - last.x, dy: location.y - last.y)
+            self.layout = nextLayout
+            editSession?.layout = nextLayout
+            dragRef.lastScreen = location
+        }
+        return true
     }
 
     private func hitHandler(at location: CGPoint, layout: SkeletonLayout) -> (kind: ItemHandlerKind, x: CGFloat, y: CGFloat)? {

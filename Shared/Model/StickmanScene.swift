@@ -114,6 +114,40 @@ struct StickmanUnit {
         )
     }
 
+    /// Splits edge `from → to` at fraction `t` in `(0, 1)`, inserting a new intermediate point `A`
+    /// with `parentId = from` and reparenting `to` under `A`. Returns the new point id `A`.
+    @discardableResult
+    mutating func splitEdge(from: Int, to: Int, t: CGFloat) throws -> Int {
+        if t <= 0 || t >= 1 {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' splitEdge t \(t) out of (0, 1)")
+        }
+        let start = try point(id: from)
+        guard let endIndex = points.firstIndex(where: { $0.id == to }) else {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(to)")
+        }
+        if points[endIndex].parentId != from {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' edge \(from)->\(to) is not parent->child")
+        }
+        let end = points[endIndex]
+        let newId = (points.map(\.id).max() ?? 0) + 1
+        if points.contains(where: { $0.id == newId }) {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' already has point \(newId)")
+        }
+        let midX = start.x + t * (end.x - start.x)
+        let midY = start.y + t * (end.y - start.y)
+        let midPoint = StickmanPoint(
+            id: newId,
+            x: midX,
+            y: midY,
+            isBase: false,
+            parentId: from
+        )
+        points[endIndex].parentId = newId
+        points.append(midPoint)
+        try link()
+        return newId
+    }
+
     /// Deletes `id` and every descendant. Base point is not deletable.
     mutating func deletePointSubtree(id: Int) throws {
         let target = try point(id: id)
