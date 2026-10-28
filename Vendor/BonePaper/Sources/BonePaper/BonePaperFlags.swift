@@ -1,11 +1,10 @@
-/// BonePaper's own switches. The package can't see the app's settings, so the app assigns `antialiasing` at launch and when App settings are applied.
-public enum BonePaperFlags {
-    /// Anti-aliased brush and eraser edges.
-    /// Off: every stamped pixel is fully line colour or untouched, so edges are hard (stair-stepped on curves)
-    /// and a recolour needs no edge step (see `BonePaperRecolor`).
-    public static var antialiasing = true
+import CoreGraphics
 
-    /// Same-colour fill retries widen neighbour/seed/ink ("tap again to fill more").
-    /// Off: every tap uses streak-0 limits, so a retry never punches through an outline.
+/// Drawing switches shared by the live canvas and `BonePaperBench`.
+/// Defaults match the baseline; the bench flips one flag at a time to measure it.
+public enum BonePaperFlags {
+    public static var antialiasing = true
     public static var fillStreakLoosening = false
+    /// Upward screen-space offset (in points) applied to finger/touch input on the canvas.
+    public static var brushOffset: CGFloat = 0
 }
