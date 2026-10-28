@@ -5,12 +5,14 @@ import UIKit
 struct AppSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var antialiasing: Bool
+    @State private var brushOffset: Double
     /// When set, a DEBUG-only Tutorial button discards the current scene and
     /// replays the intro. Nil (e.g. item editor) hides the button entirely.
     let onTutorial: (() -> Void)?
 
     init(onTutorial: (() -> Void)? = nil) {
         _antialiasing = State(initialValue: AppSettings.paperDrawAntialiasing)
+        _brushOffset = State(initialValue: Double(AppSettings.brushOffset))
         self.onTutorial = onTutorial
     }
 
@@ -20,7 +22,7 @@ struct AppSettingsSheet: View {
             formBody
         }
         .background(SkeletonChrome.pane.ignoresSafeArea())
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(SkeletonChrome.pane)
     }
@@ -63,6 +65,7 @@ struct AppSettingsSheet: View {
     private var applyButton: some View {
         Button {
             AppSettings.paperDrawAntialiasing = antialiasing
+            AppSettings.brushOffset = Int(brushOffset.rounded())
             dismiss()
         } label: {
             Text("Apply")
@@ -85,6 +88,11 @@ struct AppSettingsSheet: View {
                     .foregroundStyle(SkeletonChrome.toolLabel)
                     .textCase(.uppercase)
                 antialiasingCard
+                Text("Drawing tools")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+                brushOffsetCard
                 #if DEBUG
                 if onTutorial != nil {
                     tutorialCard
@@ -132,6 +140,44 @@ struct AppSettingsSheet: View {
         .accessibilityAddTraits(antialiasing ? [.isSelected] : [])
     }
 
+    private var brushOffsetCard: some View {
+        let currentOffset = AppSettings.clampBrushOffset(Int(brushOffset.rounded()))
+        let isActive = currentOffset > 0
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Circle()
+                    .fill(isActive ? SkeletonChrome.bonesAccent : Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255))
+                    .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Brush offset")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Shift drawing point above finger")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                }
+                Spacer(minLength: 8)
+                Text("\(currentOffset) / \(AppSettings.maxBrushOffset)")
+                    .font(.system(size: 15, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+            }
+            Slider(
+                value: $brushOffset,
+                in: 0...Double(AppSettings.maxBrushOffset),
+                step: Double(AppSettings.brushOffsetStep)
+            )
+            .tint(SkeletonChrome.bonesAccent)
+            .accessibilityLabel("Brush offset")
+            .accessibilityValue("\(currentOffset) points")
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isActive ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+        )
+    }
+
     private var privacyCard: some View {
         Button {
             UIApplication.shared.open(Self.privacyPolicyURL)
@@ -166,6 +212,7 @@ struct AppSettingsSheet: View {
     private var tutorialCard: some View {
         Button {
             AppSettings.paperDrawAntialiasing = antialiasing
+            AppSettings.brushOffset = Int(brushOffset.rounded())
             onTutorial?()
             dismiss()
         } label: {
