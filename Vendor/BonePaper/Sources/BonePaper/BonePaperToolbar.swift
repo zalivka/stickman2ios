@@ -1056,6 +1056,7 @@ private struct BonePaperPipetteButton: View {
                     BonePaperColorStore.remember(hex)
                     onPick()
                 }
+                stage.clearCursor()
                 hover = nil
             }
     }

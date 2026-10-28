@@ -41,6 +41,10 @@ final class BonePaperStage {
         }
         return view.sampleColor(atWindow: point)
     }
+
+    func clearCursor() {
+        view?.hideOffsetCursor()
+    }
 }
 
 struct BonePaperCanvas: UIViewRepresentable {
@@ -110,6 +114,8 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
 
     private let placement: BonePaperPlacement?
     private let backdrop = UIView()
+    private let cursorHaloLayer = CAShapeLayer()
+    private let cursorStrokeLayer = CAShapeLayer()
     private let pan = UIPanGestureRecognizer()
     private let pinch = UIPinchGestureRecognizer()
     private var paperSide: CGFloat = 0
@@ -135,6 +141,22 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         backdrop.isUserInteractionEnabled = false
         addSubview(backdrop)
         addSubview(paper)
+        paper.stageView = self
+
+        cursorHaloLayer.fillColor = nil
+        cursorHaloLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        cursorHaloLayer.lineWidth = 3
+        cursorHaloLayer.lineCap = .round
+        cursorHaloLayer.isHidden = true
+        layer.addSublayer(cursorHaloLayer)
+
+        cursorStrokeLayer.fillColor = nil
+        cursorStrokeLayer.strokeColor = UIColor.black.withAlphaComponent(0.88).cgColor
+        cursorStrokeLayer.lineWidth = 1.5
+        cursorStrokeLayer.lineCap = .round
+        cursorStrokeLayer.isHidden = true
+        layer.addSublayer(cursorStrokeLayer)
+
         pan.addTarget(self, action: #selector(handlePan))
         pan.minimumNumberOfTouches = 2
         pan.delegate = self
@@ -230,6 +252,60 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         onZoom?(zoom)
     }
 
+    func updateOffsetCursor(atStage targetStage: CGPoint, tool: BonePaperTool, brushSize: CGFloat) {
+        guard BonePaperFlags.brushOffset > 0 else {
+            hideOffsetCursor()
+            return
+        }
+        let path = CGMutablePath()
+        switch tool {
+        case .pen, .eraser:
+            let radius = max((brushSize * zoom) / 2, 4)
+            path.addEllipse(in: CGRect(
+                x: targetStage.x - radius,
+                y: targetStage.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            let cross: CGFloat = 5
+            path.move(to: CGPoint(x: targetStage.x - cross, y: targetStage.y))
+            path.addLine(to: CGPoint(x: targetStage.x + cross, y: targetStage.y))
+            path.move(to: CGPoint(x: targetStage.x, y: targetStage.y - cross))
+            path.addLine(to: CGPoint(x: targetStage.x, y: targetStage.y + cross))
+        case .fill, .pan:
+            let radius: CGFloat = 6
+            let cross: CGFloat = 9
+            path.addEllipse(in: CGRect(
+                x: targetStage.x - radius,
+                y: targetStage.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            path.move(to: CGPoint(x: targetStage.x - cross, y: targetStage.y))
+            path.addLine(to: CGPoint(x: targetStage.x + cross, y: targetStage.y))
+            path.move(to: CGPoint(x: targetStage.x, y: targetStage.y - cross))
+            path.addLine(to: CGPoint(x: targetStage.x, y: targetStage.y + cross))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorHaloLayer.path = path
+        cursorStrokeLayer.path = path
+        cursorHaloLayer.isHidden = false
+        cursorStrokeLayer.isHidden = false
+        CATransaction.commit()
+    }
+
+    func hideOffsetCursor() {
+        if cursorHaloLayer.isHidden && cursorStrokeLayer.isHidden {
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorHaloLayer.isHidden = true
+        cursorStrokeLayer.isHidden = true
+        CATransaction.commit()
+    }
+
     /// Window point → paint-buffer pixel, through the same transform that draws the paper.
     /// A point outside the picture is black. A clear pixel is nil.
     func sampleColor(atWindow point: CGPoint) -> UIColor? {
@@ -240,7 +316,10 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         if side <= 0 {
             return nil
         }
-        let local = paper.convert(convert(point, from: nil), from: self)
+        let rawStage = convert(point, from: nil)
+        let targetStage = CGPoint(x: rawStage.x, y: rawStage.y - BonePaperFlags.brushOffset)
+        updateOffsetCursor(atStage: targetStage, tool: .fill, brushSize: paper.brushSize)
+        let local = paper.convert(targetStage, from: self)
         let world = CGFloat(document.worldSize)
         let at = CGPoint(x: local.x / side * world, y: local.y / side * world)
         let scale = CGFloat(BonePaperDocument.sample)
@@ -427,6 +506,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
 }
 
 final class BonePaperDrawView: UIView {
+    weak var stageView: BonePaperStageView?
     var document: BonePaperDocument?
     var tool: BonePaperTool = .pen
     var color: UIColor = .black
@@ -564,6 +644,7 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let touch = touches.first else { return }
+        updateStageCursor(for: touch)
         document?.recorder.touchDown(samples(touch, event), input: touch.type)
         lastWorld = worldPoint(touch)
         if tool == .fill {
@@ -579,6 +660,7 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let touch = touches.first, let document else { return }
+        updateStageCursor(for: touch)
         document.recorder.touchMoved(samples(touch, event))
         let point = worldPoint(touch)
         if tool == .fill {
@@ -623,6 +705,7 @@ final class BonePaperDrawView: UIView {
 
     // Second finger or pinch: discard, do not endStroke() which would keep the speck.
     func abortStroke() {
+        stageView?.hideOffsetCursor()
         if stroking {
             document?.cancelStroke()
         }
@@ -633,6 +716,7 @@ final class BonePaperDrawView: UIView {
     }
 
     private func finishStroke() {
+        stageView?.hideOffsetCursor()
         if document?.filling == true {
             lastWorld = nil
             pendingView = nil
@@ -662,11 +746,28 @@ final class BonePaperDrawView: UIView {
         return all.map { (worldPoint($0), $0.timestamp) }
     }
 
+    private func updateStageCursor(for touch: UITouch) {
+        guard let stageView else { return }
+        let rawStage = touch.location(in: stageView)
+        let targetStage = CGPoint(x: rawStage.x, y: rawStage.y - BonePaperFlags.brushOffset)
+        stageView.updateOffsetCursor(atStage: targetStage, tool: tool, brushSize: brushSize)
+    }
+
+    private func offsetLocation(for touch: UITouch) -> CGPoint {
+        let offset = BonePaperFlags.brushOffset
+        guard offset > 0, let stageView else {
+            return touch.location(in: self)
+        }
+        let rawStage = touch.location(in: stageView)
+        let targetStage = CGPoint(x: rawStage.x, y: rawStage.y - offset)
+        return convert(targetStage, from: stageView)
+    }
+
     private func worldPoint(_ touch: UITouch) -> CGPoint {
         guard let document else {
             fatalError("BonePaperDrawView worldPoint with no document")
         }
-        let p = touch.location(in: self)
+        let p = offsetLocation(for: touch)
         let side = CGFloat(document.worldSize)
         return CGPoint(
             x: p.x / bounds.width * side,
