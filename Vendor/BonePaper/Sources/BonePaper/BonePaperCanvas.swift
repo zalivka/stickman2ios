@@ -526,12 +526,15 @@ final class BonePaperDrawView: UIView {
     private let frameLayer = CAShapeLayer()
     private let boneLayer = CAShapeLayer()
     private var lastWorld: CGPoint?
+    private var strokeStartWorld: CGPoint?
+    private var leftCloseZone = false
     private var pendingView: CGPoint?
     private var stroking = false
     private var zoomScale: CGFloat = 1
     // Screen points before a brush/eraser stroke starts. Lets a still finger wait for pinch.
     // Divided by zoom when zoomed in, so the same gap is not a long stretch of the paper.
     private static let strokeSlop: CGFloat = 12
+    private static let closeRadius: CGFloat = 24
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -646,7 +649,10 @@ final class BonePaperDrawView: UIView {
         guard let touch = touches.first else { return }
         updateStageCursor(for: touch)
         document?.recorder.touchDown(samples(touch, event), input: touch.type)
-        lastWorld = worldPoint(touch)
+        let start = worldPoint(touch)
+        lastWorld = start
+        strokeStartWorld = start
+        leftCloseZone = false
         if tool == .fill {
             return
         }
@@ -667,6 +673,7 @@ final class BonePaperDrawView: UIView {
             lastWorld = point
             return
         }
+        let closeThresholdWorld = Self.closeRadius / max(zoomScale, 0.01)
         let view = touch.location(in: self)
         if !stroking {
             guard let startView = pendingView, let startWorld = lastWorld else { return }
@@ -681,12 +688,20 @@ final class BonePaperDrawView: UIView {
             }
             document.beginStroke(erase: tool == .eraser, opacity: opacity)
             stroking = true
+            strokeStartWorld = startWorld
+            if hypot(point.x - startWorld.x, point.y - startWorld.y) > closeThresholdWorld {
+                leftCloseZone = true
+            }
             document.stampDotWorld(at: startWorld, color: color, size: brushSize, erase: tool == .eraser)
             document.stampWorld(from: startWorld, to: point, color: color, size: brushSize, erase: tool == .eraser)
             lastWorld = point
             return
         }
         guard let last = lastWorld else { return }
+        if !leftCloseZone, let startWorld = strokeStartWorld,
+           hypot(point.x - startWorld.x, point.y - startWorld.y) > closeThresholdWorld {
+            leftCloseZone = true
+        }
         document.stampWorld(from: last, to: point, color: color, size: brushSize, erase: tool == .eraser)
         lastWorld = point
     }
@@ -711,6 +726,8 @@ final class BonePaperDrawView: UIView {
         }
         document?.recorder.touchAbort()
         lastWorld = nil
+        strokeStartWorld = nil
+        leftCloseZone = false
         pendingView = nil
         stroking = false
     }
@@ -719,6 +736,8 @@ final class BonePaperDrawView: UIView {
         stageView?.hideOffsetCursor()
         if document?.filling == true {
             lastWorld = nil
+            strokeStartWorld = nil
+            leftCloseZone = false
             pendingView = nil
             stroking = false
             return
@@ -732,10 +751,21 @@ final class BonePaperDrawView: UIView {
                 onCommitStroke?()
             }
         } else if stroking {
+            if BonePaperFlags.autoCloseStroke,
+               tool == .pen,
+               leftCloseZone,
+               let startWorld = strokeStartWorld,
+               let endWorld = lastWorld,
+               endWorld != startWorld,
+               hypot(endWorld.x - startWorld.x, endWorld.y - startWorld.y) <= Self.closeRadius / max(zoomScale, 0.01) {
+                document?.stampWorld(from: endWorld, to: startWorld, color: color, size: brushSize, erase: false)
+            }
             document?.endStroke()
             onCommitStroke?()
         }
         lastWorld = nil
+        strokeStartWorld = nil
+        leftCloseZone = false
         pendingView = nil
         stroking = false
     }
