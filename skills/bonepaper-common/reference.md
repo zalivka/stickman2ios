@@ -178,6 +178,51 @@ Keep `weight`, `flipped`, `start`, `end`, and `state`. The pistol's flipped edge
 
 A 1× picture stretched on the phone turns a one-pixel antialiased edge into a staircase. Keep the 4× pixels.
 
+## A rig with several bones (`robot_dog`)
+
+`flat.py draw` packs one bone. An articulated item — a quadruped, a crab, anything whose parts rotate independently — needs one bitmap per edge in one `.ati`. `out/robot_dog_flat/assemble.py` in stickman2 is the worked example. It brushes each bone from the same `BONES` table `draw` reads, so the flat preview and the rig cannot drift.
+
+**Brush each bone once, from the parts table.** Do not point `flat.py item` at a rig whose bitmaps already carry outlines. `item` re-traces every region and adds its own 14 px stroke plus the 10 px `ink_under` rim on top of what is already there. A rig built from vector SVG has crisp `<path stroke>` edges, so the result carries two rims and merged shades. On the device that reads as the art being "drawn twice", because it was. Feed `item` an unbrushed bitmap or nothing at all.
+
+**The pivot is in stripped page space.** `itemkit` rasters the padded canvas, so a page point `p` sits at `4 * (p + 40)`. Crop `PAD * SAMPLE` off every side *before* rotating, then rotate about `4 * start`:
+
+```python
+page = drawing.raster()
+pad = PAD * SAMPLE                      # 160
+page = page.crop((pad, pad, page.width - pad, page.height - pad))
+pivot = (SAMPLE * start[0], SAMPLE * start[1])
+rot = page.rotate(theta, resample=Image.BICUBIC, center=pivot)   # SVG rotate(-θ) == PIL +θ
+```
+
+Leave `PAD` in the pivot and the rotation centre sits 160 px from where `x_offset`/`y_offset` pin the bitmap. The art moves, `model.xml` does not, and it looks like the skeleton is misplaced rather than the pictures.
+
+Offsets then follow the single-bone rule, measured from the bone start:
+
+```text
+x_offset = crop_left - pivot_x
+y_offset = crop_top  - pivot_y
+```
+
+Multiply every `<point>` by 4 and set `meta.txt` `scale` to `0.25`, exactly as for one bone. Points, offsets, and the bitmap all share 4× units; `meta.scale` is the only page conversion.
+
+**Bones with no picture** (connectors such as `pelvis → hip`) get a point pair in `model.xml` and no `<edgeAsset>`. `pack.py` already asserts that. Reuse its `POINTS` and `EDGES` rather than restating the skeleton, or the vector and flat rigs drift apart.
+
+## Verifying a rig lands where the source says
+
+A rest-pose composite proves nothing if the same variable feeds both the paste point and the rotation centre — the error cancels and a broken rig looks perfect. This happened: `rest_pose.png` and the first `verify()` both passed at the exact moment the deployed `.ati` had every bone 160 px off.
+
+Derive the two independently. The paste point comes from `model.xml`; the rotation centre is whatever the bitmap was built around. Then check against a render that knows nothing about your offsets — `rsvg-convert` of the source SVG at 4× — and compare **alpha masks by IoU**, not a pixel diff. The brush is fatter than a hairline vector stroke, so a *correct* render still differs on 65% of inked pixels; IoU tolerates that but collapses on a real shift.
+
+```python
+a = got.getchannel("A").point(lambda v: 255 if v > 60 else 0)
+b = want.getchannel("A").point(lambda v: 255 if v > 60 else 0)
+iou = shared / union        # robot_dog: 0.606 correct, 0.317 with the PAD pivot bug
+```
+
+Prove the check can fail before trusting it: reintroduce the bug, confirm it trips, then put the fix back. A threshold nobody has ever seen fail is decoration.
+
+**A sub-`SLOP` margin is not a margin.** The floor is 12 px along the stroke's own path, and the wobble is stochastic, so sitting at the threshold fails intermittently rather than never. A 12 px dash died, the same dash at 18 px held; `r = 6` discs died, `r = 8` held. Author above the floor, not on it.
+
 ## Scene scale
 
 Once a unit is placed, playback draws `bitmap * unit.scale`. `meta.txt` scale is only the rest pose of a newly dropped item. Dividing the meta scale and leaving the scene scale paints the part four times too big.
@@ -213,7 +258,7 @@ When those frames are written into an `.ati`, name them `bm_<id>_state_<n>.png` 
 9. Lines ending on the page edge run 10–12 px past the edge so an edge-bounded fill does not leak around the end.
 10. Keep brush 14 and opacity 1 unless there is a reason to change them.
 11. Outline and fill colours must differ clearly (well over 0.06 OKLab). A similar-coloured outline is treated as part of the region and the recolour runs through it.
-12. Small rings need a radius of at least about 8 px, or the loop never gets 12 px from its start.
+12. Small rings need a radius of at least about 8 px, and short strokes need well over 12 px. Both limits are minimums that the hand's randomness can land under, so author above them: `r = 6` discs failed while `r = 8` worked, and a 12 px dash failed while the same stroke at 18 px held.
 
 `_stamp` order, which is rule 4 for a traced shape: append `buffer(1.5)` of the shape when it is drawn, then the outline (`hand.poly`), then a tap for each colour still showing inside. Do not splice every flat fill to the start of the SVG. Later wall fills cover those early rectangles, and the window tap recolours only the patch it hits.
 

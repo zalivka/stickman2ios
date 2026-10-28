@@ -73,4 +73,16 @@ The part rules (limb vs compact, the width clamps, the fill-leak limit) are in
    part that is visually compact. Fix the part, not the lint.
 2. A stroke shorter than 12 px dies at render time inside `hand.py`. Lint cannot
    see it because the length is only known after Catmull-Rom. Lengthen the
-   stroke.
+   stroke — and leave margin, because the wobble is random: a 12 px dash failed
+   where 18 px held.
+
+## Several bones in one item
+
+`draw` packs a single bone. An articulated item — a quadruped, a crab, anything
+whose parts rotate independently — needs one bitmap per edge in one `.ati`.
+Brush each bone from the same parts table `draw` reads, and reuse the skeleton
+from the vector route rather than writing a second one. The offset/rotation
+rules, the trap of pointing `flat.py item` at already-outlined bitmaps, and how
+to verify the bones land on the source are in
+[common reference](../bonepaper-common/reference.md), "A rig with several
+bones" and "Verifying a rig lands where the source says".

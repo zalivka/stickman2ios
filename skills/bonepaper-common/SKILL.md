@@ -58,6 +58,8 @@ Paint the flat fill when the shape is drawn. `_stamp` in `brush_svg` appends `bu
 
 A stroke that never travels 12 px raises `SystemExit`. A star is two crossing strokes (a plus), not a 1 px dot.
 
+That 12 px is a floor the wobble can push you under, not a safe target. Author short marks at 16–18 px: a 12 px dash failed, the same stroke at 18 px held. Same for rings — `r = 6` discs died, `r = 8` held.
+
 Stars go behind every other object. Dim them (source opacity × 0.4 over the sky). Size comes from the radius. Give them slightly different colours. Splice their strokes to the first non-sky layer.
 
 ## Bones and scenes
