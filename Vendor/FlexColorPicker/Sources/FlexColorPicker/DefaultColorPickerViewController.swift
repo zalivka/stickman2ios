@@ -42,6 +42,9 @@ private let minSpaceAboveSlider: CGFloat = 50
 open class DefaultColorPickerViewController: UIViewController, ColorPickerControllerProtocol {
     private var standardConstraints = [NSLayoutConstraint]()
     private var landscapeConstraints = [NSLayoutConstraint]()
+    /// Which constraint set is active; nil until the first non-zero size arrives, so `viewDidLoad` with
+    /// `.zero` bounds still activates exactly one set later. Prevents churning constraints on every pass.
+    private var landscapeActive: Bool?
 
    /// Color picker controller that synchonizes color controls. This is controller that this controller delegates interaction logic to. It is also instance of `ColorPickerController` passed to delegate calls.
     public let colorPicker = ColorPickerController()
@@ -133,6 +136,14 @@ open class DefaultColorPickerViewController: UIViewController, ColorPickerContro
         }, completion: nil)
     }
 
+    /// A sheet on iPad gets its final size only after `viewDidLoad`, where `view.bounds` is `.zero`, so
+    /// `updateLayout(for:)` activates neither constraint set. Nothing re-runs it on iPad (no rotation),
+    /// the picker keeps an ambiguous layout and the palette collapses to a near-zero disc.
+    open override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateLayout(for: view.bounds.size)
+    }
+
     /// This method sets up and lays out `colorPreview`, `brightnessSlider` and `colorPalette`. It also applies initial values of properties like `useRadialPalette` on them.
     ///
     /// You can override this method to create your own default layout.
@@ -212,17 +223,18 @@ open class DefaultColorPickerViewController: UIViewController, ColorPickerContro
         if size == .zero || standardConstraints.isEmpty || landscapeConstraints.isEmpty {
             return
         }
-        let rectangularPalette = (colorPalette as? RectangularPaletteControl)
-        if size.height < size.width && traitCollection.verticalSizeClass != .regular {
-            rectangularPalette?.setHue(horizontalAxis: rectangularPaletteHueHorizontalInLandscape, updateImage: false) //image gets updated on bounds change
-            NSLayoutConstraint.deactivate(standardConstraints)
-            NSLayoutConstraint.activate(landscapeConstraints)
+        let landscape = size.height < size.width && traitCollection.verticalSizeClass != .regular
+        // Same axis as the current hue keeps `setHue` a no-op, so this is cheap on every layout pass.
+        (colorPalette as? RectangularPaletteControl)?.setHue(
+            horizontalAxis: landscape ? rectangularPaletteHueHorizontalInLandscape : rectangularPaletteHueHorizontalInPortrait,
+            updateImage: false //image gets updated on bounds change
+        )
+        guard landscape != landscapeActive else {
             return
         }
-
-        rectangularPalette?.setHue(horizontalAxis: rectangularPaletteHueHorizontalInPortrait, updateImage: false) //image gets updated on bounds change
-        NSLayoutConstraint.deactivate(landscapeConstraints)
-        NSLayoutConstraint.activate(standardConstraints)
+        landscapeActive = landscape
+        NSLayoutConstraint.deactivate(landscape ? standardConstraints : landscapeConstraints)
+        NSLayoutConstraint.activate(landscape ? landscapeConstraints : standardConstraints)
     }
 }
 

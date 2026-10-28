@@ -86,6 +86,17 @@ open class ColorSliderControl: ColorControlWithThumbView {
         }
     }
 
+    private var lastLayoutSize: CGSize = .zero
+
+    open override func layoutSubviews() {
+        super.layoutSubviews()
+        if contentView.bounds.size != lastLayoutSize {
+            lastLayoutSize = contentView.bounds.size
+            updateCornerRadius()
+            updateThumbAndGradient(isInteractive: false)
+        }
+    }
+
     open override var intrinsicContentSize: CGSize {
         return CGSize(width: UIScreen.main.bounds.width, height: defaultGradientViewHeight)
     }

@@ -55,6 +55,15 @@ open class ColorPaletteControl: ColorControlWithThumbView {
             updatePaletteImagesAndThumb(isInteractive: false)
         }
     }
+
+    /// UIKit's Auto Layout updates `layer.bounds` directly during layout without calling the Swift
+    /// `bounds` property setter, so `bounds.didSet` never fires on constraint layout passes.
+    open override func layoutSubviews() {
+        super.layoutSubviews()
+        if foregroundImageView.bounds.size != paletteDelegate.size {
+            updatePaletteImagesAndThumb(isInteractive: false)
+        }
+    }
     
     open override var contentMode: UIView.ContentMode {
         didSet {
@@ -65,6 +74,17 @@ open class ColorPaletteControl: ColorControlWithThumbView {
 
     open override func commonInit() {
         super.commonInit()
+        // Prevent rendered palette image from bloating UIImageView's intrinsicContentSize,
+        // which would otherwise prevent the palette from shrinking and cause Auto Layout
+        // to compress it to 28pt when the container has a temporary huge frame before sheet presentation.
+        backgroundImageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        backgroundImageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        backgroundImageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        backgroundImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        foregroundImageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        foregroundImageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        foregroundImageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        foregroundImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
         contentView.addAutolayoutFillingSubview(backgroundImageView)
         backgroundImageView.addAutolayoutFillingSubview(foregroundImageView)
         updateContentMode()
@@ -90,6 +110,9 @@ open class ColorPaletteControl: ColorControlWithThumbView {
     /// - Parameter interactive:  Whether the change originated from user interaction or is programatic. This can be used to determine if certain animations should be played.
     open func updatePaletteImagesAndThumb(isInteractive interactive: Bool) {
         layoutIfNeeded() //force subviews layout to update their bounds - bounds of subviews are not automatically updated
+        guard foregroundImageView.bounds.width > 0 && foregroundImageView.bounds.height > 0 else {
+            return
+        }
         paletteDelegate.size = foregroundImageView.bounds.size //cannot use self.bounds as that is extended compared to foregroundImageView.bounds when AdjustedHitBoxColorControl.hitBoxInsets are non-zero
         foregroundImageView.image = paletteDelegate.foregroundImage()
         backgroundImageView.image = paletteDelegate.backgroundImage()
