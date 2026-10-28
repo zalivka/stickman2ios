@@ -62,6 +62,7 @@ final class UnitAssets {
     private var edgeAssets: [EdgeKey: [Int: EdgeAsset]] = [:]
     /// Unattached gallery pictures (Android bone-picture repo rows with no edge yet).
     private var looseBones: [String: EdgeAsset] = [:]
+    private var drawingConfigs: [String: BonePaperDrawingConfig] = [:]
     private var restModel: [String: [Int: CGFloat]] = [:]
     private var archives: [String: StoredArchive] = [:]
 
@@ -73,15 +74,31 @@ final class UnitAssets {
     struct Snapshot {
         var edgeAssets: [EdgeKey: [Int: EdgeAsset]]
         var looseBones: [String: EdgeAsset]
+        var drawingConfigs: [String: BonePaperDrawingConfig]
     }
 
     func snapshot() -> Snapshot {
-        Snapshot(edgeAssets: edgeAssets, looseBones: looseBones)
+        Snapshot(edgeAssets: edgeAssets, looseBones: looseBones, drawingConfigs: drawingConfigs)
     }
 
     func restore(_ snapshot: Snapshot) {
         edgeAssets = snapshot.edgeAssets
         looseBones = snapshot.looseBones
+        drawingConfigs = snapshot.drawingConfigs
+    }
+
+    func drawingConfig(for unitName: String) -> BonePaperDrawingConfig {
+        drawingConfigs[Self.removeNumber(unitName)] ?? BonePaperDrawingConfig()
+    }
+
+    func setDrawingConfig(_ config: BonePaperDrawingConfig, for unitName: String) {
+        let key = Self.removeNumber(unitName)
+        let clean = config.sanitized()
+        if clean.isEmpty {
+            drawingConfigs.removeValue(forKey: key)
+        } else {
+            drawingConfigs[key] = clean
+        }
     }
 
     func hasAssetsFor(unitName: String) -> Bool {
@@ -1093,7 +1110,7 @@ final class UnitAssets {
             states[asset.state] = asset
             edgeAssets[key] = states
         }
-        attachSidecars(zip: zip)
+        attachSidecars(zip: zip, unitName: assets[0].unitName)
     }
 
     /// Manifest entry name for paint-buffer sidecars.
@@ -1106,12 +1123,14 @@ final class UnitAssets {
 
     /// Sidecar entries for save: one `<bm>.x2.png` per buffered picture plus the manifest.
     /// `pngs` must be the exact 1x bytes being saved (from `pngFiles`), keyed by bmName; the manifest
-    /// hashes those so load detects a picture replaced without its buffer. Empty when no buffers.
+    /// hashes those so load detects a picture replaced without its buffer. Empty when no buffers and no drawingConfig.
     func sidecarFiles(unitName: String, pngs: [String: Data]) throws -> [(name: String, data: Data)] {
         let name = Self.removeNumber(unitName)
         var seen = Set<String>()
         var files: [(name: String, data: Data)] = []
-        var manifest = BonePaperManifest(version: 1, buffers: [:])
+        let cleanConfig = drawingConfigs[name]?.sanitized()
+        let savedConfig = (cleanConfig?.isEmpty == false) ? cleanConfig : nil
+        var manifest = BonePaperManifest(version: 1, buffers: [:], drawingConfig: savedConfig)
         for (key, states) in edgeAssets where key.unitName == name {
             for asset in states.values {
                 if seen.contains(asset.bmName) { continue }
@@ -1125,7 +1144,7 @@ final class UnitAssets {
                 manifest.buffers[asset.bmName] = BonePaperManifest.Entry(entry: entry, sha256: Self.sha256Hex(png))
             }
         }
-        guard !files.isEmpty else { return [] }
+        guard !files.isEmpty || savedConfig != nil else { return [] }
         files.append((name: Self.sidecarManifest, data: try manifest.encode()))
         return files.sorted { $0.name < $1.name }
     }
@@ -1133,7 +1152,7 @@ final class UnitAssets {
     /// Attach validated sidecar buffers to the just-installed edge assets. Anything unexpected —
     /// missing manifest, malformed JSON, replaced picture, bad size — drops the buffer with a log,
     /// never a crash. The picture itself always loads.
-    private func attachSidecars(zip: Data) {
+    private func attachSidecars(zip: Data, unitName: String) {
         let names: Set<String>
         do {
             names = Set(try ZipStore.namesThrowing(in: zip))
@@ -1151,6 +1170,10 @@ final class UnitAssets {
         } catch {
             print("UnitAssets \(Self.sidecarManifest) ignored: \(error)")
             return
+        }
+        let unitKey = Self.removeNumber(unitName)
+        if let config = manifest.drawingConfig?.sanitized(), !config.isEmpty {
+            drawingConfigs[unitKey] = config
         }
         for (key, states) in edgeAssets {
             var next = states
@@ -1266,6 +1289,7 @@ struct BonePaperManifest: Codable {
 
     var version: Int
     var buffers: [String: Entry]
+    var drawingConfig: BonePaperDrawingConfig?
 
     func encode() throws -> Data {
         do {

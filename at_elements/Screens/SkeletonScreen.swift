@@ -237,6 +237,7 @@ struct SkeletonScreen: View {
                 onion: session.onion,
                 placement: session.placement,
                 buffer: session.buffer,
+                initialDrawingConfig: session.drawingConfig,
                 onApply: { export in
                     applyBonePaper(bmName: session.bmName, export: export)
                 },
@@ -332,6 +333,7 @@ struct SkeletonScreen: View {
         let onion: CGImage?
         let placement: BonePaperPlacement?
         let bmName: String
+        let drawingConfig: BonePaperDrawingConfig
     }
 
     /// Present-attempt marker: existence means the fatal preview guards already passed.
@@ -488,6 +490,7 @@ struct SkeletonScreen: View {
         }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
         let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
+        let config = (optionalUnit.flatMap { assets?.drawingConfig(for: $0.name) }) ?? BonePaperDrawingConfig()
         let edit = BonePaperEdit(
             source: asset.bitmap,
             buffer: validatedBuffer(asset: asset),
@@ -495,7 +498,8 @@ struct SkeletonScreen: View {
             boneTip: tip,
             onion: onion,
             placement: placement,
-            bmName: asset.bmName
+            bmName: asset.bmName,
+            drawingConfig: config
         )
         var transaction = Transaction()
         transaction.disablesAnimations = placement != nil
@@ -535,6 +539,9 @@ struct SkeletonScreen: View {
                 extraLeft: export.extraLeft,
                 extraTop: export.extraTop
             )
+            if let unit = optionalUnit {
+                assets.setDrawingConfig(export.drawingConfig, for: unit.name)
+            }
         } catch {
             showToast("Could not apply the picture: \(ItemLoadError.text(error))")
             return

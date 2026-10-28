@@ -57,6 +57,7 @@ struct BonePaperCanvas: UIViewRepresentable {
     var stage: BonePaperStage
     var zoom: Binding<CGFloat>
     var fitInsets: UIEdgeInsets
+    var onCommitStroke: () -> Void
 
     func makeUIView(context: Context) -> BonePaperStageView {
         let view = BonePaperStageView(placement: placement)
@@ -79,6 +80,7 @@ struct BonePaperCanvas: UIViewRepresentable {
         view.paper.boneTip = boneTip
         view.paper.onion = onion
         view.paper.paperColor = paper
+        view.paper.onCommitStroke = onCommitStroke
         view.onZoom = { zoom.wrappedValue = $0 }
         view.setPanMode(tool == .pan)
         view.fitInsets = fitInsets
@@ -435,6 +437,7 @@ final class BonePaperDrawView: UIView {
     var onion: CGImage?
     /// Sheet colour drawn under the bitmap rect in place of the checker.
     var paperColor: UIColor?
+    var onCommitStroke: (() -> Void)?
 
     private let checker = UIView()
     private let paperView = UIView()
@@ -642,9 +645,11 @@ final class BonePaperDrawView: UIView {
                     ? .clear
                     : .color(color, opacity: opacity)
                 document?.fillWorld(at: point, fill: fill)
+                onCommitStroke?()
             }
         } else if stroking {
             document?.endStroke()
+            onCommitStroke?()
         }
         lastWorld = nil
         pendingView = nil

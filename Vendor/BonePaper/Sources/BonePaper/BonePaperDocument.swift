@@ -20,6 +20,7 @@ public struct BonePaperExport {
     public let buffer: CGImage?
     public let extraLeft: CGFloat
     public let extraTop: CGFloat
+    public var drawingConfig: BonePaperDrawingConfig
 }
 
 /// A fixed-size page with a solid paper colour behind the strokes. It never grows; the eraser shows the paper.
@@ -425,7 +426,8 @@ public final class BonePaperDocument: ObservableObject {
             image: exported,
             buffer: committed,
             extraLeft: CGFloat(extraLeft),
-            extraTop: CGFloat(extraTop)
+            extraTop: CGFloat(extraTop),
+            drawingConfig: BonePaperDrawingConfig()
         )
     }
 
@@ -447,7 +449,8 @@ public final class BonePaperDocument: ObservableObject {
             image: image,
             buffer: nil,
             extraLeft: CGFloat(extraLeft),
-            extraTop: CGFloat(extraTop)
+            extraTop: CGFloat(extraTop),
+            drawingConfig: BonePaperDrawingConfig()
         )
     }
 

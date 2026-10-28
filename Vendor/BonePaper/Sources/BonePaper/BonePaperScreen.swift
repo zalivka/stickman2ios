@@ -5,11 +5,12 @@ public struct BonePaperScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var document: BonePaperDocument
-    @State private var tool: BonePaperTool = .pen
-    @State private var color: Color = .black
-    @State private var brushSize: CGFloat = 14
-    @State private var eraserSize: CGFloat = 14
-    @State private var opacity: CGFloat = 1
+    @State private var tool: BonePaperTool = UIColor(BonePaperToolStore.color).cgColor.alpha == 0 ? .fill : .pen
+    @State private var color: Color = BonePaperToolStore.color
+    @State private var brushSize: CGFloat = BonePaperToolStore.brushSize
+    @State private var eraserSize: CGFloat = BonePaperToolStore.eraserSize
+    @State private var opacity: CGFloat = BonePaperToolStore.opacity
+    @State private var drawingConfig: BonePaperDrawingConfig
     @State private var zoom: CGFloat = 1
     @State private var showingStrokePreview = false
     @State private var stage = BonePaperStage()
@@ -42,6 +43,7 @@ public struct BonePaperScreen: View {
         /// Full-resolution paint buffer for `source`, `sample` times its size. Copied in without
         /// scaling so reopening loses no quality. A size mismatch falls back to the upscaled source.
         buffer: CGImage? = nil,
+        initialDrawingConfig: BonePaperDrawingConfig? = nil,
         onApply: ((BonePaperExport) -> Void)?,
         onClose: (() -> Void)? = nil
     ) {
@@ -67,6 +69,7 @@ public struct BonePaperScreen: View {
                 wrappedValue: BonePaperDocument(width: width, height: height, source: source)
             )
         }
+        _drawingConfig = State(initialValue: (initialDrawingConfig ?? BonePaperToolStore.fallbackConfig).sanitized())
         _chromeOpacity = State(initialValue: placement == nil ? 1 : 0)
         self.boneStart = boneStart
         self.boneTip = boneTip
@@ -80,6 +83,7 @@ public struct BonePaperScreen: View {
     /// Blank fixed page over `sheet.paper`. The export is transparent where nothing was drawn.
     public init(sheet: BonePaperSheet, onApply: @escaping (BonePaperExport) -> Void) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet))
+        _drawingConfig = State(initialValue: BonePaperToolStore.fallbackConfig)
         _chromeOpacity = State(initialValue: 1)
         boneStart = nil
         boneTip = nil
@@ -93,6 +97,7 @@ public struct BonePaperScreen: View {
     /// Blank page for drawing only. Apply stays visible and does nothing.
     public init(sheet: BonePaperSheet) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet))
+        _drawingConfig = State(initialValue: BonePaperToolStore.fallbackConfig)
         _chromeOpacity = State(initialValue: 1)
         boneStart = nil
         boneTip = nil
@@ -106,6 +111,7 @@ public struct BonePaperScreen: View {
     /// Same sheet as a blank page, with `buffer` already in the paint buffer.
     public init(sheet: BonePaperSheet, buffer: CGImage, onApply: @escaping (BonePaperExport) -> Void) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet, buffer: buffer))
+        _drawingConfig = State(initialValue: BonePaperToolStore.fallbackConfig)
         _chromeOpacity = State(initialValue: 1)
         boneStart = nil
         boneTip = nil
@@ -141,7 +147,8 @@ public struct BonePaperScreen: View {
                         placement: placement,
                         stage: stage,
                         zoom: $zoom,
-                        fitInsets: BonePaperChrome.fitInsets(safe: safe, topClearance: topClearance)
+                        fitInsets: BonePaperChrome.fitInsets(safe: safe, topClearance: topClearance),
+                        onCommitStroke: recordCommittedStroke
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -177,6 +184,7 @@ public struct BonePaperScreen: View {
                         BonePaperColorStrip(
                             color: $color,
                             hover: $hoverColor,
+                            itemPalette: drawingConfig.palette,
                             stage: stage,
                             onPick: {
                                 if tool != .fill {
@@ -199,6 +207,9 @@ public struct BonePaperScreen: View {
                         brushSize: $brushSize,
                         eraserSize: $eraserSize,
                         opacity: $opacity,
+                        brushMarks: drawingConfig.brushSizes,
+                        opacityMarks: drawingConfig.opacities,
+                        eraserMarks: drawingConfig.eraserSizes,
                         canUndo: document.canUndo,
                         onUndo: document.undo,
                         canRedo: document.canRedo,
@@ -246,13 +257,45 @@ public struct BonePaperScreen: View {
                 }
             }
         }
+        .onChange(of: brushSize) { _, next in
+            BonePaperToolStore.brushSize = next
+        }
+        .onChange(of: eraserSize) { _, next in
+            BonePaperToolStore.eraserSize = next
+        }
+        .onChange(of: opacity) { _, next in
+            BonePaperToolStore.opacity = next
+        }
+        .onChange(of: color) { _, next in
+            BonePaperToolStore.color = next
+        }
+    }
+
+    private func recordCommittedStroke() {
+        switch tool {
+        case .pen:
+            let uiColor = UIColor(color)
+            guard uiColor.cgColor.alpha > 0 else { return }
+            let hex = BonePaperColorStore.hex(from: uiColor)
+            drawingConfig.recordPenOrFill(colorHex: hex, brushSize: brushSize, opacity: opacity)
+        case .fill:
+            let uiColor = UIColor(color)
+            let hex = uiColor.cgColor.alpha > 0 ? BonePaperColorStore.hex(from: uiColor) : nil
+            drawingConfig.recordPenOrFill(colorHex: hex, brushSize: nil, opacity: opacity)
+        case .eraser:
+            drawingConfig.recordEraser(eraserSize: eraserSize)
+        case .pan:
+            break
+        }
+        BonePaperToolStore.fallbackConfig = drawingConfig
     }
 
     private func apply() {
         guard let onApply else {
             return
         }
-        let export = paper == nil ? document.export() : document.exportBuffer()
+        var export = paper == nil ? document.export() : document.exportBuffer()
+        export.drawingConfig = drawingConfig
         #if DEBUG
         document.saveRecording(
             result: export.image,

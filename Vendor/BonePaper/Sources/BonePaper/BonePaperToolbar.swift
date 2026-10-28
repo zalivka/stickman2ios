@@ -7,6 +7,212 @@ enum BonePaperBrush {
     static let opacityRange: ClosedRange<CGFloat> = 0.01...1
 }
 
+public struct BonePaperDrawingConfig: Codable, Equatable, Sendable {
+    public static let maxSliderMarks = 5
+    public static let maxPaletteColors = 16
+
+    public var palette: [String]
+    public var brushSizes: [CGFloat]
+    public var eraserSizes: [CGFloat]
+    public var opacities: [CGFloat]
+
+    public init(
+        palette: [String] = [],
+        brushSizes: [CGFloat] = [],
+        eraserSizes: [CGFloat] = [],
+        opacities: [CGFloat] = []
+    ) {
+        self.palette = palette
+        self.brushSizes = brushSizes
+        self.eraserSizes = eraserSizes
+        self.opacities = opacities
+    }
+
+    public var isEmpty: Bool {
+        palette.isEmpty && brushSizes.isEmpty && eraserSizes.isEmpty && opacities.isEmpty
+    }
+
+    public func sanitized() -> BonePaperDrawingConfig {
+        var cleanPalette: [String] = []
+        for raw in palette {
+            let hex = raw.uppercased()
+            guard Self.isValidHex(hex), !cleanPalette.contains(hex) else { continue }
+            cleanPalette.append(hex)
+            if cleanPalette.count == Self.maxPaletteColors { break }
+        }
+        return BonePaperDrawingConfig(
+            palette: cleanPalette,
+            brushSizes: Self.cleanSizes(brushSizes),
+            eraserSizes: Self.cleanSizes(eraserSizes),
+            opacities: Self.cleanOpacities(opacities)
+        )
+    }
+
+    public mutating func recordPenOrFill(colorHex: String?, brushSize: CGFloat?, opacity: CGFloat) {
+        if let rawHex = colorHex {
+            let hex = rawHex.uppercased()
+            if Self.isValidHex(hex) {
+                palette.removeAll { $0 == hex }
+                palette.insert(hex, at: 0)
+                if palette.count > Self.maxPaletteColors {
+                    palette.removeLast(palette.count - Self.maxPaletteColors)
+                }
+            }
+        }
+        if let brushSize {
+            let sizeMark = Self.clampSize(brushSize)
+            brushSizes.removeAll { $0 == sizeMark }
+            brushSizes.insert(sizeMark, at: 0)
+            if brushSizes.count > Self.maxSliderMarks {
+                brushSizes.removeLast(brushSizes.count - Self.maxSliderMarks)
+            }
+        }
+        let opacityMark = Self.clampOpacity(opacity)
+        opacities.removeAll { $0 == opacityMark }
+        opacities.insert(opacityMark, at: 0)
+        if opacities.count > Self.maxSliderMarks {
+            opacities.removeLast(opacities.count - Self.maxSliderMarks)
+        }
+    }
+
+    public mutating func recordEraser(eraserSize: CGFloat) {
+        let sizeMark = Self.clampSize(eraserSize)
+        eraserSizes.removeAll { $0 == sizeMark }
+        eraserSizes.insert(sizeMark, at: 0)
+        if eraserSizes.count > Self.maxSliderMarks {
+            eraserSizes.removeLast(eraserSizes.count - Self.maxSliderMarks)
+        }
+    }
+
+    static func clampSize(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return 14 }
+        let rounded = CGFloat(Int(value.rounded()))
+        return min(max(rounded, BonePaperBrush.sizeRange.lowerBound), BonePaperBrush.sizeRange.upperBound)
+    }
+
+    static func clampOpacity(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return 1 }
+        let rounded = CGFloat((value * 100).rounded()) / 100
+        return min(max(rounded, BonePaperBrush.opacityRange.lowerBound), BonePaperBrush.opacityRange.upperBound)
+    }
+
+    static func isValidHex(_ hex: String) -> Bool {
+        guard hex.count == 7, hex.hasPrefix("#") else { return false }
+        return Int(hex.dropFirst(), radix: 16) != nil
+    }
+
+    private static func cleanSizes(_ values: [CGFloat]) -> [CGFloat] {
+        var result: [CGFloat] = []
+        for v in values where v.isFinite {
+            let clamped = clampSize(v)
+            if !result.contains(clamped) {
+                result.append(clamped)
+                if result.count == maxSliderMarks { break }
+            }
+        }
+        return result
+    }
+
+    private static func cleanOpacities(_ values: [CGFloat]) -> [CGFloat] {
+        var result: [CGFloat] = []
+        for v in values where v.isFinite {
+            let clamped = clampOpacity(v)
+            if !result.contains(clamped) {
+                result.append(clamped)
+                if result.count == maxSliderMarks { break }
+            }
+        }
+        return result
+    }
+}
+
+enum BonePaperToolStore {
+    private static let brushSizeKey = "bonepaper.brush_size"
+    private static let eraserSizeKey = "bonepaper.eraser_size"
+    private static let opacityKey = "bonepaper.opacity"
+    private static let colorKey = "bonepaper.color"
+    private static let fallbackConfigKey = "bonepaper.fallback_drawing_config"
+    private static let clearToken = "CLEAR"
+
+    static var brushSize: CGFloat {
+        get {
+            guard UserDefaults.standard.object(forKey: brushSizeKey) != nil else { return 14 }
+            let val = CGFloat(UserDefaults.standard.double(forKey: brushSizeKey))
+            guard val.isFinite else { return 14 }
+            return min(max(val, BonePaperBrush.sizeRange.lowerBound), BonePaperBrush.sizeRange.upperBound)
+        }
+        set {
+            let clamped = min(max(newValue, BonePaperBrush.sizeRange.lowerBound), BonePaperBrush.sizeRange.upperBound)
+            UserDefaults.standard.set(Double(clamped), forKey: brushSizeKey)
+        }
+    }
+
+    static var eraserSize: CGFloat {
+        get {
+            guard UserDefaults.standard.object(forKey: eraserSizeKey) != nil else { return 14 }
+            let val = CGFloat(UserDefaults.standard.double(forKey: eraserSizeKey))
+            guard val.isFinite else { return 14 }
+            return min(max(val, BonePaperBrush.sizeRange.lowerBound), BonePaperBrush.sizeRange.upperBound)
+        }
+        set {
+            let clamped = min(max(newValue, BonePaperBrush.sizeRange.lowerBound), BonePaperBrush.sizeRange.upperBound)
+            UserDefaults.standard.set(Double(clamped), forKey: eraserSizeKey)
+        }
+    }
+
+    static var opacity: CGFloat {
+        get {
+            guard UserDefaults.standard.object(forKey: opacityKey) != nil else { return 1 }
+            let val = CGFloat(UserDefaults.standard.double(forKey: opacityKey))
+            guard val.isFinite else { return 1 }
+            return min(max(val, BonePaperBrush.opacityRange.lowerBound), BonePaperBrush.opacityRange.upperBound)
+        }
+        set {
+            let clamped = min(max(newValue, BonePaperBrush.opacityRange.lowerBound), BonePaperBrush.opacityRange.upperBound)
+            UserDefaults.standard.set(Double(clamped), forKey: opacityKey)
+        }
+    }
+
+    static var color: Color {
+        get {
+            guard let stored = UserDefaults.standard.string(forKey: colorKey) else {
+                return .black
+            }
+            if stored == clearToken {
+                return .clear
+            }
+            let upper = stored.uppercased()
+            guard BonePaperDrawingConfig.isValidHex(upper) else {
+                return .black
+            }
+            return BonePaperColorStore.color(from: upper)
+        }
+        set {
+            let uiColor = UIColor(newValue)
+            if uiColor.cgColor.alpha == 0 {
+                UserDefaults.standard.set(clearToken, forKey: colorKey)
+            } else {
+                UserDefaults.standard.set(BonePaperColorStore.hex(from: uiColor), forKey: colorKey)
+            }
+        }
+    }
+
+    static var fallbackConfig: BonePaperDrawingConfig {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: fallbackConfigKey),
+                  let decoded = try? JSONDecoder().decode(BonePaperDrawingConfig.self, from: data) else {
+                return BonePaperDrawingConfig()
+            }
+            return decoded.sanitized()
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue.sanitized()) {
+                UserDefaults.standard.set(data, forKey: fallbackConfigKey)
+            }
+        }
+    }
+}
+
 enum BonePaperChrome {
     static let pad: CGFloat = 16
     static let leftRail: CGFloat = 75
@@ -181,6 +387,9 @@ struct BonePaperStrokeControls: View {
     @Binding var brushSize: CGFloat
     @Binding var eraserSize: CGFloat
     @Binding var opacity: CGFloat
+    var brushMarks: [CGFloat]
+    var opacityMarks: [CGFloat]
+    var eraserMarks: [CGFloat]
     var canUndo: Bool
     var onUndo: () -> Void
     var canRedo: Bool
@@ -222,6 +431,7 @@ struct BonePaperStrokeControls: View {
                         setting: .size,
                         value: $brushSize,
                         range: BonePaperBrush.sizeRange,
+                        marks: brushMarks,
                         color: color,
                         selected: tool == .pen,
                         enabled: brushAndOpacityEnabled,
@@ -233,6 +443,7 @@ struct BonePaperStrokeControls: View {
                         setting: .opacity,
                         value: $opacity,
                         range: BonePaperBrush.opacityRange,
+                        marks: opacityMarks,
                         color: color,
                         selected: false,
                         enabled: brushAndOpacityEnabled,
@@ -244,6 +455,7 @@ struct BonePaperStrokeControls: View {
                         setting: .eraser,
                         value: $eraserSize,
                         range: BonePaperBrush.sizeRange,
+                        marks: eraserMarks,
                         color: color,
                         selected: tool == .eraser,
                         enabled: true,
@@ -356,6 +568,7 @@ private struct BonePaperDragControl: View {
     var setting: BonePaperStrokeSetting
     @Binding var value: CGFloat
     var range: ClosedRange<CGFloat>
+    var marks: [CGFloat]
     var color: Color
     var selected: Bool
     var enabled: Bool
@@ -367,6 +580,8 @@ private struct BonePaperDragControl: View {
     private static let trackWidth: CGFloat = 352
     private static let trackPadding: CGFloat = 12
     private static let trackGap: CGFloat = 8
+    private static let snapRadius: CGFloat = 6
+    private static let tapJumpRadius: CGFloat = 14
     private static let space = "bonepaper.slider"
 
     @State private var dragStartValue: CGFloat?
@@ -420,8 +635,8 @@ private struct BonePaperDragControl: View {
                 }
             )
             .simultaneousGesture(
-                TapGesture().onEnded {
-                    handleTap()
+                SpatialTapGesture(coordinateSpace: .named(Self.space)).onEnded { event in
+                    handleTap(at: event.location)
                 }
             )
             .onChange(of: activeSetting) { _, next in
@@ -501,6 +716,15 @@ private struct BonePaperDragControl: View {
             trackLine
                 .frame(width: lineWidth, height: 5)
                 .offset(x: Self.trackPadding, y: 29)
+            ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
+                let clamped = min(max(mark, range.lowerBound), range.upperBound)
+                let markRatio = (clamped - range.lowerBound) / (range.upperBound - range.lowerBound)
+                let markX = Self.trackPadding + markRatio * lineWidth
+                Capsule()
+                    .fill(Color.black.opacity(0.45))
+                    .frame(width: 2, height: 11)
+                    .offset(x: markX - 1, y: 26)
+            }
             Circle()
                 .fill(knobColor)
                 .frame(width: 14, height: 14)
@@ -546,9 +770,14 @@ private struct BonePaperDragControl: View {
                     value = start
                     return
                 }
-                let t = min(max((drag.location.x - valueStart) / valueWidth, 0), 1)
+                let rawX = min(max(drag.location.x - valueStart, 0), valueWidth)
                 let span = range.upperBound - range.lowerBound
-                value = range.lowerBound + t * span
+                if let snapped = nearestMark(atTrackX: rawX, valueWidth: valueWidth, span: span, maxDistance: Self.snapRadius) {
+                    value = snapped
+                } else {
+                    let t = rawX / valueWidth
+                    value = range.lowerBound + t * span
+                }
             }
             .onEnded { _ in
                 if !enabled { return }
@@ -560,6 +789,22 @@ private struct BonePaperDragControl: View {
             }
     }
 
+    private func nearestMark(atTrackX rawX: CGFloat, valueWidth: CGFloat, span: CGFloat, maxDistance: CGFloat) -> CGFloat? {
+        guard span > 0, valueWidth > 0 else { return nil }
+        var bestMark: CGFloat?
+        var bestDist = maxDistance
+        for mark in marks {
+            let clamped = min(max(mark, range.lowerBound), range.upperBound)
+            let markX = ((clamped - range.lowerBound) / span) * valueWidth
+            let dist = abs(rawX - markX)
+            if dist <= bestDist {
+                bestDist = dist
+                bestMark = clamped
+            }
+        }
+        return bestMark
+    }
+
     private func pinSeekBar() {
         if !enabled { return }
         pinned = true
@@ -568,7 +813,7 @@ private struct BonePaperDragControl: View {
         onActivate()
     }
 
-    private func handleTap() {
+    private func handleTap(at location: CGPoint) {
         if !enabled { return }
         onActivate()
         if swallowNextTap {
@@ -576,6 +821,17 @@ private struct BonePaperDragControl: View {
             return
         }
         if pinned {
+            let trackLeft = Self.side + Self.trackGap
+            if location.x >= trackLeft {
+                let valueStart = trackLeft + Self.trackPadding
+                let valueWidth = Self.trackWidth - Self.trackPadding * 2
+                let rawX = min(max(location.x - valueStart, 0), valueWidth)
+                let span = range.upperBound - range.lowerBound
+                if let jumped = nearestMark(atTrackX: rawX, valueWidth: valueWidth, span: span, maxDistance: Self.tapJumpRadius) {
+                    value = jumped
+                    return
+                }
+            }
             pinned = false
             activeSetting = nil
         }
@@ -836,6 +1092,7 @@ private struct BonePaperTransparentSwatch: View {
 struct BonePaperColorStrip: View {
     @Binding var color: Color
     @Binding var hover: Color?
+    var itemPalette: [String]
     var stage: BonePaperStage
     var onPick: () -> Void
     var onPickTransparent: () -> Void
@@ -855,15 +1112,17 @@ struct BonePaperColorStrip: View {
 
             BonePaperPlainScroll {
                 VStack(spacing: Self.gap) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        HStack(spacing: Self.gap) {
-                            ForEach(row, id: \.self) { entry in
-                                swatchButton(entry)
-                            }
-                            if row.count == 1 {
-                                Color.clear.frame(width: Self.swatch, height: Self.swatch)
-                            }
-                        }
+                    ForEach(Array(topRows.enumerated()), id: \.offset) { _, row in
+                        swatchRow(row)
+                    }
+                    if !normalizedItemPalette.isEmpty, !bottomRows.isEmpty {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.25))
+                            .frame(width: Self.swatch * 2 + Self.gap, height: 1)
+                            .padding(.vertical, 2)
+                    }
+                    ForEach(Array(bottomRows.enumerated()), id: \.offset) { _, row in
+                        swatchRow(row)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -912,13 +1171,56 @@ struct BonePaperColorStrip: View {
         .accessibilityLabel("Color picker")
     }
 
-    private var swatches: [BonePaperPaletteEntry] {
-        [.transparent] + (extras + BonePaperColorStore.presets).map(BonePaperPaletteEntry.color)
+    private var normalizedItemPalette: [String] {
+        var result: [String] = []
+        for raw in itemPalette {
+            let hex = raw.uppercased()
+            if BonePaperDrawingConfig.isValidHex(hex), !result.contains(hex) {
+                result.append(hex)
+            }
+        }
+        return result
     }
 
-    private var rows: [[BonePaperPaletteEntry]] {
-        stride(from: 0, to: swatches.count, by: 2).map { index in
-            Array(swatches[index..<min(index + 2, swatches.count)])
+    private var topSwatches: [BonePaperPaletteEntry] {
+        [.transparent] + normalizedItemPalette.map(BonePaperPaletteEntry.color)
+    }
+
+    private var bottomSwatches: [BonePaperPaletteEntry] {
+        let used = Set(normalizedItemPalette)
+        var rest: [String] = []
+        for hex in extras + BonePaperColorStore.presets {
+            let upper = hex.uppercased()
+            if !used.contains(upper), !rest.contains(upper) {
+                rest.append(upper)
+            }
+        }
+        return rest.map(BonePaperPaletteEntry.color)
+    }
+
+    private var topRows: [[BonePaperPaletteEntry]] {
+        let items = normalizedItemPalette.isEmpty ? (topSwatches + bottomSwatches) : topSwatches
+        return Self.chunkRows(items)
+    }
+
+    private var bottomRows: [[BonePaperPaletteEntry]] {
+        normalizedItemPalette.isEmpty ? [] : Self.chunkRows(bottomSwatches)
+    }
+
+    private static func chunkRows(_ entries: [BonePaperPaletteEntry]) -> [[BonePaperPaletteEntry]] {
+        stride(from: 0, to: entries.count, by: 2).map { index in
+            Array(entries[index..<min(index + 2, entries.count)])
+        }
+    }
+
+    private func swatchRow(_ row: [BonePaperPaletteEntry]) -> some View {
+        HStack(spacing: Self.gap) {
+            ForEach(row, id: \.self) { entry in
+                swatchButton(entry)
+            }
+            if row.count == 1 {
+                Color.clear.frame(width: Self.swatch, height: Self.swatch)
+            }
         }
     }
 
