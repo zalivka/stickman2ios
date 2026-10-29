@@ -1465,7 +1465,7 @@ struct SceneEditorScreen: View {
             }
             showingSpeedEffects = true
         }
-        if action == .settings {
+        if action == .debug || action == .settings {
             showingSettings = true
         }
     }

@@ -45,12 +45,70 @@ final class UnitAssets {
         var nativeFlipped: Bool
         var bmName: String
         var bitmap: CGImage
-        /// Compressed PNG of the full-resolution (`BonePaperDocument.sample` times `bitmap`) paint buffer,
-        /// for lossless reopen in the Paper Drawer. Nil when the picture was never drawn or edited outside it.
-        /// Touch only through `paintBuffer(bmName:)`, `replaceBitmap`, and `evictPaintBuffers`.
+        /// Sidecar pixels per `bm` pixel. `1` (omitted on disk) draws `bitmap`. Greater than `1`
+        /// draws `sidecarImage` at `1 / sample` when that image is exactly `bitmap` times `sample`.
+        var sample: Int = 1
+        /// Compressed PNG of the paint buffer, `BonePaperDocument.sample` times `bitmap` on each side.
+        /// Nil when the picture was never drawn in Paper Draw, or the sidecar was dropped.
+        /// Touch only through `adoptSidecar`.
         var paintBuffer: Data?
+        /// Decoded `paintBuffer`, kept so drawing does not decode every frame. Nil unless `sample > 1`
+        /// and the buffer is exactly `bitmap` times `sample`.
+        var sidecarImage: CGImage?
         var svgName: String?
         var commandScale: String?
+
+        /// Stores the sidecar and, when `sample > 1` and the size is `bitmap * sample`, the image drawn for it.
+        /// A buffer that is not a PNG, or not `bitmap` times `BonePaperDocument.sample`, is logged and dropped.
+        /// When `predecoded` is supplied (e.g. shared across edges referencing the same `bmName`), it is reused.
+        mutating func adoptSidecar(_ data: Data?, name: String, predecoded: CGImage? = nil) {
+            paintBuffer = nil
+            sidecarImage = nil
+            guard let data, !data.isEmpty else { return }
+            let raw: CGImage
+            if let predecoded {
+                raw = predecoded
+            } else if let decoded = UnitAssets.pngImage(from: data) {
+                raw = decoded
+            } else {
+                print("UnitAssets '\(name)' sidecar is not a PNG")
+                return
+            }
+            let factor = BonePaperDocument.sample
+            guard raw.width == bitmap.width * factor,
+                  raw.height == bitmap.height * factor else {
+                print("UnitAssets '\(name)' sidecar \(raw.width)x\(raw.height) != \(bitmap.width * factor)x\(bitmap.height * factor)")
+                return
+            }
+            paintBuffer = data
+            if sample > 1,
+               raw.width == bitmap.width * sample,
+               raw.height == bitmap.height * sample {
+                if predecoded != nil {
+                    sidecarImage = raw
+                } else {
+                    do {
+                        sidecarImage = DevFlags.decodedBoneBitmaps
+                            ? try PNG.decodedBitmap(raw, name: name)
+                            : raw
+                    } catch {
+                        print("UnitAssets '\(name)' sidecar decode failed: \(error)")
+                    }
+                }
+            }
+        }
+
+        /// The picture to draw. `divisor` is `1` for the `bm` PNG, or `sample` when the sidecar is used.
+        func drawnPicture(ignoreSample: Bool) -> (image: CGImage, divisor: CGFloat) {
+            if !ignoreSample,
+               sample > 1,
+               let sidecar = sidecarImage,
+               sidecar.width == bitmap.width * sample,
+               sidecar.height == bitmap.height * sample {
+                return (sidecar, CGFloat(sample))
+            }
+            return (bitmap, 1)
+        }
     }
 
     struct GalleryBone: Identifiable {
@@ -508,7 +566,7 @@ final class UnitAssets {
             var distStates = edgeAssets[distKey] ?? [:]
 
             for (state, asset) in states {
-                let cacheKey = "\(asset.bmName)|\(asset.xOffset)|\(asset.yOffset)"
+                let cacheKey = "\(asset.bmName)|\(asset.xOffset)|\(asset.yOffset)|\(asset.sample)"
                 let cached: (proxBm: String, distBm: String, pair: BonePictureSplit.Pair)
                 if let existing = splitCache[cacheKey] {
                     cached = existing
@@ -531,7 +589,7 @@ final class UnitAssets {
                     splitCache[cacheKey] = cached
                 }
 
-                let proxAsset = EdgeAsset(
+                var proxAsset = EdgeAsset(
                     unitName: name,
                     start: from,
                     end: mid,
@@ -542,11 +600,14 @@ final class UnitAssets {
                     nativeFlipped: asset.nativeFlipped,
                     bmName: cached.proxBm,
                     bitmap: cached.pair.proximal.image,
-                    paintBuffer: cached.pair.proximal.paintBuffer,
+                    sample: asset.sample,
+                    paintBuffer: nil,
+                    sidecarImage: nil,
                     svgName: nil,
                     commandScale: nil
                 )
-                let distAsset = EdgeAsset(
+                proxAsset.adoptSidecar(cached.pair.proximal.paintBuffer, name: cached.proxBm)
+                var distAsset = EdgeAsset(
                     unitName: name,
                     start: mid,
                     end: to,
@@ -557,31 +618,19 @@ final class UnitAssets {
                     nativeFlipped: asset.nativeFlipped,
                     bmName: cached.distBm,
                     bitmap: cached.pair.distal.image,
-                    paintBuffer: cached.pair.distal.paintBuffer,
+                    sample: asset.sample,
+                    paintBuffer: nil,
+                    sidecarImage: nil,
                     svgName: nil,
                     commandScale: nil
                 )
+                distAsset.adoptSidecar(cached.pair.distal.paintBuffer, name: cached.distBm)
                 proxStates[state] = proxAsset
                 distStates[state] = distAsset
             }
 
             edgeAssets[proxKey] = proxStates
             edgeAssets[distKey] = distStates
-        }
-    }
-
-    /// Slide by `dx`/`dy`, then scale and rotate the bitmap around the joint (`-xOffset`, `-yOffset`).
-    func applyShift(bmName: String, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) throws {
-        if scale <= 0 {
-            // The caller gates on this (SkeletonScreen.applyBoneShift).
-            assertionFailure("UnitAssets applyShift '\(bmName)' scale \(scale)")
-            return
-        }
-        if dx != 0 || dy != 0 {
-            applyShift(bmName: bmName, dx: dx, dy: dy)
-        }
-        if abs(scale - 1) > 0.001 || abs(rotation) > 0.001 {
-            try applyPictureTransform(bmName: bmName, factor: scale, radians: rotation)
         }
     }
 
@@ -618,135 +667,6 @@ final class UnitAssets {
         }
     }
 
-    /// Resample `bmName` around the joint so that pixel stays on the bone start.
-    private func applyPictureTransform(bmName: String, factor: CGFloat, radians: CGFloat) throws {
-        if factor <= 0 {
-            // The caller gates on this (applyShift, SkeletonScreen.applyBoneShift).
-            assertionFailure("UnitAssets picture scale \(factor) for '\(bmName)'")
-            return
-        }
-        let matches = assets(bmName: bmName)
-        if matches.isEmpty {
-            assertionFailure("UnitAssets picture scale unknown bm '\(bmName)'")
-            return
-        }
-        let source = matches[0]
-        for asset in matches.dropFirst() {
-            if asset.xOffset != source.xOffset || asset.yOffset != source.yOffset {
-                assertionFailure("UnitAssets '\(bmName)' offsets differ across edges")
-                return
-            }
-        }
-        let jointX = -source.xOffset
-        let jointY = -source.yOffset
-        let scaled = try BonePictureScale.transform(
-            source.bitmap,
-            aroundX: jointX,
-            y: jointY,
-            factor: factor,
-            radians: radians
-        )
-        let xOffset = -scaled.jointX
-        let yOffset = -scaled.jointY
-        // Keep the paint buffer in step with the bitmap, so a later Paper Drawer session reopens
-        // the transformed drawing instead of the upscaled 1x picture.
-        //
-        // Only scale/rotate reach this path: pure drags change `xOffset`/`yOffset` alone (see the
-        // `applyShift(dx:dy:)` overload) and leave every pixel — bitmap and buffer — untouched.
-        // A transform resamples instead, which softens edges by nature of interpolation. That
-        // softening is inherent to the op and identical with or without this feature; the buffer
-        // just preserves the transformed pixels exactly instead of adding another upscale on top.
-        // Note the buffer is resampled at 2x while the bitmap is resampled at 1x, so reopening
-        // from the buffer stays strictly sharper than reopening from the transformed bitmap.
-        //
-        // The buffer runs through the same `BonePictureScale.transform` with the joint doubled
-        // (`joint * sample`), because buffer pixels are `sample` times bitmap pixels and the joint
-        // must stay on the same drawing point. The op is affine, so the buffer span is exactly
-        // twice the bitmap span — but each side rounds its canvas up independently
-        // (`pixelW = ceil(span)`), and doubling does not commute with rounding up. Example:
-        // a bitmap span of 10.3 rounds to 11 px, while the buffer span of 20.6 rounds to 21 px
-        // instead of the required 11 * 2 = 22. Roughly half of all rotate/scale ops land this way.
-        //
-        // The reopen contract demands an exact double size (see `validatedBuffer` in
-        // `SkeletonScreen` and `BonePaperScreen.init`), so a buffer that lands a pixel off is
-        // dropped with a log rather than padded or force-fit: padding would shift pixel alignment
-        // and silently move the drawing half a pixel, while relaxing the contract would reintroduce
-        // the very scaling this feature removes. A dropped buffer only means that one bone reopens
-        // from the 1x path — today's behavior, never a regression. A stored buffer is therefore
-        // always either exact current state or absent; there is no stale low-quality copy.
-        var scaledBuffer: Data?
-        if let data = source.paintBuffer, let bufferImage = PNG.decodedImage(from: data) {
-            if bufferImage.width == source.bitmap.width * BonePaperDocument.sample,
-               bufferImage.height == source.bitmap.height * BonePaperDocument.sample {
-                let sample = CGFloat(BonePaperDocument.sample)
-                // A buffer resample failure drops the buffer (the bone reopens from the 1x
-                // picture); the bitmap already transformed fine, so the op itself stands.
-                if let scaledBuf = try? BonePictureScale.transform(
-                    bufferImage,
-                    aroundX: jointX * sample,
-                    y: jointY * sample,
-                    factor: factor,
-                    radians: radians
-                ) {
-                    if scaledBuf.image.width == scaled.image.width * BonePaperDocument.sample,
-                       scaledBuf.image.height == scaled.image.height * BonePaperDocument.sample {
-                        do {
-                            // Encode failure drops the buffer; the transformed bitmap still stands.
-                            scaledBuffer = try PNG.data(from: scaledBuf.image, name: bmName)
-                        } catch {
-                            print("UnitAssets '\(bmName)' dropped paint buffer encode: \(error)")
-                        }
-                    } else {
-                        print("UnitAssets '\(bmName)' dropped paint buffer after transform: \(scaledBuf.image.width)x\(scaledBuf.image.height) != \(scaled.image.width * BonePaperDocument.sample)x\(scaled.image.height * BonePaperDocument.sample)")
-                    }
-                }
-            } else {
-                print("UnitAssets '\(bmName)' dropped stale paint buffer: \(bufferImage.width)x\(bufferImage.height)")
-            }
-        }
-        for (key, states) in edgeAssets {
-            var next = states
-            var changed = false
-            for (state, asset) in states where asset.bmName == bmName {
-                var updated = asset
-                updated.bitmap = scaled.image
-                updated.paintBuffer = scaledBuffer
-                updated.xOffset = xOffset
-                updated.yOffset = yOffset
-                next[state] = updated
-                changed = true
-            }
-            if changed {
-                edgeAssets[key] = next
-            }
-        }
-        if var loose = looseBones[bmName] {
-            loose.bitmap = scaled.image
-            loose.paintBuffer = scaledBuffer
-            loose.xOffset = xOffset
-            loose.yOffset = yOffset
-            looseBones[bmName] = loose
-        }
-    }
-
-    private func assets(bmName: String) -> [EdgeAsset] {
-        var found: [EdgeAsset] = []
-        for states in edgeAssets.values {
-            for asset in states.values where asset.bmName == bmName {
-                found.append(asset)
-            }
-        }
-        if let loose = looseBones[bmName] {
-            found.append(loose)
-        }
-        return found
-    }
-
-    /// Compressed PNG paint buffer for `bmName`, for lossless reopen in the Paper Drawer. Nil when absent.
-    func paintBuffer(bmName: String) -> Data? {
-        assets(bmName: bmName).first?.paintBuffer
-    }
-
     /// PNG bytes for a paint buffer, for the screen layer (the `PNG` helper is file-private).
     static func pngData(from image: CGImage, name: String) throws -> Data {
         try PNG.data(from: image, name: name)
@@ -757,48 +677,24 @@ final class UnitAssets {
         PNG.decodedImage(from: data)
     }
 
-    /// Drops every paint buffer. Bitmaps are untouched; pictures reopen from the upscaled 1x path.
-    func evictPaintBuffers() {
-        for (key, states) in edgeAssets {
-            var next = states
-            var changed = false
-            for (state, asset) in states where asset.paintBuffer != nil {
-                var updated = asset
-                updated.paintBuffer = nil
-                next[state] = updated
-                changed = true
-            }
-            if changed {
-                edgeAssets[key] = next
-            }
-        }
-        for (name, var loose) in looseBones where loose.paintBuffer != nil {
-            loose.paintBuffer = nil
-            looseBones[name] = loose
-        }
-    }
-
-    func replaceBitmap(bmName: String, image: CGImage, buffer: Data? = nil, extraLeft: CGFloat = 0, extraTop: CGFloat = 0) throws {
+    func replaceBitmap(
+        bmName: String,
+        image: CGImage,
+        buffer: Data? = nil,
+        sample: Int = 1,
+        extraLeft: CGFloat = 0,
+        extraTop: CGFloat = 0
+    ) throws {
         if bmName.isEmpty {
             throw SceneLoadError(message: "UnitAssets replaceBitmap empty bmName")
         }
         if image.width < 1 || image.height < 1 {
             throw SceneLoadError(message: "UnitAssets replaceBitmap '\(bmName)' size \(image.width)x\(image.height)")
         }
-        // A buffer that is undecodable or off the exact 2x contract is dropped with a log;
-        // the picture itself always replaces (same policy as the loader sidecars).
-        var storedBuffer = buffer
-        if let buffer {
-            let decoded = PNG.decodedImage(from: buffer)
-            if decoded == nil {
-                print("UnitAssets replaceBitmap '\(bmName)' dropped undecodable buffer, storing picture only")
-                storedBuffer = nil
-            } else if decoded!.width != image.width * BonePaperDocument.sample
-                || decoded!.height != image.height * BonePaperDocument.sample {
-                print("UnitAssets replaceBitmap '\(bmName)' dropped bad buffer \(decoded!.width)x\(decoded!.height), storing picture only")
-                storedBuffer = nil
-            }
+        if sample < 1 {
+            throw SceneLoadError(message: "UnitAssets replaceBitmap '\(bmName)' sample \(sample)")
         }
+        let predecoded = Self.predecodedSidecar(buffer, bitmap: image, name: bmName)
         var found = false
         for (key, states) in edgeAssets {
             var next = states
@@ -806,9 +702,12 @@ final class UnitAssets {
             for (state, asset) in states where asset.bmName == bmName {
                 var updated = asset
                 updated.bitmap = image
-                updated.paintBuffer = storedBuffer
+                updated.sample = sample
                 updated.xOffset -= extraLeft
                 updated.yOffset -= extraTop
+                updated.svgName = nil
+                updated.commandScale = nil
+                updated.adoptSidecar(buffer, name: bmName, predecoded: predecoded)
                 next[state] = updated
                 changed = true
                 found = true
@@ -819,9 +718,12 @@ final class UnitAssets {
         }
         if var loose = looseBones[bmName] {
             loose.bitmap = image
-            loose.paintBuffer = storedBuffer
+            loose.sample = sample
             loose.xOffset -= extraLeft
             loose.yOffset -= extraTop
+            loose.svgName = nil
+            loose.commandScale = nil
+            loose.adoptSidecar(buffer, name: bmName, predecoded: predecoded)
             looseBones[bmName] = loose
             found = true
         }
@@ -940,7 +842,8 @@ final class UnitAssets {
                         nativeFlipped: asset.nativeFlipped,
                         bmName: asset.bmName,
                         svgName: asset.svgName,
-                        commandScale: asset.commandScale
+                        commandScale: asset.commandScale,
+                        sample: asset.sample
                     )
                 )
             }
@@ -1082,6 +985,7 @@ final class UnitAssets {
                     nativeFlipped: row.nativeFlipped,
                     bmName: row.bmName,
                     bitmap: try bitmap(named: row.bmName),
+                    sample: row.sample,
                     paintBuffer: nil,
                     svgName: row.svgName,
                     commandScale: row.commandScale
@@ -1177,19 +1081,28 @@ final class UnitAssets {
         if let config = manifest.drawingConfig?.sanitized(), !config.isEmpty {
             drawingConfigs[unitKey] = config
         }
+        var sidecarCache: [String: (data: Data, image: CGImage)?] = [:]
         for (key, states) in edgeAssets {
             var next = states
             var changed = false
             for (state, asset) in states {
                 guard let record = manifest.buffers[asset.bmName] else { continue }
-                guard let buffer = Self.validatedSidecar(
-                    record: record,
-                    asset: asset,
-                    zip: zip,
-                    names: names
-                ) else { continue }
+                let cached: (data: Data, image: CGImage)?
+                if let seen = sidecarCache[asset.bmName] {
+                    cached = seen
+                } else {
+                    let loaded = Self.validatedSidecar(
+                        record: record,
+                        asset: asset,
+                        zip: zip,
+                        names: names
+                    )
+                    sidecarCache[asset.bmName] = loaded
+                    cached = loaded
+                }
+                guard let cached else { continue }
                 var updated = asset
-                updated.paintBuffer = buffer
+                updated.adoptSidecar(cached.data, name: asset.bmName, predecoded: cached.image)
                 next[state] = updated
                 changed = true
             }
@@ -1199,13 +1112,27 @@ final class UnitAssets {
         }
     }
 
-    /// Raw sidecar bytes when they still describe `asset.bitmap`, nil with a log otherwise.
+    private static func predecodedSidecar(_ data: Data?, bitmap: CGImage, name: String) -> CGImage? {
+        guard let data, !data.isEmpty, let raw = PNG.decodedImage(from: data) else { return nil }
+        let factor = BonePaperDocument.sample
+        guard raw.width == bitmap.width * factor,
+              raw.height == bitmap.height * factor else { return nil }
+        guard DevFlags.decodedBoneBitmaps else { return raw }
+        do {
+            return try PNG.decodedBitmap(raw, name: name)
+        } catch {
+            print("UnitAssets '\(name)' sidecar decode failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Validated sidecar bytes and decoded image when they still describe `asset.bitmap`, nil with a log otherwise.
     private static func validatedSidecar(
         record: BonePaperManifest.Entry,
         asset: EdgeAsset,
         zip: Data,
         names: Set<String>
-    ) -> Data? {
+    ) -> (data: Data, image: CGImage)? {
         guard names.contains(record.entry) else {
             print("UnitAssets '\(asset.bmName)' sidecar missing '\(record.entry)'")
             return nil
@@ -1227,17 +1154,28 @@ final class UnitAssets {
             print("UnitAssets '\(asset.bmName)' sidecar stale, picture changed")
             return nil
         }
-        guard let image = PNG.decodedImage(from: data) else {
+        guard let raw = PNG.decodedImage(from: data) else {
             print("UnitAssets '\(asset.bmName)' sidecar is not a PNG")
             return nil
         }
         let sample = BonePaperDocument.sample
-        guard image.width == asset.bitmap.width * sample,
-              image.height == asset.bitmap.height * sample else {
-            print("UnitAssets '\(asset.bmName)' sidecar size \(image.width)x\(image.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
+        guard raw.width == asset.bitmap.width * sample,
+              raw.height == asset.bitmap.height * sample else {
+            print("UnitAssets '\(asset.bmName)' sidecar size \(raw.width)x\(raw.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
             return nil
         }
-        return data
+        let decoded: CGImage
+        if DevFlags.decodedBoneBitmaps {
+            do {
+                decoded = try PNG.decodedBitmap(raw, name: asset.bmName)
+            } catch {
+                print("UnitAssets '\(asset.bmName)' sidecar decode failed: \(error)")
+                return nil
+            }
+        } else {
+            decoded = raw
+        }
+        return (data, decoded)
     }
 
     private static func sha256Hex(_ data: Data) -> String {
@@ -1280,6 +1218,8 @@ nonisolated struct EdgeAssetRow {
     var bmName: String
     var svgName: String?
     var commandScale: String?
+    /// Bitmap pixels per page pixel. Absent in XML means `1`.
+    var sample: Int = 1
 }
 
 /// Which `.x2.png` buffer belongs to which picture, plus the SHA-256 of the 1x bytes it was saved with.
@@ -1333,7 +1273,7 @@ private enum PNG {
     }
 
     /// Copy PNG pixels into a plain bitmap so later draws do not inflate the file again.
-    private static func decodedBitmap(_ source: CGImage, name: String) throws -> CGImage {
+    static func decodedBitmap(_ source: CGImage, name: String) throws -> CGImage {
         let width = source.width
         let height = source.height
         if width < 1 || height < 1 {
@@ -1398,6 +1338,9 @@ enum AssetsXML {
             }
             if let svg = row.svgName {
                 xml += XMLWrite.attr("svg", svg)
+            }
+            if row.sample != 1 {
+                xml += XMLWrite.attr("sample", "\(row.sample)")
             }
             xml += " />\n"
         }
@@ -1465,6 +1408,16 @@ enum AssetsXML {
                 fail(parser, "UnitAssets edgeAsset \(start)-\(end) missing bm")
                 return
             }
+            let sample: Int
+            if let text = attributes["sample"] {
+                guard let parsed = Int(text), parsed >= 1 else {
+                    fail(parser, "UnitAssets edgeAsset \(start)-\(end) sample '\(text)'")
+                    return
+                }
+                sample = parsed
+            } else {
+                sample = 1
+            }
             assets.append(
                 EdgeAssetRow(
                     unitName: name,
@@ -1477,7 +1430,8 @@ enum AssetsXML {
                     nativeFlipped: attributes["flipped"] == "true",
                     bmName: bm,
                     svgName: attributes["svg"],
-                    commandScale: attributes["command_scale"]
+                    commandScale: attributes["command_scale"],
+                    sample: sample
                 )
             )
         }

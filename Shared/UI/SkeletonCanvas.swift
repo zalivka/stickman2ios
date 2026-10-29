@@ -193,6 +193,11 @@ struct SkeletonCanvas: View {
     var capturedUnitName: Binding<String?> = .constant(nil)
     /// Bumped when asset draw-order changes so the canvas redraws.
     var layerEpoch: Int = 0
+    #if DEBUG
+    @AppStorage(AppSettings.ignoreBmSampleKey) private var ignoreBmSample = false
+    #else
+    private let ignoreBmSample = false
+    #endif
     /// Android `toggleVacantPoints` — green circles over all nodes.
     var exposeVacantPoints: Bool = false
     var onPrepareUndo: (() -> Void)? = nil
@@ -208,7 +213,7 @@ struct SkeletonCanvas: View {
     var showsHandlers: Bool = true
     /// Android `NavigablePresenter.mAllowSceneMovements` — empty drag pans, pinch zooms.
     var allowsSceneMovements: Bool = true
-    var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat, _ scale: CGFloat, _ rotation: CGFloat) -> Void)? = nil
+    var onApplyBoneShift: ((_ from: Int, _ to: Int, _ dx: CGFloat, _ dy: CGFloat) -> Void)? = nil
     /// A pose edit hit a malformed unit. The owning screen toasts and closes; the canvas stops mutating.
     var onEditError: ((Error) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
@@ -251,7 +256,8 @@ struct SkeletonCanvas: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
+        let ignoreSample = ignoreBmSample
+        return GeometryReader { proxy in
             let _ = layerEpoch
             // One size for draw, hit-test, and pinch. The Canvas reports its own
             // size, which on iPad differs from the reader by safe-area insets,
@@ -273,7 +279,7 @@ struct SkeletonCanvas: View {
                     drawScene(context: &context, layout: layout)
                     drawSceneBound(context: &context, layout: layout)
                     for drawn in unitsToDraw {
-                        drawUnitContent(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout, ignoreSample: ignoreSample)
                     }
                     drawAttachExpose(context: &context, layout: layout)
                     for drawn in unitsToDraw {
@@ -284,7 +290,7 @@ struct SkeletonCanvas: View {
                     drawTouchPoint(context: &context)
                 case .skeleton:
                     for drawn in unitsToDraw {
-                        drawUnitContent(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout, ignoreSample: ignoreSample)
                     }
                     for drawn in unitsToDraw {
                         drawUnitSkeleton(drawn, context: &context, layout: layout)
@@ -296,22 +302,22 @@ struct SkeletonCanvas: View {
                     }
                     drawTouchPoint(context: &context)
                 case .preview:
-                    drawAppliedCamera(context: &context, layout: layout, clip: true)
+                    drawAppliedCamera(context: &context, layout: layout, clip: true, ignoreSample: ignoreSample)
                 case .camera:
-                    drawAppliedCamera(context: &context, layout: layout, clip: false)
+                    drawAppliedCamera(context: &context, layout: layout, clip: false, ignoreSample: ignoreSample)
                     drawCameraWindow(context: &context, layout: layout)
                 case .background:
                     drawScene(context: &context, layout: layout)
                     drawSceneBound(context: &context, layout: layout)
                     for drawn in unitsToDraw {
-                        drawUnitContent(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout, ignoreSample: ignoreSample)
                     }
                     for drawn in unitsToDraw {
                         drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
                 case .itemPoster:
                     for drawn in unitsToDraw {
-                        drawUnitContent(drawn, context: &context, layout: layout)
+                        drawUnitContent(drawn, context: &context, layout: layout, ignoreSample: ignoreSample)
                     }
                     for drawn in unitsToDraw {
                         drawUnitSkeleton(drawn, context: &context, layout: layout)
@@ -331,9 +337,6 @@ struct SkeletonCanvas: View {
                         onPinchBegan: { endTouch() },
                         onPinch: { focus, factor in
                             if shiftHoldFlag {
-                                if FeatureFlags.shiftPinchScale {
-                                    boneShift.pinch(factor)
-                                }
                                 return
                             }
                             if mode == .skeleton, var draft = boneSplit.wrappedValue ?? editSession?.boneSplit,
@@ -355,11 +358,6 @@ struct SkeletonCanvas: View {
                                 return
                             }
                             handlePinchPan(dx: dx, dy: dy)
-                        },
-                        onRotate: { radians in
-                            if FeatureFlags.shiftPinchScale, shiftHoldFlag {
-                                boneShift.twist(radians)
-                            }
                         }
                     )
                 } else if mode == .camera {
@@ -484,7 +482,12 @@ struct SkeletonCanvas: View {
 
     /// Bitmaps / bubble text of one unit. Android draws every unit's content before
     /// any skeleton, so this never paints a skeleton itself — see `drawUnitSkeleton`.
-    private func drawUnitContent(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+    private func drawUnitContent(
+        _ drawn: StickmanUnit,
+        context: inout GraphicsContext,
+        layout: SkeletonLayout,
+        ignoreSample: Bool
+    ) {
         if drawn.unitType == .bubble {
             if drawn.alpha < 1 {
                 context.drawLayer { layer in
@@ -501,11 +504,11 @@ struct SkeletonCanvas: View {
                 context.drawLayer { layer in
                     layer.opacity = Double(drawn.alpha)
                     layer.drawLayer { opaque in
-                        drawBitmaps(drawn, context: &opaque, layout: layout, assets: assets)
+                        drawBitmaps(drawn, context: &opaque, layout: layout, assets: assets, ignoreSample: ignoreSample)
                     }
                 }
             } else {
-                drawBitmaps(drawn, context: &context, layout: layout, assets: assets)
+                drawBitmaps(drawn, context: &context, layout: layout, assets: assets, ignoreSample: ignoreSample)
             }
         }
     }
@@ -867,7 +870,13 @@ struct SkeletonCanvas: View {
         context.stroke(cross, with: .color(.red), style: StrokeStyle(lineWidth: 1))
     }
 
-    private func drawBitmaps(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout, assets: UnitAssets) {
+    private func drawBitmaps(
+        _ drawn: StickmanUnit,
+        context: inout GraphicsContext,
+        layout: SkeletonLayout,
+        assets: UnitAssets,
+        ignoreSample: Bool
+    ) {
         struct Bone {
             var weight: Int
             var start: CGPoint
@@ -898,7 +907,8 @@ struct SkeletonCanvas: View {
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let live = liveShift(for: bone.asset)
             let yOffset = (mirror ? -(bone.asset.yOffset + live.dy) : bone.asset.yOffset + live.dy) * drawn.scale
-            let pictureScale = live.scale
+            let picture = bone.asset.drawnPicture(ignoreSample: ignoreSample)
+            let bitmapScale = drawn.scale / picture.divisor
             context.drawLayer { ctx in
                 ctx.translateBy(
                     x: layout.originX - layout.minX * layout.scale,
@@ -907,19 +917,16 @@ struct SkeletonCanvas: View {
                 ctx.scaleBy(x: layout.scale, y: layout.scale)
                 ctx.translateBy(x: bone.start.x, y: bone.start.y)
                 ctx.rotate(by: Angle(radians: angle))
-                ctx.translateBy(x: -bone.start.x, y: -bone.start.y)
-                ctx.translateBy(x: bone.start.x, y: bone.start.y)
-                ctx.rotate(by: Angle(radians: live.rotation))
                 ctx.translateBy(
-                    x: (bone.asset.xOffset + live.dx) * drawn.scale * pictureScale,
-                    y: yOffset * pictureScale
+                    x: (bone.asset.xOffset + live.dx) * drawn.scale,
+                    y: yOffset
                 )
                 ctx.scaleBy(
-                    x: drawn.scale * pictureScale,
-                    y: (mirror ? -drawn.scale : drawn.scale) * pictureScale
+                    x: bitmapScale,
+                    y: mirror ? -bitmapScale : bitmapScale
                 )
                 ctx.draw(
-                    Image(decorative: bone.asset.bitmap, scale: 1),
+                    Image(decorative: picture.image, scale: 1),
                     at: .zero,
                     anchor: .topLeading
                 )
@@ -1039,7 +1046,12 @@ struct SkeletonCanvas: View {
         context.fill(Path(rect), with: .color(sceneFill))
     }
 
-    private func drawAppliedCamera(context: inout GraphicsContext, layout: SkeletonLayout, clip: Bool) {
+    private func drawAppliedCamera(
+        context: inout GraphicsContext,
+        layout: SkeletonLayout,
+        clip: Bool,
+        ignoreSample: Bool
+    ) {
         context.drawLayer { layer in
             if clip {
                 layer.clip(to: Path(sceneScreenRect(layout: layout)))
@@ -1049,7 +1061,7 @@ struct SkeletonCanvas: View {
                 drawSceneContent(context: &bg)
             }
             for drawn in unitsToDraw {
-                drawUnitContent(drawn, context: &layer, layout: .sceneSpace)
+                drawUnitContent(drawn, context: &layer, layout: .sceneSpace, ignoreSample: ignoreSample)
             }
             for drawn in unitsToDraw {
                 drawUnitSkeleton(drawn, context: &layer, layout: .sceneSpace)
@@ -1426,9 +1438,9 @@ struct SkeletonCanvas: View {
         canMutatePoseFor?(name) ?? canMutatePose
     }
 
-    private func liveShift(for asset: UnitAssets.EdgeAsset) -> (dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
+    private func liveShift(for asset: UnitAssets.EdgeAsset) -> (dx: CGFloat, dy: CGFloat) {
         guard let id = selectedPointId.wrappedValue, let edge = liveUnit.upperEdge(of: id) else {
-            return (0, 0, 1, 0)
+            return (0, 0)
         }
         return boneShift.live(
             assetStart: asset.start,
@@ -1478,31 +1490,7 @@ struct SkeletonCanvas: View {
             assertionFailure("SkeletonCanvas shift apply missing onApplyBoneShift")
             return
         }
-        let rotation = bakedRotation(shift.rotation, edge: edge)
-        onApplyBoneShift(edge.from, edge.to, shift.dx, shift.dy, shift.scale, rotation)
-    }
-
-    /// Draw mirrors a non-native flipped bitmap after the twist. Bake the opposite angle so the mirrored draw matches the preview.
-    private func bakedRotation(_ rotation: CGFloat, edge: StickmanEdge) -> CGFloat {
-        if rotation == 0 {
-            return 0
-        }
-        guard let assets else {
-            assertionFailure("SkeletonCanvas shift apply missing assets")
-            return rotation
-        }
-        let key = UnitAssets.EdgeKey(
-            unitName: UnitAssets.removeNumber(liveUnit.name),
-            start: edge.from,
-            end: edge.to,
-            flipped: liveUnit.flipped
-        )
-        guard let asset = assets.getDrawable(key, state: liveUnit.assetsState) else {
-            assertionFailure("SkeletonCanvas shift apply missing bitmap \(key)")
-            return rotation
-        }
-        let mirror = liveUnit.flipped && !asset.nativeFlipped
-        return mirror ? -rotation : rotation
+        onApplyBoneShift(edge.from, edge.to, shift.dx, shift.dy)
     }
 
     private func cancelShiftDrag() {
@@ -1923,7 +1911,6 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
     var onPinch: (CGPoint, CGFloat) -> Void
     /// Two-finger slide: how far the pinch midpoint moved since the last update.
     var onPinchPan: (CGFloat, CGFloat) -> Void = { _, _ in }
-    var onRotate: (CGFloat) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1946,12 +1933,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         view.addGestureRecognizer(doubleTap)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
         pinch.cancelsTouchesInView = false
-        pinch.delegate = context.coordinator
         view.addGestureRecognizer(pinch)
-        let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate))
-        rotate.cancelsTouchesInView = false
-        rotate.delegate = context.coordinator
-        view.addGestureRecognizer(rotate)
         context.coordinator.apply(useRawTouches: useRawTouches, to: view)
         return view
     }
@@ -1965,11 +1947,10 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         context.coordinator.onPinchBegan = onPinchBegan
         context.coordinator.onPinch = onPinch
         context.coordinator.onPinchPan = onPinchPan
-        context.coordinator.onRotate = onRotate
         context.coordinator.apply(useRawTouches: useRawTouches, to: uiView)
     }
 
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject {
         var onBegan: (CGPoint) -> Void = { _ in }
         var onChanged: (CGPoint) -> Void = { _ in }
         var onEnded: (CGPoint) -> Void = { _ in }
@@ -1978,16 +1959,7 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
         var onPinchBegan: () -> Void = {}
         var onPinch: (CGPoint, CGFloat) -> Void = { _, _ in }
         var onPinchPan: (CGFloat, CGFloat) -> Void = { _, _ in }
-        var onRotate: (CGFloat) -> Void = { _ in }
         private var pinchFocus: CGPoint?
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-        ) -> Bool {
-            (gestureRecognizer is UIPinchGestureRecognizer && other is UIRotationGestureRecognizer)
-                || (gestureRecognizer is UIRotationGestureRecognizer && other is UIPinchGestureRecognizer)
-        }
         var useRawTouches = false
         private var rawActive = false
         weak var host: TouchForwardView?
@@ -2069,23 +2041,6 @@ private struct SkeletonTouchOverlay: UIViewRepresentable {
                 onPinch(focus, gesture.scale)
                 gesture.scale = 1
                 pinchFocus = nil
-            default:
-                break
-            }
-        }
-
-        @objc func handleRotate(_ gesture: UIRotationGestureRecognizer) {
-            switch gesture.state {
-            case .began:
-                if swallowPinch() {
-                    rawActive = false
-                }
-                gesture.rotation = 0
-            case .changed, .ended, .cancelled, .failed:
-                if swallowPinch() {
-                    onRotate(gesture.rotation)
-                }
-                gesture.rotation = 0
             default:
                 break
             }

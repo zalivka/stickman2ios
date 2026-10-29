@@ -6,6 +6,10 @@ import Foundation
 enum AppSettings {
     private static let paperDrawAntialiasingKey = "paperDrawAntialiasing"
     private static let brushOffsetKey = "paperDrawBrushOffset"
+    #if DEBUG
+    /// Display-only. Missing key is off. A separate key from the retired "No sidecar" switch.
+    static let ignoreBmSampleKey = "debugIgnoreBmSample"
+    #endif
 
     static let maxBrushOffset = 70
     static let brushOffsetStep = 10
@@ -38,6 +42,17 @@ enum AppSettings {
             BonePaperFlags.brushOffset = CGFloat(clamped)
         }
     }
+
+    /// DEBUG: draw the `bm` PNG and skip the sidecar, the way an old build does.
+    /// Does not change what is saved. A missing key stays off. Release builds follow `sample`.
+    #if DEBUG
+    static var ignoreBmSample: Bool {
+        get { UserDefaults.standard.bool(forKey: ignoreBmSampleKey) }
+        set { UserDefaults.standard.set(newValue, forKey: ignoreBmSampleKey) }
+    }
+    #else
+    static let ignoreBmSample = false
+    #endif
 
     static func clampBrushOffset(_ raw: Int) -> Int {
         let clamped = min(max(raw, 0), maxBrushOffset)

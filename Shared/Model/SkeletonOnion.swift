@@ -91,10 +91,10 @@ enum SkeletonOnion {
                 cg.translateBy(x: bone.start.x, y: bone.start.y)
                 cg.rotate(by: bone.angle)
                 cg.translateBy(x: bone.asset.xOffset, y: yOffset)
-                if mirror {
-                    cg.scaleBy(x: 1, y: -1)
-                }
-                UIImage(cgImage: bone.asset.bitmap).draw(at: .zero)
+                let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample)
+                let pictureScale = 1 / picture.divisor
+                cg.scaleBy(x: pictureScale, y: mirror ? -pictureScale : pictureScale)
+                UIImage(cgImage: picture.image).draw(at: .zero)
                 cg.restoreGState()
             }
         }

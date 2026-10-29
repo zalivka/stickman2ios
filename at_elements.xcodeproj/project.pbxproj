@@ -453,7 +453,7 @@
 				743A52A93054CBF8000CC4A9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 		743A52AA3054CBF8000CC4A9 /* Build configuration list for PBXNativeTarget "at_elements" */ = {
 			isa = XCConfigurationList;
@@ -462,7 +462,7 @@
 				743A52AC3054CBF8000CC4A9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
 

@@ -44,7 +44,7 @@ enum BonePictureSplit {
         let ySplit = -yOffset
         let overlap: CGFloat = shape == .line ? 0 : radius
 
-        // Tight horizontal crop bounds in 1x pixel coordinates (integer-aligned so 2x buffer scales exact).
+        // Crop bounds in `bm` pixels. The sidecar, when present, is `BonePaperDocument.sample` times that.
         let proxMinX = 0
         let proxMaxX = min(width, max(1, Int(ceil(xSplit + overlap))))
 
@@ -78,40 +78,40 @@ enum BonePictureSplit {
 
         var proxBuffer: Data?
         var distBuffer: Data?
-        let sample = BonePaperDocument.sample
+        let bufferSample = BonePaperDocument.sample
         if let data = paintBuffer,
            let bufferImage = UnitAssets.pngImage(from: data),
-           bufferImage.width == width * sample,
-           bufferImage.height == height * sample {
-            let s = CGFloat(sample)
+           bufferImage.width == width * bufferSample,
+           bufferImage.height == height * bufferSample {
+            let s = CGFloat(bufferSample)
             if let proxBufImg = try? renderHalf(
                 source: bufferImage,
-                cropMinX: proxMinX * sample,
-                cropMaxX: proxMaxX * sample,
-                height: height * sample,
+                cropMinX: proxMinX * bufferSample,
+                cropMaxX: proxMaxX * bufferSample,
+                height: height * bufferSample,
                 xSplit: xSplit * s,
                 ySplit: ySplit * s,
                 radius: radius * s,
                 shape: shape,
                 isProximal: true,
                 name: name
-            ), proxBufImg.width == proxImage.width * sample,
-               proxBufImg.height == proxImage.height * sample {
+            ), proxBufImg.width == proxImage.width * bufferSample,
+               proxBufImg.height == proxImage.height * bufferSample {
                 proxBuffer = try? UnitAssets.pngData(from: proxBufImg, name: name)
             }
             if let distBufImg = try? renderHalf(
                 source: bufferImage,
-                cropMinX: distMinX * sample,
-                cropMaxX: distMaxX * sample,
-                height: height * sample,
+                cropMinX: distMinX * bufferSample,
+                cropMaxX: distMaxX * bufferSample,
+                height: height * bufferSample,
                 xSplit: xSplit * s,
                 ySplit: ySplit * s,
                 radius: radius * s,
                 shape: shape,
                 isProximal: false,
                 name: name
-            ), distBufImg.width == distImage.width * sample,
-               distBufImg.height == distImage.height * sample {
+            ), distBufImg.width == distImage.width * bufferSample,
+               distBufImg.height == distImage.height * bufferSample {
                 distBuffer = try? UnitAssets.pngData(from: distBufImg, name: name)
             }
         }

@@ -6,6 +6,9 @@ struct AppSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var antialiasing: Bool
     @State private var brushOffset: Double
+    #if DEBUG
+    @State private var ignoreBmSample: Bool
+    #endif
     /// When set, a DEBUG-only Tutorial button discards the current scene and
     /// replays the intro. Nil (e.g. item editor) hides the button entirely.
     let onTutorial: (() -> Void)?
@@ -13,6 +16,9 @@ struct AppSettingsSheet: View {
     init(onTutorial: (() -> Void)? = nil) {
         _antialiasing = State(initialValue: AppSettings.paperDrawAntialiasing)
         _brushOffset = State(initialValue: Double(AppSettings.brushOffset))
+        #if DEBUG
+        _ignoreBmSample = State(initialValue: AppSettings.ignoreBmSample)
+        #endif
         self.onTutorial = onTutorial
     }
 
@@ -31,11 +37,17 @@ struct AppSettingsSheet: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 backButton
-                Text("App settings")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("App settings")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(Self.buildCaption)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 applyButton
             }
             .padding(.horizontal, 12)
@@ -66,6 +78,9 @@ struct AppSettingsSheet: View {
         Button {
             AppSettings.paperDrawAntialiasing = antialiasing
             AppSettings.brushOffset = Int(brushOffset.rounded())
+            #if DEBUG
+            AppSettings.ignoreBmSample = ignoreBmSample
+            #endif
             dismiss()
         } label: {
             Text("Apply")
@@ -83,6 +98,16 @@ struct AppSettingsSheet: View {
     private var formBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                #if DEBUG
+                Text("Debug")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+                ignoreBmSampleCard
+                if onTutorial != nil {
+                    tutorialCard
+                }
+                #endif
                 Text("Paper draw")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(SkeletonChrome.toolLabel)
@@ -93,11 +118,6 @@ struct AppSettingsSheet: View {
                     .foregroundStyle(SkeletonChrome.toolLabel)
                     .textCase(.uppercase)
                 brushOffsetCard
-                #if DEBUG
-                if onTutorial != nil {
-                    tutorialCard
-                }
-                #endif
                 privacyCard
             }
             .padding(.horizontal, 16)
@@ -207,12 +227,47 @@ struct AppSettingsSheet: View {
     }
 
     #if DEBUG
+    private var ignoreBmSampleCard: some View {
+        Button {
+            ignoreBmSample.toggle()
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ignore bm sample")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Draw the main picture and skip the 2× sidecar, like an old app")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: ignoreBmSample ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(ignoreBmSample ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Ignore bm sample")
+        .accessibilityAddTraits(ignoreBmSample ? [.isSelected] : [])
+    }
+
     /// DEBUG only: discards the current scene and replays the intro tutorial.
     /// Visible only when the presenter supplies `onTutorial` (scene editor).
     private var tutorialCard: some View {
         Button {
             AppSettings.paperDrawAntialiasing = antialiasing
             AppSettings.brushOffset = Int(brushOffset.rounded())
+            AppSettings.ignoreBmSample = ignoreBmSample
             onTutorial?()
             dismiss()
         } label: {
@@ -245,6 +300,22 @@ struct AppSettingsSheet: View {
         .accessibilityLabel("Tutorial")
     }
     #endif
+
+    /// `1.0 (5) · DEBUG`. Missing plist versions are a broken install.
+    private static let buildCaption: String = {
+        guard let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              !name.isEmpty
+        else {
+            fatalError("AppSettingsSheet missing CFBundleShortVersionString")
+        }
+        let code = XMLWrite.versionCode()
+        #if DEBUG
+        let mode = "DEBUG"
+        #else
+        let mode = "RELEASE"
+        #endif
+        return "\(name) (\(code)) · \(mode)"
+    }()
 
     private static let privacyPolicyURL = URL(string: "https://dc2.app/privacy.html")!
 

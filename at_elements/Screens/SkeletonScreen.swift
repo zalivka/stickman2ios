@@ -514,13 +514,11 @@ struct SkeletonScreen: View {
         onion: CGImage?,
         placement: BonePaperPlacement?
     ) {
-        if asset.bitmap.width < 1 || asset.bitmap.height < 1 {
-            showToast("This bone picture is invalid.")
-            return
-        }
+        let width = asset.bitmap.width
+        let height = asset.bitmap.height
         let limit = BonePaperScreen.worldSide
-        if asset.bitmap.width > limit || asset.bitmap.height > limit {
-            showToast("This picture is too big (\(asset.bitmap.width)×\(asset.bitmap.height)). Maximum side is \(limit).")
+        if width > limit || height > limit {
+            showToast("This picture is too big (\(width)×\(height)). Maximum side is \(limit).")
             return
         }
         let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
@@ -546,12 +544,17 @@ struct SkeletonScreen: View {
     /// Decoded paint buffer for `asset`, or nil with a log when it is missing or stale.
     /// Nil reopens from the upscaled 1x path, same as before this feature.
     private func validatedBuffer(asset: UnitAssets.EdgeAsset) -> CGImage? {
+        let sample = BonePaperDocument.sample
+        if let sidecar = asset.sidecarImage,
+           sidecar.width == asset.bitmap.width * sample,
+           sidecar.height == asset.bitmap.height * sample {
+            return sidecar
+        }
         guard let data = asset.paintBuffer, !data.isEmpty else { return nil }
         guard let image = UnitAssets.pngImage(from: data) else {
             print("SkeletonScreen '\(title)' dropped unreadable paint buffer for '\(asset.bmName)'")
             return nil
         }
-        let sample = BonePaperDocument.sample
         guard image.width == asset.bitmap.width * sample,
               image.height == asset.bitmap.height * sample else {
             print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
@@ -565,12 +568,18 @@ struct SkeletonScreen: View {
             bail("apply with no assets")
             return
         }
+        guard let buffer = export.buffer else {
+            print("SkeletonScreen '\(title)' apply '\(bmName)' has no paint buffer")
+            showToast("Could not apply the picture: no paint buffer")
+            return
+        }
         prepareUndo(includeAssets: true)
         do {
             try assets.replaceBitmap(
                 bmName: bmName,
                 image: export.image,
-                buffer: try export.buffer.map { try UnitAssets.pngData(from: $0, name: bmName) },
+                buffer: try UnitAssets.pngData(from: buffer, name: bmName),
+                sample: BonePaperDocument.sample,
                 extraLeft: export.extraLeft,
                 extraTop: export.extraTop
             )
@@ -703,25 +712,16 @@ struct SkeletonScreen: View {
         layerEpoch += 1
     }
 
-    private func applyBoneShift(from: Int, to: Int, dx: CGFloat, dy: CGFloat, scale: CGFloat, rotation: CGFloat) {
+    private func applyBoneShift(from: Int, to: Int, dx: CGFloat, dy: CGFloat) {
         guard let unit = optionalUnit, let assets else {
             bail("shift with no unit")
-            return
-        }
-        if scale <= 0 {
-            bail("shift scale \(scale)")
             return
         }
         guard let bmName = assets.bmName(forEdge: from, end: to, unitName: unit.name) else {
             return
         }
         prepareUndo(includeAssets: true)
-        do {
-            try assets.applyShift(bmName: bmName, dx: dx, dy: dy, scale: scale, rotation: rotation)
-        } catch {
-            showToast("Could not shift the picture: \(ItemLoadError.text(error))")
-            return
-        }
+        assets.applyShift(bmName: bmName, dx: dx, dy: dy)
         layerEpoch += 1
     }
 

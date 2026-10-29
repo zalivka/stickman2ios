@@ -193,7 +193,8 @@ enum FrameRasterizer {
             let angle = atan2(bone.end.y - bone.start.y, bone.end.x - bone.start.x)
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let yOffset = (mirror ? -bone.asset.yOffset : bone.asset.yOffset) * drawn.scale
-            let bitmap = bone.asset.bitmap
+            let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample)
+            let pictureScale = drawn.scale / picture.divisor
             context.saveGState()
             context.translateBy(x: bone.start.x, y: bone.start.y)
             context.rotate(by: angle)
@@ -202,8 +203,8 @@ enum FrameRasterizer {
                 x: bone.start.x + bone.asset.xOffset * drawn.scale,
                 y: bone.start.y + yOffset
             )
-            context.scaleBy(x: drawn.scale, y: mirror ? -drawn.scale : drawn.scale)
-            drawImage(bitmap, alpha: alpha)
+            context.scaleBy(x: pictureScale, y: mirror ? -pictureScale : pictureScale)
+            drawImage(picture.image, alpha: alpha)
             context.restoreGState()
         }
     }
