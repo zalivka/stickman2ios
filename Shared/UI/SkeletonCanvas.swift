@@ -140,6 +140,8 @@ struct SkeletonCanvas: View {
     static let boneSlave = Color(red: 1, green: 0x26 / 255, blue: 0)
     static let boneMaster = Color(red: 0x88 / 255, green: 0xe2 / 255, blue: 0x0d / 255)
     static let boneInvisible = Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255)
+    /// Android `EditView.COLOR_STRETCHABLE`.
+    static let boneStretchable = Color.black
     static let boneNodeRadius: CGFloat = 4
     static let boneEdgeWidth: CGFloat = 3
     static let boneBaseRingRadius: CGFloat = 8.5
@@ -157,6 +159,8 @@ struct SkeletonCanvas: View {
     /// Android expose circles: master `#56e8a4`, slave `#ff5000`, alpha 170.
     static let exposeMaster = Color(red: 0x56 / 255, green: 0xe8 / 255, blue: 0xa4 / 255).opacity(170 / 255)
     static let exposeSlave = Color(red: 1, green: 0x50 / 255, blue: 0).opacity(170 / 255)
+    /// Android `UnitDrawer.STRETCHABLE_POINT_COLOR`.
+    static let exposeStretchable = Color(red: 0x4D / 255, green: 0xA3 / 255, blue: 0xFF / 255).opacity(170 / 255)
     /// Android `EditView.EXPOSE_RADIUS` in scene units.
     static let vacantExposeRadius: CGFloat = 30
     static let sceneBound = Color(red: 0, green: 0xd7 / 255, blue: 1)
@@ -187,6 +191,10 @@ struct SkeletonCanvas: View {
     var editSession: SkeletonEditSession?
     var selectedPointId: Binding<Int?> = .constant(nil)
     var boneSplit: Binding<BoneSplitDraft?> = .constant(nil)
+    /// Android `TempState.sShift` for this canvas — the hold button is down.
+    var stretchHold: Binding<Bool> = .constant(false)
+    /// Short user-facing message the owning screen toasts (Android `UIUtils.niceToast`).
+    var onMessage: ((String) -> Void)? = nil
     /// Scene-editor selection. `nil` means no unit is active.
     var selectedUnitName: Binding<String?> = .constant(nil)
     /// Android captured point — unit name while a finger is down on a unit or handler.
@@ -222,9 +230,6 @@ struct SkeletonCanvas: View {
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
-    @State private var handlerMove = CGPoint.zero
-    @State private var handlerRotate = CGPoint.zero
-    @State private var handlerScale = CGPoint.zero
     @State private var touchScreen: CGPoint?
     @State private var dragRef = DragRef()
     @State private var boneCreateStartId: Int?
@@ -251,6 +256,8 @@ struct SkeletonCanvas: View {
         var touchOffsetX: CGFloat = 0
         var touchOffsetY: CGFloat = 0
         var panning = false
+        /// Android `TempState.sShift && point.mStretchable` at touch-down.
+        var stretching = false
         var undoPushed = false
         var moved = false
     }
@@ -282,6 +289,7 @@ struct SkeletonCanvas: View {
                         drawUnitContent(drawn, context: &context, layout: layout, ignoreSample: ignoreSample)
                     }
                     drawAttachExpose(context: &context, layout: layout)
+                    drawStretchExpose(context: &context, layout: layout)
                     for drawn in unitsToDraw {
                         drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
@@ -424,6 +432,10 @@ struct SkeletonCanvas: View {
 
     private var shiftHoldFlag: Bool {
         editSession?.shiftHoldMode ?? false
+    }
+
+    private var stretchHoldFlag: Bool {
+        stretchHold.wrappedValue
     }
 
     private var cameraChangeHandler: (PictureMove) -> Void {
@@ -588,6 +600,8 @@ struct SkeletonCanvas: View {
             let edgeColor: Color
             if isSelected {
                 edgeColor = Self.boneSelected
+            } else if drawn.point(optionalId: edge.to)?.stretchable == true {
+                edgeColor = Self.boneStretchable
             } else if bones {
                 edgeColor = Self.boneCommon
             } else {
@@ -608,6 +622,8 @@ struct SkeletonCanvas: View {
             let color: Color
             if isSelected {
                 color = Self.boneSelected
+            } else if point.stretchable {
+                color = Self.boneStretchable
             } else if bones {
                 color = Self.boneColor(point)
             } else {
@@ -817,6 +833,19 @@ struct SkeletonCanvas: View {
         }
     }
 
+    private func drawStretchExpose(context: inout GraphicsContext, layout: SkeletonLayout) {
+        guard mode == .editor, stretchHoldFlag, let name = selectedUnitName.wrappedValue else { return }
+        guard let held = unitsToDraw.first(where: { $0.name == name }) else { return }
+        let radius = StickmanUnit.exposeMarkerRadius
+        for point in held.points where point.stretchable && !point.kinematicStart && !point.isBase {
+            let center = layout.screenPoint(x: point.x, y: point.y)
+            context.fill(
+                Path(ellipseIn: Self.square(around: center, radius: radius)),
+                with: .color(Self.exposeStretchable)
+            )
+        }
+    }
+
     private func drawVacantPoints(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
         let radius = Self.vacantExposeRadius * layout.scale
         for point in drawn.points {
@@ -881,6 +910,7 @@ struct SkeletonCanvas: View {
             var weight: Int
             var start: CGPoint
             var end: CGPoint
+            var edge: StickmanEdge
             var asset: UnitAssets.EdgeAsset
         }
         var bones: [Bone] = []
@@ -894,6 +924,7 @@ struct SkeletonCanvas: View {
                     weight: asset.weight,
                     start: CGPoint(x: from.x, y: from.y),
                     end: CGPoint(x: to.x, y: to.y),
+                    edge: edge,
                     asset: asset
                 )
             )
@@ -901,6 +932,9 @@ struct SkeletonCanvas: View {
         bones.sort { $0.weight < $1.weight }
         for bone in bones {
             let angle = atan2(bone.end.y - bone.start.y, bone.end.x - bone.start.x)
+            // Android `BonePictureStretch.apply` — stretch along the bone so the picture
+            // still covers it. Nil draws the picture as authored.
+            let stretchRatio = BoneStretch.ratio(unit: drawn, edge: bone.edge, assets: assets)
             // Unit flipped=true with no flipped PNG (nativeFlipped): Android mirrors
             // the unflipped bitmap (scale y, negate y_offset). Looking up a flipped
             // key and drawing as-is left dino head/torso upside-down.
@@ -917,6 +951,9 @@ struct SkeletonCanvas: View {
                 ctx.scaleBy(x: layout.scale, y: layout.scale)
                 ctx.translateBy(x: bone.start.x, y: bone.start.y)
                 ctx.rotate(by: Angle(radians: angle))
+                if let stretchRatio {
+                    ctx.scaleBy(x: stretchRatio, y: 1)
+                }
                 ctx.translateBy(
                     x: (bone.asset.xOffset + live.dx) * drawn.scale,
                     y: yOffset
@@ -958,7 +995,6 @@ struct SkeletonCanvas: View {
         editSession?.layout = fit
         layoutSize = size
         fitScale = fit.scale
-        snapHandlers(to: fit)
     }
 
     private func handlePinch(focus: CGPoint, factor: CGFloat) {
@@ -971,7 +1007,6 @@ struct SkeletonCanvas: View {
         )
         layout = next
         editSession?.layout = next
-        snapHandlers(to: next)
     }
 
     private func handlePinchPan(dx: CGFloat, dy: CGFloat) {
@@ -979,37 +1014,6 @@ struct SkeletonCanvas: View {
         let next = current.panned(dx: dx, dy: dy)
         layout = next
         editSession?.layout = next
-        snapHandlers(to: next)
-    }
-
-    private func snapHandlers(to layout: SkeletonLayout) {
-        if drawnUnits.isEmpty {
-            return
-        }
-        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale) else { return }
-        handlerMove = centers.move
-        handlerRotate = centers.rotate
-        handlerScale = centers.scale
-    }
-
-    private func placeHandlers(on layout: SkeletonLayout) {
-        if drawnUnits.isEmpty {
-            return
-        }
-        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale) else { return }
-        handlerMove = centers.move
-        handlerRotate = centers.rotate
-        handlerScale = centers.scale
-        switch dragRef.handler {
-        case .move:
-            handlerMove = CGPoint(x: dragRef.handlerX, y: dragRef.handlerY)
-        case .rotate:
-            handlerRotate = CGPoint(x: dragRef.handlerX, y: dragRef.handlerY)
-        case .scale:
-            handlerScale = CGPoint(x: dragRef.handlerX, y: dragRef.handlerY)
-        case nil:
-            break
-        }
     }
 
     private func sceneScreenRect(layout: SkeletonLayout) -> CGRect {
@@ -1169,7 +1173,7 @@ struct SkeletonCanvas: View {
         if dragRef.handler != nil || dragRef.nodeId != nil { return }
         let side = CGFloat(HandlerArtwork.move.width) / UIScreen.main.scale
         context.withCGContext { cg in
-            for handle in visibleHandlers() {
+            for handle in visibleHandlers(layout: layout) {
                 let icon: CGImage
                 switch handle.kind {
                 case .move: icon = HandlerArtwork.move
@@ -1191,11 +1195,17 @@ struct SkeletonCanvas: View {
         }
     }
 
-    private func visibleHandlers() -> [(kind: ItemHandlerKind, x: CGFloat, y: CGFloat)] {
-        [
-            (.move, handlerMove.x, handlerMove.y),
-            (.rotate, handlerRotate.x, handlerRotate.y),
-            (.scale, handlerScale.x, handlerScale.y)
+    private func visibleHandlers(layout: SkeletonLayout) -> [(kind: ItemHandlerKind, x: CGFloat, y: CGFloat)] {
+        if drawnUnits.isEmpty {
+            return []
+        }
+        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale) else {
+            return []
+        }
+        return [
+            (.move, centers.move.x, centers.move.y),
+            (.rotate, centers.rotate.x, centers.rotate.y),
+            (.scale, centers.scale.x, centers.scale.y)
         ]
     }
 
@@ -1282,6 +1292,12 @@ struct SkeletonCanvas: View {
                         dragRef.touchOffsetY = 0
                     }
                 }
+                dragRef.stretching = false
+                if mode == .editor, stretchHoldFlag, let id = dragRef.nodeId,
+                   let point = liveUnit.point(optionalId: id),
+                   point.stretchable, !point.isBase, !point.kinematicStart {
+                    dragRef.stretching = true
+                }
                 dragRef.panning = allowsSceneMovements && dragRef.nodeId == nil
                 if mode == .skeleton {
                     selectedPointId.wrappedValue = dragRef.nodeId
@@ -1347,7 +1363,6 @@ struct SkeletonCanvas: View {
                     return
                 }
             }
-            placeHandlers(on: current)
             return
         }
         if let id = dragRef.nodeId {
@@ -1358,7 +1373,10 @@ struct SkeletonCanvas: View {
             let destX = graphPoint.x - dragRef.touchOffsetX
             let destY = graphPoint.y - dragRef.touchOffsetY
             do {
-                if mode == .skeleton {
+                if dragRef.stretching {
+                    // Android `PointManipulator.stretchMove` — no rotation about the parent.
+                    try liveUnit.stretchMove(id: id, destX: destX, destY: destY)
+                } else if mode == .skeleton {
                     try liveUnit.movePointAndDescendants(id: id, destX: destX, destY: destY)
                 } else {
                     try liveUnit.drag(id: id, destX: destX, destY: destY)
@@ -1367,7 +1385,6 @@ struct SkeletonCanvas: View {
                 onEditError?(error)
                 return
             }
-            snapHandlers(to: current)
             return
         }
         guard dragRef.panning, let last = dragRef.lastScreen else { return }
@@ -1380,9 +1397,52 @@ struct SkeletonCanvas: View {
     private func handleEmptyDoubleTap(at location: CGPoint, size: CGSize) {
         guard mode == .editor else { return }
         let current = resolvedLayout(size: size)
+        if stretchHoldFlag, restoreRestLength(at: location, layout: current) {
+            return
+        }
         if hitAnyUnit(at: location, layout: current) == nil {
             selectedUnitName.wrappedValue = nil
             endTouch()
+        }
+    }
+
+    /// Android `PointManipulator.restoreRestLength` — the point snaps back onto its parent's ray
+    /// at the model rest length. Only stretchable, non-kinematic points qualify.
+    private func restoreRestLength(at location: CGPoint, layout: SkeletonLayout) -> Bool {
+        guard let hit = hitAnyUnit(at: location, layout: layout, radius: Self.hitRadius, in: [liveUnit]) else {
+            return false
+        }
+        guard let point = hit.unit.point(optionalId: hit.pointId),
+              point.stretchable, !point.isBase, !point.kinematicStart
+        else {
+            return false
+        }
+        guard let assets else {
+            assertionFailure("SkeletonCanvas stretch restore without assets")
+            return false
+        }
+        let rest = assets.restLength(unitName: hit.unit.name, endId: hit.pointId)
+        if rest <= 0 {
+            // Android `R.string.bone_rest_length_missing`
+            onMessage?("This bone has no rest length to restore")
+            return true
+        }
+        onPrepareUndo?()
+        do {
+            try liveUnit.restoreRestLength(id: hit.pointId, rest: rest)
+        } catch {
+            onEditError?(error)
+            return true
+        }
+        editSession?.select(hit.pointId)
+        selectedPointNameIfNeeded(hit.unit.name)
+        onPoseEditEnded?()
+        return true
+    }
+
+    private func selectedPointNameIfNeeded(_ name: String) {
+        if selectedUnitName.wrappedValue != name {
+            selectedUnitName.wrappedValue = name
         }
     }
 
@@ -1408,15 +1468,13 @@ struct SkeletonCanvas: View {
         dragRef.splitKind = nil
         dragRef.lastScreen = nil
         dragRef.panning = false
+        dragRef.stretching = false
         dragRef.undoPushed = false
         dragRef.moved = false
         dragRef.touchOffsetX = 0
         dragRef.touchOffsetY = 0
         attachHold = false
         capturedUnitName.wrappedValue = nil
-        if let current = layout {
-            snapHandlers(to: current)
-        }
         if didPoseEdit {
             if editedStray {
                 if let sceneScale, sceneScale > 0 {
@@ -1623,7 +1681,7 @@ struct SkeletonCanvas: View {
     private func hitHandler(at location: CGPoint, layout: SkeletonLayout) -> (kind: ItemHandlerKind, x: CGFloat, y: CGFloat)? {
         var best: (kind: ItemHandlerKind, x: CGFloat, y: CGFloat)?
         var bestDist = Self.handlerHitRadius
-        for handle in visibleHandlers() {
+        for handle in visibleHandlers(layout: layout) {
             let center = layout.screenPoint(x: handle.x, y: handle.y)
             let dist = hypot(location.x - center.x, location.y - center.y)
             if dist <= bestDist {

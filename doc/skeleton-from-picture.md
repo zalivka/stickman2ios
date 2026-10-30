@@ -22,3 +22,19 @@ Reviewed pictures, gitignored, under `tools/bonepaper_gen/out/`: `stick_skel` (a
 Tolerance is 12 px on a thin stroke. That is above the wobble of the line and below a real bend, and the thin figure came out at 14 nodes and 13 bones. A filled silhouette's medial axis wanders with the outline, so 12 px turns the wobble into joints. 24 px kept the blob's torso (deviation 14.6) and its left arm (9.9) as one bone each. The right arm deviates 62.9 and the curved leg 25.4, so each of those kept one node. The head deviates 20.9 and stayed one bone. The blob came out at 9 nodes and 8 bones.
 
 Write the points as absolute `x`, `y`, with `par` pointing toward the base.
+
+## Stretchable bones
+
+`stretchable="true"` in `model.xml` (Android `EditPointDialog` → "Stretchable bone") makes a
+point's drag translate it and its descendants instead of rotating it about the parent, and the
+bone picture stretches along the bone to keep covering it.
+
+- Hold the bottom-left button (`shift_inactive` / `shift_active`) to stretch. It appears only while the selected
+  unit has a stretchable point, and it moves right with the Back button when a left panel opens.
+- While held, a blue `#4DA3FF` circle marks every stretchable point of the active unit.
+- Double-tap a stretchable point while held to snap it back to its `model.xml` rest length.
+- The ratio is `edgeLength / (rest * unit.scale)` (`BoneStretch.ratio`), applied identically in
+  `SkeletonCanvas`, `FrameRasterizer`, and `SkeletonOnion`.
+- Kinematics win: a point on a Start → Stop/Base/fixed chain cannot be stretchable, and
+  `SkeletonScreen.saveItem` clears any flag that kinematics newly covered.
+

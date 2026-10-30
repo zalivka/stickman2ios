@@ -499,6 +499,53 @@ struct SkeletonDrawTools: View {
     private static let clearIcon: CGImage = chromeImage("v3remove")
 }
 
+/// Android `main_shift` / `item_preview_shift`: hold to keep the next point drag from rotating.
+/// Bottom-left, carrying the same leading offset rule as `FullscreenBackButton` so it slides
+/// right when a left panel opens.
+struct StretchHoldButton: View {
+    var leading: CGFloat
+    var isActive: Bool
+    var onHoldStart: () -> Void
+    var onHoldEnd: () -> Void
+
+    /// Same gap the call sites add after the panel width — the bottom gap matches it.
+    private static let gap: CGFloat = 8
+
+    var body: some View {
+        ZStack {
+            // Android `drawable/shift.xml`: pressed selects `shift_active`, otherwise `shift_inactive`.
+            Image(decorative: isActive ? Self.activeIcon : Self.inactiveIcon, scale: 4)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 56, height: 56)
+            HoldTouchPad(onBegan: onHoldStart, onEnded: onHoldEnd)
+                .frame(width: 56, height: 56)
+        }
+        .frame(width: 56, height: 56)
+        .padding(.leading, leading)
+        .padding(.bottom, Self.gap)
+        .accessibilityLabel("Hold to stretch bones")
+    }
+
+    private static let activeIcon: CGImage = chromeImage("shift_active")
+    private static let inactiveIcon: CGImage = chromeImage("shift_inactive")
+}
+
+/// Android `main_shift_hold_tip`: the same amber banner, bottom-centre so it clears the button.
+struct StretchHoldBanner: View {
+    var body: some View {
+        Text("Keep holding to move a stretchable point")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.black)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(SkeletonChrome.holdBanner)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .allowsHitTesting(false)
+    }
+}
+
 struct SkeletonSideMenu: View {
     var onSaveAs: () -> Void
     var onPreview: () -> Void
@@ -564,8 +611,9 @@ private struct HoldTouchPad: UIViewRepresentable {
     func makeUIView(context: Context) -> HoldTouchView {
         let view = HoldTouchView()
         view.coordinator = context.coordinator
-        // Fully clear views are skipped by UIKit hit-testing; keep a tiny alpha.
-        view.backgroundColor = UIColor(white: 1, alpha: 0.01)
+        // `HoldTouchView.hitTest` checks the view's own alpha, not the background colour, so the
+        // pad can stay fully transparent instead of painting a faint white veil over the icon.
+        view.backgroundColor = .clear
         view.isMultipleTouchEnabled = false
         view.isUserInteractionEnabled = true
         // Zero-duration long press fires on touch-down without SwiftUI's gesture-arbitration delay.

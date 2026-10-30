@@ -159,8 +159,15 @@ struct StickmanUnit {
         try link()
     }
 
-    /// Android `EditPointDialog` Apply: attachable + invisible (`fixed`). Slave is base-only.
-    mutating func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) throws {
+    /// Android `EditPointDialog` Apply: attachable + invisible (`fixed`) + stretchable.
+    /// Slave is base-only. `stretchable == nil` keeps the stored flag (Android keeps it
+    /// while the checkbox is disabled by kinematics).
+    mutating func applyPointProps(
+        id: Int,
+        attachable: Attachable,
+        fixed: Bool,
+        stretchable: Bool?
+    ) throws {
         guard let index = points.firstIndex(where: { $0.id == id }) else {
             throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(id)")
         }
@@ -170,6 +177,9 @@ struct StickmanUnit {
         }
         points[index].fixed = isBase ? false : fixed
         points[index].attachable = attachable
+        if let stretchable {
+            points[index].stretchable = !isBase && stretchable
+        }
     }
 
     /// Android `Frame.canBeDragged` — Invisible points and enslaved bases are not grab handles.
@@ -249,6 +259,41 @@ struct StickmanUnit {
             }
         }
         return result
+    }
+
+    /// Android `EditUnit.collectKinematicChainPoints`: every point covered by a
+    /// Start → Stop/Base/fixed segment, inclusive of both ends.
+    func kinematicChainPointIds() -> Set<Int> {
+        var chain: Set<Int> = []
+        let byId = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0) })
+        for start in points where start.kinematicStart && !start.isBase {
+            var current: StickmanPoint? = start
+            while let point = current, !point.isBase {
+                chain.insert(point.id)
+                guard let parentId = point.parentId, let parent = byId[parentId] else {
+                    break
+                }
+                chain.insert(parent.id)
+                if parent.isBase || parent.kinematicStop || parent.fixed {
+                    break
+                }
+                current = parent
+            }
+        }
+        return chain
+    }
+
+    /// Android `EditUnit.clearStretchableCoveredByKinematics`. IK wins over stretch, so a
+    /// point on a kinematic chain must not carry the flag into a saved item.
+    /// - Returns: true when any flag was cleared.
+    mutating func clearStretchableOnKinematicChain() -> Bool {
+        let chain = kinematicChainPointIds()
+        var cleared = false
+        for index in points.indices where chain.contains(points[index].id) && points[index].stretchable {
+            points[index].stretchable = false
+            cleared = true
+        }
+        return cleared
     }
 
     mutating func translateAll(dx: CGFloat, dy: CGFloat) {
@@ -332,6 +377,51 @@ struct StickmanUnit {
             points[index].x += dx
             points[index].y += dy
         }
+    }
+
+    /// Android `PointManipulator.stretchMove`: place `id` exactly at the destination and
+    /// translate its descendants by the same delta. No rotation, no length clamp —
+    /// the picture stretches to cover whatever length the user drags.
+    mutating func stretchMove(id: Int, destX: CGFloat, destY: CGFloat) throws {
+        let grabbed = try point(id: id)
+        if grabbed.isBase {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' cannot stretch base \(id)")
+        }
+        let dx = destX - grabbed.x
+        let dy = destY - grabbed.y
+        for moveId in [id] + (try descendants(of: id)) {
+            guard let index = points.firstIndex(where: { $0.id == moveId }) else {
+                throw SceneLoadError(message: "StickmanUnit '\(name)' missing point \(moveId)")
+            }
+            points[index].x += dx
+            points[index].y += dy
+        }
+    }
+
+    /// Android `PointManipulator.restoreRestLength`: puts `id` back on the same ray from its
+    /// parent at `rest * scale`. `rest` is the unscaled model length from `model.xml`.
+    mutating func restoreRestLength(id: Int, rest: CGFloat) throws {
+        let target = try point(id: id)
+        if target.isBase {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' cannot restore base \(id)")
+        }
+        guard let parentId = target.parentId else {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' point \(id) has no parent")
+        }
+        if rest <= 0 || scale <= 0 {
+            throw SceneLoadError(
+                message: "StickmanUnit '\(name)' point \(id) rest \(rest) scale \(scale)"
+            )
+        }
+        let parent = try point(id: parentId)
+        let dx = target.x - parent.x
+        let dy = target.y - parent.y
+        let current = hypot(dx, dy)
+        if current <= 0 {
+            throw SceneLoadError(message: "StickmanUnit '\(name)' point \(id) sits on its parent")
+        }
+        let factor = (rest * scale) / current
+        try stretchMove(id: id, destX: parent.x + dx * factor, destY: parent.y + dy * factor)
     }
 
     func basePoint() throws -> StickmanPoint {

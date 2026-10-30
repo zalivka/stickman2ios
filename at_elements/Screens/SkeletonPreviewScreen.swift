@@ -3,6 +3,7 @@ import SwiftUI
 struct SkeletonPreviewScreen: View {
     @State private var unit: StickmanUnit
     @State private var canvasPane = SkeletonCanvas.pane
+    @State private var stretchHold = false
     var assets: UnitAssets
     var sceneWidth: CGFloat
     var sceneHeight: CGFloat
@@ -24,11 +25,29 @@ struct SkeletonPreviewScreen: View {
                 sceneHeight: sceneHeight,
                 sceneFill: canvasPane,
                 canvasPane: canvasPane,
-                mode: .editor
+                mode: .editor,
+                stretchHold: $stretchHold,
+                onMessage: { ToastCenter.show($0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             SkeletonPreviewPanel(canvasPane: $canvasPane, onBack: { dismiss() })
+
+            if stretchHold || BoneStretch.hasStretchablePoint(unit) {
+                VStack {
+                    Spacer(minLength: 0)
+                    HStack {
+                        StretchHoldButton(
+                            leading: SkeletonChrome.sidebarWidth + 8,
+                            isActive: stretchHold,
+                            onHoldStart: { stretchHold = true },
+                            onHoldEnd: { stretchHold = false }
+                        )
+                        .offsetLeadingIsland()
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
         }
         .background(canvasPane)
         .ignoresSafeArea(edges: [.horizontal, .bottom])

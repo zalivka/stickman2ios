@@ -47,6 +47,7 @@ struct SceneEditorScreen: View {
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
     @State private var capturedUnitName: String?
+    @State private var stretchHold = false
     @State private var showingSave = false
     @State private var saveName = ""
     @State private var saveError = ""
@@ -181,6 +182,8 @@ struct SceneEditorScreen: View {
                     sceneWidth: scene.width,
                     sceneHeight: scene.height,
                     currentIndex: scene.currentIndex,
+                    stretchHold: $stretchHold,
+                    onMessage: { showToast($0) },
                     selectedUnitName: $selectedUnitName,
                     capturedUnitName: $capturedUnitName,
                     onPrepareUndo: prepareSelectionUndo,
@@ -383,6 +386,12 @@ struct SceneEditorScreen: View {
                 .offsetLeadingIsland()
             }
         }
+        .overlay(alignment: .bottom) {
+            if stretchHold {
+                StretchHoldBanner()
+                    .padding(.bottom, 24)
+            }
+        }
         .overlayPreferenceValue(TutorialHoleKey.self) { anchor in
             tutorialSpotlight(anchor)
         }
@@ -400,6 +409,24 @@ struct SceneEditorScreen: View {
                 .buttonStyle(.plain)
                 .padding(.leading, 12)
                 .padding(.bottom, 16)
+            } else if stretchButtonVisible {
+                Color.clear
+                    .overlay(alignment: .bottomLeading) {
+                        StretchHoldButton(
+                            leading: MainPanel.width + backExtraLeading + 8,
+                            isActive: stretchHold,
+                            onHoldStart: {
+                                stretchHold = true
+                                onStretchHoldChanged(true)
+                            },
+                            onHoldEnd: {
+                                stretchHold = false
+                                onStretchHoldChanged(false)
+                            }
+                        )
+                        .offsetLeadingIsland()
+                    }
+                    .ignoresSafeArea(edges: .bottom)
             }
         }
         .onAppear {
@@ -886,6 +913,22 @@ struct SceneEditorScreen: View {
     private var selectedUnit: StickmanUnit? {
         guard let selectedUnitName else { return nil }
         return scene.currentFrameOrNil?.units.first { $0.name == selectedUnitName }
+    }
+
+    /// Android `MainEditor.hasSelectedUnitWithStretchableBone`; forced on while held for the
+    /// same reason: hiding the button cancels the touch.
+    private var stretchButtonVisible: Bool {
+        if stretchHold {
+            return true
+        }
+        guard tutorialStep == nil, let selectedUnit else { return false }
+        return BoneStretch.hasStretchablePoint(selectedUnit)
+    }
+
+    private func onStretchHoldChanged(_ on: Bool) {
+        if !on {
+            stretchHold = false
+        }
     }
 
     private func deleteSelectedUnit() {

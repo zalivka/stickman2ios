@@ -255,9 +255,17 @@ struct SkeletonScreen: View {
             EditPointDialog(
                 isBase: draft.isBase,
                 attachable: draft.attachable,
-                fixed: draft.fixed
-            ) { attachable, fixed in
-                applyPointProps(id: draft.pointId, attachable: attachable, fixed: fixed)
+                fixed: draft.fixed,
+                stretchable: draft.stretchable,
+                canStretch: draft.canStretch
+            ) { attachable, fixed, stretchable in
+                // Android keeps the stored flag while the checkbox is disabled.
+                applyPointProps(
+                    id: draft.pointId,
+                    attachable: attachable,
+                    fixed: fixed,
+                    stretchable: draft.canStretch ? stretchable : nil
+                )
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -382,6 +390,9 @@ struct SkeletonScreen: View {
         let isBase: Bool
         let attachable: Attachable
         let fixed: Bool
+        let stretchable: Bool
+        /// False for the base and for points on a kinematic chain (Android `EditPointDialog`).
+        let canStretch: Bool
     }
 
     private func openBonePaper() {
@@ -798,18 +809,25 @@ struct SkeletonScreen: View {
             pointId: id,
             isBase: point.isBase,
             attachable: point.attachable,
-            fixed: point.fixed
+            fixed: point.fixed,
+            stretchable: point.stretchable,
+            canStretch: !point.isBase && !unit.kinematicChainPointIds().contains(id)
         )
     }
 
-    private func applyPointProps(id: Int, attachable: Attachable, fixed: Bool) {
+    private func applyPointProps(
+        id: Int,
+        attachable: Attachable,
+        fixed: Bool,
+        stretchable: Bool?
+    ) {
         guard var unit = optionalUnit else {
             bail("point props with no unit")
             return
         }
         prepareUndo()
         do {
-            try unit.applyPointProps(id: id, attachable: attachable, fixed: fixed)
+            try unit.applyPointProps(id: id, attachable: attachable, fixed: fixed, stretchable: stretchable)
         } catch {
             bail(error)
             return
@@ -1020,7 +1038,18 @@ struct SkeletonScreen: View {
             bail("save with no unit")
             return
         }
-        let unit = frame.units[0]
+        var unit = frame.units[0]
+        // Android `SkeletonActivity.doSave`: IK wins over stretch, so covered flags never
+        // reach the saved item — and the editor must show the same thing.
+        if unit.clearStretchableOnKinematicChain() {
+            writeUnit(unit)
+            layerEpoch += 1
+            guard let refreshed = optionalUnit else {
+                bail("save after clearing stretchable flags lost the unit")
+                return
+            }
+            unit = refreshed
+        }
         let source = sourceZip
         let images: (thumb: Data, poster: Data)
         do {

@@ -28,6 +28,7 @@ enum SkeletonOnion {
             var weight: Int
             var start: CGPoint
             var angle: CGFloat
+            var edge: StickmanEdge
             var asset: UnitAssets.EdgeAsset
         }
 
@@ -52,6 +53,7 @@ enum SkeletonOnion {
                     weight: asset.weight,
                     start: CGPoint(x: from.x / unit.scale, y: from.y / unit.scale),
                     angle: atan2(to.y - from.y, to.x - from.x),
+                    edge: edge,
                     asset: asset
                 )
             )
@@ -60,6 +62,7 @@ enum SkeletonOnion {
             return nil
         }
         bones.sort { $0.weight < $1.weight }
+        let stretchRatios = bones.map { BoneStretch.ratio(unit: unit, edge: $0.edge, assets: assets) }
 
         guard let editFrom = unit.point(optionalId: excludeFrom), let editTo = unit.point(optionalId: excludeTo) else {
             return nil
@@ -84,12 +87,15 @@ enum SkeletonOnion {
             cg.scaleBy(x: 1, y: mirror ? -1 : 1)
             cg.rotate(by: -editAngle)
             cg.translateBy(x: -editStart.x, y: -editStart.y)
-            for bone in bones {
+            for (index, bone) in bones.enumerated() {
                 let mirror = unit.flipped && !bone.asset.nativeFlipped
                 let yOffset = mirror ? -bone.asset.yOffset : bone.asset.yOffset
                 cg.saveGState()
                 cg.translateBy(x: bone.start.x, y: bone.start.y)
                 cg.rotate(by: bone.angle)
+                if let ratio = stretchRatios[index] {
+                    cg.scaleBy(x: ratio, y: 1)
+                }
                 cg.translateBy(x: bone.asset.xOffset, y: yOffset)
                 let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample)
                 let pictureScale = 1 / picture.divisor

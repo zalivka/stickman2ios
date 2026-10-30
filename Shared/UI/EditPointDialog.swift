@@ -3,18 +3,31 @@ import SwiftUI
 /// Android `EditPointDialog` — attach No/Master/Slave, Invisible, Help.
 struct EditPointDialog: View {
     var isBase: Bool
-    var onApply: (Attachable, Bool) -> Void
+    /// Android disables the checkbox for the base and for any point on a kinematic chain;
+    /// while disabled the stored flag is kept as-is.
+    var canStretch: Bool
+    var onApply: (Attachable, Bool, Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var attachable: Attachable
     @State private var fixed: Bool
+    @State private var stretchable: Bool
     @State private var showingHelp = false
 
-    init(isBase: Bool, attachable: Attachable, fixed: Bool, onApply: @escaping (Attachable, Bool) -> Void) {
+    init(
+        isBase: Bool,
+        attachable: Attachable,
+        fixed: Bool,
+        stretchable: Bool,
+        canStretch: Bool,
+        onApply: @escaping (Attachable, Bool, Bool) -> Void
+    ) {
         self.isBase = isBase
+        self.canStretch = canStretch
         self.onApply = onApply
         _attachable = State(initialValue: attachable)
         _fixed = State(initialValue: isBase ? false : fixed)
+        _stretchable = State(initialValue: isBase ? false : stretchable)
     }
 
     var body: some View {
@@ -77,7 +90,7 @@ struct EditPointDialog: View {
 
     private var applyButton: some View {
         Button {
-            onApply(attachable, isBase ? false : fixed)
+            onApply(attachable, isBase ? false : fixed, isBase ? false : stretchable)
             dismiss()
         } label: {
             Text("Apply")
@@ -119,6 +132,9 @@ struct EditPointDialog: View {
                         enabled: isBase
                     )
                 }
+
+                sectionTitle("Stretch")
+                stretchableCard
 
                 sectionTitle("Node")
                 invisibleCard
@@ -227,6 +243,50 @@ struct EditPointDialog: View {
         .disabled(!enabled)
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    private var stretchableCard: some View {
+        Button {
+            stretchable.toggle()
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Stretchable bone")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(stretchSubtitle)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: stretchable && canStretch ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(stretchable && canStretch ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+            )
+            .opacity(canStretch ? 1 : 0.4)
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canStretch)
+        .accessibilityLabel("Stretchable bone")
+        .accessibilityAddTraits(stretchable && canStretch ? [.isSelected] : [])
+    }
+
+    private var stretchSubtitle: String {
+        if isBase {
+            return "The base point cannot stretch"
+        }
+        if !canStretch {
+            return "Unavailable: kinematics drive this point"
+        }
+        return "Moves instead of rotating; the picture stretches along the bone"
     }
 
     private var invisibleCard: some View {

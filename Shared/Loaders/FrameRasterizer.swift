@@ -171,6 +171,7 @@ enum FrameRasterizer {
             var weight: Int
             var start: CGPoint
             var end: CGPoint
+            var edge: StickmanEdge
             var asset: UnitAssets.EdgeAsset
         }
         var bones: [Bone] = []
@@ -184,6 +185,7 @@ enum FrameRasterizer {
                     weight: asset.weight,
                     start: CGPoint(x: from.x, y: from.y),
                     end: CGPoint(x: to.x, y: to.y),
+                    edge: edge,
                     asset: asset
                 )
             )
@@ -191,6 +193,7 @@ enum FrameRasterizer {
         bones.sort { $0.weight < $1.weight }
         for bone in bones {
             let angle = atan2(bone.end.y - bone.start.y, bone.end.x - bone.start.x)
+            let ratio = BoneStretch.ratio(unit: drawn, edge: bone.edge, assets: assets)
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let yOffset = (mirror ? -bone.asset.yOffset : bone.asset.yOffset) * drawn.scale
             let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample)
@@ -198,6 +201,9 @@ enum FrameRasterizer {
             context.saveGState()
             context.translateBy(x: bone.start.x, y: bone.start.y)
             context.rotate(by: angle)
+            if let ratio {
+                context.scaleBy(x: ratio, y: 1)
+            }
             context.translateBy(x: -bone.start.x, y: -bone.start.y)
             context.translateBy(
                 x: bone.start.x + bone.asset.xOffset * drawn.scale,
