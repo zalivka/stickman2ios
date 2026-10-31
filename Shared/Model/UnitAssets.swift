@@ -392,14 +392,233 @@ final class UnitAssets {
             end: end,
             flipped: template.nativeFlipped
         )
+        let weight = nextWeight(unitName: name)
+        if let frame = Self.androidBoneFrame(bmName) {
+            var attachedStates: [Int: EdgeAsset] = [:]
+            for (_, states) in edgeAssets where states.values.contains(where: { $0.unitName == name && Self.androidBoneFrame($0.bmName)?.id == frame.id }) {
+                for (st, stAsset) in states where Self.androidBoneFrame(stAsset.bmName)?.id == frame.id {
+                    var copy = stAsset
+                    copy.unitName = name
+                    copy.start = start
+                    copy.end = end
+                    copy.weight = weight
+                    attachedStates[st] = copy
+                }
+                break
+            }
+            if attachedStates.isEmpty {
+                for (looseKey, looseAsset) in looseBones where looseAsset.unitName == name {
+                    if let lf = Self.androidBoneFrame(looseKey), lf.id == frame.id {
+                        var copy = looseAsset
+                        copy.unitName = name
+                        copy.start = start
+                        copy.end = end
+                        copy.weight = weight
+                        copy.state = lf.state
+                        attachedStates[lf.state] = copy
+                        looseBones.removeValue(forKey: looseKey)
+                    }
+                }
+            }
+            if !attachedStates.isEmpty {
+                edgeAssets[key] = attachedStates
+                return
+            }
+        }
         var asset = template
         asset.unitName = name
         asset.start = start
         asset.end = end
-        asset.weight = nextWeight(unitName: name)
+        asset.weight = weight
         asset.state = Self.stateDefault
         edgeAssets[key] = [Self.stateDefault: asset]
         looseBones.removeValue(forKey: bmName)
+    }
+
+    func stateAssets(for edge: EdgeKey) -> [EdgeAsset] {
+        var states = edgeStates(edge)
+        if states.isEmpty {
+            var unflipped = edge
+            unflipped.flipped = false
+            states = edgeStates(unflipped)
+        }
+        return states.values.sorted { $0.state < $1.state }
+    }
+
+    func stateAssets(forBmName bmName: String, unitName: String) -> [EdgeAsset] {
+        let name = Self.removeNumber(unitName)
+        if let frame = Self.androidBoneFrame(bmName) {
+            for (key, states) in edgeAssets where key.unitName == name {
+                if states.values.contains(where: { Self.androidBoneFrame($0.bmName)?.id == frame.id }) {
+                    return states.values.sorted { $0.state < $1.state }
+                }
+            }
+            let looseMatches = looseBones.values.filter {
+                $0.unitName == name && Self.androidBoneFrame($0.bmName)?.id == frame.id
+            }
+            if !looseMatches.isEmpty {
+                return looseMatches.sorted { $0.state < $1.state }
+            }
+        }
+        for (key, states) in edgeAssets where key.unitName == name {
+            if states.values.contains(where: { $0.bmName == bmName }) {
+                return states.values.sorted { $0.state < $1.state }
+            }
+        }
+        if let loose = looseBones[bmName], loose.unitName == name {
+            return [loose]
+        }
+        return []
+    }
+
+    private func nextBonePictureId(unitName: String) -> Int {
+        var maxId = -1
+        for (key, states) in edgeAssets where key.unitName == unitName {
+            for asset in states.values {
+                if let parsed = Self.androidBoneFrame(asset.bmName) {
+                    maxId = max(maxId, parsed.id)
+                }
+            }
+        }
+        for asset in looseBones.values where asset.unitName == unitName {
+            if let parsed = Self.androidBoneFrame(asset.bmName) {
+                maxId = max(maxId, parsed.id)
+            }
+        }
+        return maxId + 1
+    }
+
+    func replaceBoneFrames(
+        baseAsset: EdgeAsset,
+        frameExports: [BonePaperFrameExport]
+    ) throws {
+        if frameExports.isEmpty {
+            throw SceneLoadError(message: "UnitAssets replaceBoneFrames has no frames")
+        }
+        let name = Self.removeNumber(baseAsset.unitName)
+        let existingBoneId = Self.androidBoneFrame(baseAsset.bmName)?.id
+        let useMultiFrameNaming = frameExports.count > 1 || existingBoneId != nil
+        let boneId = existingBoneId ?? nextBonePictureId(unitName: name)
+
+        func targetBmName(for state: Int) -> String {
+            if useMultiFrameNaming {
+                return "bm_\(boneId)_state_\(state).png"
+            }
+            return baseAsset.bmName
+        }
+
+        struct PreparedFrame {
+            var state: Int
+            var bmName: String
+            var image: CGImage
+            var bufferData: Data
+            var predecoded: CGImage?
+            var xOffset: CGFloat
+            var yOffset: CGFloat
+        }
+
+        var prepared: [PreparedFrame] = []
+        for item in frameExports {
+            let bm = targetBmName(for: item.state)
+            let img = item.export.image
+            if img.width < 1 || img.height < 1 {
+                throw SceneLoadError(message: "UnitAssets replaceBoneFrames '\(bm)' size \(img.width)x\(img.height)")
+            }
+            guard let bufImg = item.export.buffer else {
+                throw SceneLoadError(message: "UnitAssets replaceBoneFrames '\(bm)' missing paint buffer")
+            }
+            let bufData = try Self.pngData(from: bufImg, name: bm)
+            let predecoded = Self.predecodedSidecar(bufData, bitmap: img, name: bm)
+            prepared.append(
+                PreparedFrame(
+                    state: item.state,
+                    bmName: bm,
+                    image: img,
+                    bufferData: bufData,
+                    predecoded: predecoded,
+                    xOffset: item.baseXOffset - item.export.extraLeft,
+                    yOffset: item.baseYOffset - item.export.extraTop
+                )
+            )
+        }
+
+        func matchesTargetGroup(_ asset: EdgeAsset) -> Bool {
+            if asset.bmName == baseAsset.bmName {
+                return true
+            }
+            if let existingBoneId, let parsed = Self.androidBoneFrame(asset.bmName) {
+                return parsed.id == existingBoneId
+            }
+            return false
+        }
+
+        var matchedEdgeKeys: [EdgeKey] = []
+        for (key, states) in edgeAssets where key.unitName == name {
+            if states.values.contains(where: matchesTargetGroup) {
+                matchedEdgeKeys.append(key)
+            }
+        }
+
+        if !matchedEdgeKeys.isEmpty {
+            for key in matchedEdgeKeys {
+                let oldStates = edgeAssets[key] ?? [:]
+                let template = oldStates[Self.stateDefault] ?? oldStates.values.first ?? baseAsset
+                var newStates: [Int: EdgeAsset] = [:]
+                for frame in prepared {
+                    var updated = EdgeAsset(
+                        unitName: name,
+                        start: template.start,
+                        end: template.end,
+                        xOffset: frame.xOffset,
+                        yOffset: frame.yOffset,
+                        weight: template.weight,
+                        state: frame.state,
+                        nativeFlipped: template.nativeFlipped,
+                        bmName: frame.bmName,
+                        bitmap: frame.image,
+                        sample: BonePaperDocument.sample,
+                        paintBuffer: nil,
+                        sidecarImage: nil,
+                        svgName: nil,
+                        commandScale: nil
+                    )
+                    updated.adoptSidecar(frame.bufferData, name: frame.bmName, predecoded: frame.predecoded)
+                    newStates[frame.state] = updated
+                }
+                edgeAssets[key] = newStates
+            }
+            return
+        }
+
+        // Loose gallery bone update
+        let oldLooseKeys = looseBones.keys.filter { key in
+            guard let loose = looseBones[key], loose.unitName == name else { return false }
+            return matchesTargetGroup(loose)
+        }
+        for key in oldLooseKeys {
+            looseBones.removeValue(forKey: key)
+        }
+        for frame in prepared {
+            var updated = EdgeAsset(
+                unitName: name,
+                start: -1,
+                end: -1,
+                xOffset: frame.xOffset,
+                yOffset: frame.yOffset,
+                weight: baseAsset.weight,
+                state: frame.state,
+                nativeFlipped: baseAsset.nativeFlipped,
+                bmName: frame.bmName,
+                bitmap: frame.image,
+                sample: BonePaperDocument.sample,
+                paintBuffer: nil,
+                sidecarImage: nil,
+                svgName: nil,
+                commandScale: nil
+            )
+            updated.adoptSidecar(frame.bufferData, name: frame.bmName, predecoded: frame.predecoded)
+            looseBones[frame.bmName] = updated
+        }
     }
 
     /// Android `BonePictureFactory.createEmpty` + `Constants.DEFAULT_LENGTH` Kurwa hint.

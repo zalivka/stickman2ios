@@ -356,6 +356,7 @@ enum BonePaperChrome {
 }
 
 struct BonePaperBackButton: View {
+    var extraLeading: CGFloat = 0
     var onBack: () -> Void
 
     var body: some View {
@@ -370,7 +371,7 @@ struct BonePaperBackButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Back")
-        .padding(.leading, BonePaperChrome.leftRail + 8)
+        .padding(.leading, BonePaperChrome.leftRail + extraLeading + 8)
         .padding(.top, 8)
     }
 }
@@ -609,7 +610,18 @@ struct BonePaperStrokeControls: View {
             }
             .scrollIndicators(.hidden)
             .scrollClipDisabled()
+            .frame(
+                width: activeSetting != nil
+                    ? BonePaperChrome.leftRail + 8 + 352
+                    : BonePaperChrome.leftRail,
+                alignment: .leading
+            )
         }
+        .frame(
+            width: activeSetting != nil
+                ? BonePaperChrome.leftRail + 8 + 352
+                : BonePaperChrome.leftRail
+        )
     }
 }
 

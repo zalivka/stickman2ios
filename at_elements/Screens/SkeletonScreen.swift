@@ -231,15 +231,21 @@ struct SkeletonScreen: View {
         }
         .fullScreenCover(item: $bonePaperEdit) { session in
             BonePaperScreen(
-                source: session.source,
-                boneStart: session.boneStart,
-                boneTip: session.boneTip,
+                frames: session.frames,
+                initialState: session.initialState,
+                boneLength: session.boneLength,
+                defaultWidth: session.baseAsset.bitmap.width,
+                defaultHeight: session.baseAsset.bitmap.height,
+                defaultXOffset: session.baseAsset.xOffset,
+                defaultYOffset: session.baseAsset.yOffset,
                 onion: session.onion,
                 placement: session.placement,
-                buffer: session.buffer,
-                initialDrawingConfig: session.drawingConfig,
-                onApply: { export in
-                    applyBonePaper(bmName: session.bmName, export: export)
+                onApplyFrames: { exportedFrames, selectedState in
+                    applyBonePaper(
+                        baseAsset: session.baseAsset,
+                        frames: exportedFrames,
+                        selectedState: selectedState
+                    )
                 },
                 onClose: session.placement == nil ? nil : {
                     var transaction = Transaction()
@@ -368,15 +374,12 @@ struct SkeletonScreen: View {
 
     private struct BonePaperEdit: Identifiable {
         let id = UUID()
-        let source: CGImage
-        /// Decoded paint buffer for `source`, validated at open. Nil opens from the upscaled 1x path.
-        let buffer: CGImage?
-        let boneStart: CGPoint
-        let boneTip: CGPoint
+        let baseAsset: UnitAssets.EdgeAsset
+        let frames: [BonePaperFrameInput]
+        let initialState: Int
+        let boneLength: CGFloat
         let onion: CGImage?
         let placement: BonePaperPlacement?
-        let bmName: String
-        let drawingConfig: BonePaperDrawingConfig
     }
 
     /// Present-attempt marker: existence means the fatal preview guards already passed.
@@ -426,7 +429,15 @@ struct SkeletonScreen: View {
             bail("gallery edit unknown bm '\(bmName)'")
             return
         }
-        presentBonePaper(asset: asset, length: UnitAssets.defaultBoneLength, onion: nil, placement: nil)
+        let stateList = assets.stateAssets(forBmName: bmName, unitName: unit.name)
+        presentBonePaper(
+            baseAsset: asset,
+            stateAssets: stateList.isEmpty ? [asset] : stateList,
+            initialState: unit.assetsState,
+            length: UnitAssets.defaultBoneLength,
+            onion: nil,
+            placement: nil
+        )
     }
 
     private func openBonePaper(from: Int, to: Int) {
@@ -445,7 +456,7 @@ struct SkeletonScreen: View {
         // PNG offsets are item-pixel units. Scene points already include unit.scale
         // (Android skeleton editor stores unscaled model coords, so getLength() is 1:1).
         let length = hypot(endPt.x - startPt.x, endPt.y - startPt.y) / unit.scale
-        guard let asset = assets.ensureDrawable(
+        guard let defaultAsset = assets.ensureDrawable(
             start: from,
             end: to,
             unitName: unit.name,
@@ -454,14 +465,16 @@ struct SkeletonScreen: View {
             bail("cannot allocate an empty picture")
             return
         }
-        let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
         let drawnKey = UnitAssets.EdgeKey(
             unitName: UnitAssets.removeNumber(unit.name),
             start: from,
             end: to,
             flipped: unit.flipped
         )
-        let nativeFlipped = assets.getDrawable(drawnKey, state: unit.assetsState)?.nativeFlipped ?? false
+        let activeAsset = assets.getDrawable(drawnKey, state: unit.assetsState) ?? defaultAsset
+        let stateList = assets.stateAssets(for: drawnKey)
+        let start = CGPoint(x: -activeAsset.xOffset, y: -activeAsset.yOffset)
+        let nativeFlipped = activeAsset.nativeFlipped
         let mirror = FeatureFlags.bonePaperKeepsBoneAngle && unit.flipped && !nativeFlipped
         // A failed onion preview does not block editing; the drawer opens without it.
         let onion = try? SkeletonOnion.worldOverlay(
@@ -470,14 +483,16 @@ struct SkeletonScreen: View {
             excludeFrom: from,
             excludeTo: to,
             worldSize: BonePaperScreen.worldSide,
-            pngWidth: asset.bitmap.width,
-            pngHeight: asset.bitmap.height,
+            pngWidth: activeAsset.bitmap.width,
+            pngHeight: activeAsset.bitmap.height,
             boneStartPNG: start,
             mirror: mirror
         )
         layerEpoch += 1
         presentBonePaper(
-            asset: asset,
+            baseAsset: activeAsset,
+            stateAssets: stateList.isEmpty ? [activeAsset] : stateList,
+            initialState: unit.assetsState,
             length: length,
             onion: onion,
             placement: FeatureFlags.bonePaperKeepsBoneAngle
@@ -516,34 +531,52 @@ struct SkeletonScreen: View {
             return
         }
         layerEpoch += 1
-        presentBonePaper(asset: asset, length: length, onion: nil, placement: nil)
+        presentBonePaper(
+            baseAsset: asset,
+            stateAssets: [asset],
+            initialState: 0,
+            length: length,
+            onion: nil,
+            placement: nil
+        )
     }
 
     private func presentBonePaper(
-        asset: UnitAssets.EdgeAsset,
+        baseAsset: UnitAssets.EdgeAsset,
+        stateAssets: [UnitAssets.EdgeAsset],
+        initialState: Int,
         length: CGFloat,
         onion: CGImage?,
         placement: BonePaperPlacement?
     ) {
-        let width = asset.bitmap.width
-        let height = asset.bitmap.height
         let limit = BonePaperScreen.worldSide
-        if width > limit || height > limit {
-            showToast("This picture is too big (\(width)×\(height)). Maximum side is \(limit).")
-            return
+        for item in stateAssets {
+            let width = item.bitmap.width
+            let height = item.bitmap.height
+            if width > limit || height > limit {
+                showToast("This picture is too big (\(width)×\(height)). Maximum side is \(limit).")
+                return
+            }
         }
-        let start = CGPoint(x: -asset.xOffset, y: -asset.yOffset)
-        let tip = CGPoint(x: length - asset.xOffset, y: -asset.yOffset)
         let config = (optionalUnit.flatMap { assets?.drawingConfig(for: $0.name) }) ?? BonePaperDrawingConfig()
+        let frameInputs = stateAssets.map { item in
+            BonePaperFrameInput(
+                state: item.state,
+                weight: item.weight,
+                source: item.bitmap,
+                buffer: validatedBuffer(asset: item),
+                xOffset: item.xOffset,
+                yOffset: item.yOffset,
+                drawingConfig: config
+            )
+        }
         let edit = BonePaperEdit(
-            source: asset.bitmap,
-            buffer: validatedBuffer(asset: asset),
-            boneStart: start,
-            boneTip: tip,
+            baseAsset: baseAsset,
+            frames: frameInputs,
+            initialState: initialState,
+            boneLength: length,
             onion: onion,
-            placement: placement,
-            bmName: asset.bmName,
-            drawingConfig: config
+            placement: placement
         )
         var transaction = Transaction()
         transaction.disablesAnimations = placement != nil
@@ -574,28 +607,27 @@ struct SkeletonScreen: View {
         return image
     }
 
-    private func applyBonePaper(bmName: String, export: BonePaperExport) {
+    private func applyBonePaper(
+        baseAsset: UnitAssets.EdgeAsset,
+        frames: [BonePaperFrameExport],
+        selectedState: Int
+    ) {
         guard let assets else {
             bail("apply with no assets")
             return
         }
-        guard let buffer = export.buffer else {
-            print("SkeletonScreen '\(title)' apply '\(bmName)' has no paint buffer")
-            showToast("Could not apply the picture: no paint buffer")
-            return
-        }
         prepareUndo(includeAssets: true)
         do {
-            try assets.replaceBitmap(
-                bmName: bmName,
-                image: export.image,
-                buffer: try UnitAssets.pngData(from: buffer, name: bmName),
-                sample: BonePaperDocument.sample,
-                extraLeft: export.extraLeft,
-                extraTop: export.extraTop
+            try assets.replaceBoneFrames(
+                baseAsset: baseAsset,
+                frameExports: frames
             )
-            if let unit = optionalUnit {
-                assets.setDrawingConfig(export.drawingConfig, for: unit.name)
+            if var unit = optionalUnit {
+                if let activeExport = frames.first(where: { $0.state == selectedState }) ?? frames.last {
+                    assets.setDrawingConfig(activeExport.export.drawingConfig, for: unit.name)
+                }
+                unit.assetsState = selectedState
+                writeUnit(unit)
             }
         } catch {
             showToast("Could not apply the picture: \(ItemLoadError.text(error))")

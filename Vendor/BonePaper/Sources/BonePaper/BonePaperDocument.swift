@@ -48,7 +48,7 @@ public final class BonePaperDocument: ObservableObject {
     /// Paint buffer pixels per document pixel. Part of the `.ati` sidecar contract (see `UnitAssets`).
     public static let sample: Int = 2
     static let undoCap = 5
-    static let defaultSide: Int = 512
+    public static let defaultSide: Int = 512
     public static let maxSide: Int = 1536
     static let growChunk: Int = 64
     // Dual-threshold region-growing flood fill (contiguous paint bucket).
@@ -511,6 +511,101 @@ public final class BonePaperDocument: ObservableObject {
         publishStacks()
     }
 
+    func snapshotBuffer() -> CGImage {
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        guard let image = context.makeImage() else {
+            fatalError("BonePaperDocument snapshotBuffer failed")
+        }
+        return image
+    }
+
+    func loadFrameBuffer(
+        _ image: CGImage,
+        width: Int,
+        height: Int,
+        originX: Int,
+        originY: Int,
+        extraLeft: Int,
+        extraTop: Int
+    ) {
+        if filling { return }
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        if width < 1 || height < 1 || width > worldSize || height > worldSize {
+            fatalError("BonePaperDocument loadFrameBuffer size \(width)x\(height)")
+        }
+        if image.width != width * Self.sample || image.height != height * Self.sample {
+            fatalError("BonePaperDocument loadFrameBuffer buffer \(image.width)x\(image.height) != \(width * Self.sample)x\(height * Self.sample)")
+        }
+        lastFillOperation = nil
+        fillStreak = 0
+        undoStack.removeAll()
+        redoStack.removeAll()
+        self.width = width
+        self.height = height
+        self.originX = originX
+        self.originY = originY
+        self.extraLeft = extraLeft
+        self.extraTop = extraTop
+        context = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
+        stroke = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
+        composite = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
+        context.draw(image, in: pixelRect)
+        publishPreview()
+        publishStacks()
+    }
+
+    static func materializeBuffer(width: Int, height: Int, source: CGImage?, buffer: CGImage?) -> CGImage {
+        let pWidth = width * sample
+        let pHeight = height * sample
+        if let buffer, buffer.width == pWidth, buffer.height == pHeight {
+            return buffer
+        }
+        let ctx = makeBuffer(width: pWidth, height: pHeight)
+        if let source {
+            ctx.interpolationQuality = .high
+            ctx.draw(source, in: CGRect(x: 0, y: 0, width: pWidth, height: pHeight))
+        }
+        guard let image = ctx.makeImage() else {
+            fatalError("BonePaperDocument materializeBuffer failed")
+        }
+        return image
+    }
+
+    static func exportCommittedBuffer(
+        buffer: CGImage,
+        width: Int,
+        height: Int,
+        extraLeft: Int,
+        extraTop: Int,
+        drawingConfig: BonePaperDrawingConfig
+    ) -> BonePaperExport {
+        if buffer.width != width * sample || buffer.height != height * sample {
+            fatalError("BonePaperDocument exportCommittedBuffer \(buffer.width)x\(buffer.height) != \(width * sample)x\(height * sample)")
+        }
+        let size = CGSize(width: width, height: height)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let image = renderer.image { _ in
+            UIImage(cgImage: buffer).draw(in: CGRect(origin: .zero, size: size))
+        }
+        guard let exported = image.cgImage else {
+            fatalError("BonePaperDocument export PNG image failed")
+        }
+        return BonePaperExport(
+            image: exported,
+            buffer: buffer,
+            extraLeft: CGFloat(extraLeft),
+            extraTop: CGFloat(extraTop),
+            drawingConfig: drawingConfig
+        )
+    }
+
     func export() -> BonePaperExport {
         if filling {
             fatalError("BonePaperDocument export during fill")
@@ -521,22 +616,12 @@ public final class BonePaperDocument: ObservableObject {
         guard let committed = context.makeImage() else {
             fatalError("BonePaperDocument export committed snapshot failed")
         }
-        let size = CGSize(width: width, height: height)
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        let image = renderer.image { _ in
-            UIImage(cgImage: committed).draw(in: CGRect(origin: .zero, size: size))
-        }
-        guard let exported = image.cgImage else {
-            fatalError("BonePaperDocument export PNG image failed")
-        }
-        return BonePaperExport(
-            image: exported,
+        return Self.exportCommittedBuffer(
             buffer: committed,
-            extraLeft: CGFloat(extraLeft),
-            extraTop: CGFloat(extraTop),
+            width: width,
+            height: height,
+            extraLeft: extraLeft,
+            extraTop: extraTop,
             drawingConfig: BonePaperDrawingConfig()
         )
     }
