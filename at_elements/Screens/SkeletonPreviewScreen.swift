@@ -43,6 +43,7 @@ struct SkeletonPreviewScreen: View {
                             onHoldStart: { stretchHold = true },
                             onHoldEnd: { stretchHold = false }
                         )
+                        .paddingBottomSafeArea()
                         .offsetLeadingIsland()
                         Spacer(minLength: 0)
                     }

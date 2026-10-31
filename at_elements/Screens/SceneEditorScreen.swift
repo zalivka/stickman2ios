@@ -174,6 +174,7 @@ struct SceneEditorScreen: View {
                 SkeletonCanvas(
                     unit: frame.units.isEmpty ? nil : unitBinding,
                     frameUnits: frame.units,
+                    previousFrameUnits: scene.currentIndex > 0 ? scene.frames[scene.currentIndex - 1].units : [],
                     assets: assets,
                     backgrounds: backgrounds,
                     bgName: frame.bgName,
@@ -410,23 +411,19 @@ struct SceneEditorScreen: View {
                 .padding(.leading, 12)
                 .padding(.bottom, 16)
             } else if stretchButtonVisible {
-                Color.clear
-                    .overlay(alignment: .bottomLeading) {
-                        StretchHoldButton(
-                            leading: MainPanel.width + backExtraLeading + 8,
-                            isActive: stretchHold,
-                            onHoldStart: {
-                                stretchHold = true
-                                onStretchHoldChanged(true)
-                            },
-                            onHoldEnd: {
-                                stretchHold = false
-                                onStretchHoldChanged(false)
-                            }
-                        )
-                        .offsetLeadingIsland()
+                StretchHoldButton(
+                    leading: MainPanel.width + backExtraLeading + 8,
+                    isActive: stretchHold,
+                    onHoldStart: {
+                        stretchHold = true
+                        onStretchHoldChanged(true)
+                    },
+                    onHoldEnd: {
+                        stretchHold = false
+                        onStretchHoldChanged(false)
                     }
-                    .ignoresSafeArea(edges: .bottom)
+                )
+                .offsetLeadingIsland()
             }
         }
         .onAppear {

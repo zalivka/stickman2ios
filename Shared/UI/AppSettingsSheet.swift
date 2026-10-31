@@ -6,6 +6,9 @@ struct AppSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var antialiasing: Bool
     @State private var brushOffset: Double
+    @State private var showOnionSkeleton: Bool
+    @State private var skeletonColorRGB: Int
+    @State private var showingSkeletonColorPicker = false
     #if DEBUG
     @State private var ignoreBmSample: Bool
     #endif
@@ -16,6 +19,8 @@ struct AppSettingsSheet: View {
     init(onTutorial: (() -> Void)? = nil) {
         _antialiasing = State(initialValue: AppSettings.paperDrawAntialiasing)
         _brushOffset = State(initialValue: Double(AppSettings.brushOffset))
+        _showOnionSkeleton = State(initialValue: AppSettings.showOnionSkeleton)
+        _skeletonColorRGB = State(initialValue: AppSettings.skeletonColorRGB)
         #if DEBUG
         _ignoreBmSample = State(initialValue: AppSettings.ignoreBmSample)
         #endif
@@ -78,6 +83,8 @@ struct AppSettingsSheet: View {
         Button {
             AppSettings.paperDrawAntialiasing = antialiasing
             AppSettings.brushOffset = Int(brushOffset.rounded())
+            AppSettings.showOnionSkeleton = showOnionSkeleton
+            AppSettings.skeletonColorRGB = skeletonColorRGB
             #if DEBUG
             AppSettings.ignoreBmSample = ignoreBmSample
             #endif
@@ -108,6 +115,12 @@ struct AppSettingsSheet: View {
                     tutorialCard
                 }
                 #endif
+                Text("Editor")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(SkeletonChrome.toolLabel)
+                    .textCase(.uppercase)
+                onionSkeletonCard
+                skeletonColorCard
                 Text("Paper draw")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(SkeletonChrome.toolLabel)
@@ -123,6 +136,101 @@ struct AppSettingsSheet: View {
             .padding(.horizontal, 16)
             .padding(.top, 18)
             .padding(.bottom, 28)
+        }
+    }
+
+    private var onionSkeletonCard: some View {
+        Button {
+            showOnionSkeleton.toggle()
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Circle()
+                    .fill(Color(red: 0xCC / 255, green: 0xCC / 255, blue: 0xCC / 255))
+                    .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Onion skeleton")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Show gray skeleton of previous frame")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: showOnionSkeleton ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(showOnionSkeleton ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Onion skeleton")
+        .accessibilityAddTraits(showOnionSkeleton ? [.isSelected] : [])
+    }
+
+    private var skeletonColorCard: some View {
+        let isCustom = skeletonColorRGB != AppSettings.defaultSkeletonColorRGB
+        return HStack(alignment: .center, spacing: 12) {
+            Button {
+                showingSkeletonColorPicker = true
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    Circle()
+                        .fill(AppSettings.color(fromRGB: skeletonColorRGB))
+                        .frame(width: 18, height: 18)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                        )
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Color of skeletons")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text(AppSettings.hexString(fromRGB: skeletonColorRGB))
+                            .font(.system(size: 13).monospaced())
+                            .foregroundStyle(Color.white.opacity(0.55))
+                    }
+                    Spacer(minLength: 8)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Color of skeletons")
+
+            if isCustom {
+                Button {
+                    skeletonColorRGB = AppSettings.defaultSkeletonColorRGB
+                } label: {
+                    Text("Reset")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Reset skeleton color")
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isCustom ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+        )
+        .sheet(isPresented: $showingSkeletonColorPicker) {
+            FlexColorPickerSheet(initial: AppSettings.uiColor(fromRGB: skeletonColorRGB)) { picked in
+                if let rgb = AppSettings.rgb(from: picked) {
+                    skeletonColorRGB = rgb
+                }
+                showingSkeletonColorPicker = false
+            }
         }
     }
 
@@ -267,6 +375,8 @@ struct AppSettingsSheet: View {
         Button {
             AppSettings.paperDrawAntialiasing = antialiasing
             AppSettings.brushOffset = Int(brushOffset.rounded())
+            AppSettings.showOnionSkeleton = showOnionSkeleton
+            AppSettings.skeletonColorRGB = skeletonColorRGB
             AppSettings.ignoreBmSample = ignoreBmSample
             onTutorial?()
             dismiss()

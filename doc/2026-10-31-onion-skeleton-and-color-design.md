@@ -4,65 +4,59 @@
 
 Add two features to the iOS app (`at_elements`), matching Android Stickman (`DefaultSkeletonDrawer.java`, `StickmanViewDrawer.java`, `Settings.java`):
 
-1. **Onion skeleton**: Show a light-gray (`#CCCCCC`) skeleton of the previous frame (`currentFrameIndex - 1`) in the scene editor (`SkeletonCanvas` in `.editor` mode).
-2. **Skeleton color setting**: Allow the user to customize the skeleton color, affecting **only normal (otherwise orange `#FF7100`) bones** and leaving special bone colors (stretchable black, kinematic hot pink `#FF69B4`, slave red, master green, attachable cyan) and special point handles unchanged.
+1. **Onion skeleton**: Show a light-gray (`#CCCCCC`) skeleton of the previous frame (`currentIndex - 1`) in the scene editor (`SkeletonCanvas` in `.editor` mode).
+2. **Skeleton color setting**: Allow the user to customize the skeleton color, affecting **only normal (otherwise orange `#FF7100`) bones and nodes** and leaving special bone/node colors (`boneStretchable`, `boneSelected`, `.skeleton` mode `boneCommon` / `boneSlave` / `boneMaster` / `boneInvisible`, and dimmed onion skeletons) unchanged.
 
-## 1. Settings (`AppSettings.swift`)
+## 1. Settings (`Shared/Model/AppSettings.swift`)
 
-Add two persisted properties to `AppSettings`:
+Add two persisted keys and properties to `AppSettings`:
 
-- **`showOnionSkeleton: Bool`**:
-  - Key: `"at_elements.showOnionSkeleton"`
-  - Default: `true`
-- **`skeletonColorRGB: Int`**:
-  - Key: `"at_elements.skeletonColorRGB"`
-  - Default: `0xFF7100` (matching Android `DefaultSkeletonDrawer` default `#FF7100`)
-  - Helper `skeletonColor: Color`: converts between 24-bit RGB `Int` (`0xRRGGBB`) and SwiftUI `Color`.
+- **`showOnionSkeletonKey = "showOnionSkeleton"`** & **`showOnionSkeleton: Bool`**:
+  - Defaults to `true` when key is missing in `UserDefaults.standard`.
+- **`skeletonColorRGBKey = "skeletonColorRGB"`** & **`skeletonColorRGB: Int`**:
+  - `static let defaultSkeletonColorRGB = 0xFF7100` (matching `SkeletonCanvas.color` / Android `DefaultSkeletonDrawer` default `#FF7100`).
+  - Defaults to `0xFF7100` when key is missing, masked with `& 0xFFFFFF`.
+  - Helper `static func color(fromRGB rgb: Int) -> Color` and `static func rgb(from color: UIColor) -> Int?` for 24-bit RGB (`0xRRGGBB`) conversion.
 
-## 2. Settings UI (`AppSettingsSheet.swift`)
+## 2. Settings UI (`Shared/UI/AppSettingsSheet.swift`)
 
-Add an **"Editor"** section in `AppSettingsSheet`:
+Add an **"Editor"** section at the top of `AppSettingsSheet.formBody` (after `#if DEBUG` if present) matching `doc/good_dialog.md` card chrome:
 
-- **Onion skeleton** (`Toggle`): bound to `AppSettings.showOnionSkeleton`, subtitle `"Show gray skeleton of previous frame"`.
-- **Color of skeletons** (`Button` row): shows title `"Color of skeletons"`, current hex subtitle (`#RRGGBB`), and a circular color swatch of the current `skeletonColor`, plus a `"Reset"` action when different from `#FF7100`. Tapping opens `FlexColorPickerSheet` to pick a new color.
+- **`onionSkeletonCard`**:
+  - Toggle card matching `antialiasingCard` style (`checkmark.square.fill` / `square`), bound to `@State private var showOnionSkeleton: Bool`.
+  - Title: `"Onion skeleton"`, subtitle: `"Show gray skeleton of previous frame"`.
+- **`skeletonColorCard`**:
+  - Card showing an 18pt circle filled with the selected `Color(fromRGB: skeletonColorRGB)` (with a 1pt white/25% stroke), title `"Color of skeletons"`, subtitle showing `#RRGGBB` hex string, and a `"Reset"` capsule button when `skeletonColorRGB != AppSettings.defaultSkeletonColorRGB`.
+  - Tapping the card opens `FlexColorPickerSheet` with the current color; confirming updates `skeletonColorRGB`.
+- **`applyButton`** (and DEBUG `tutorialCard`):
+  - Saves `AppSettings.showOnionSkeleton = showOnionSkeleton` and `AppSettings.skeletonColorRGB = skeletonColorRGB`.
 
-## 3. Skeleton Color (`SkeletonCanvas.swift`)
-
-In `SkeletonCanvas.drawSkeleton`:
-
-- Replace the hardcoded `Self.color` (`#FF7100`) for normal non-dim bones with `skeletonColor` (passed into `SkeletonCanvas`, defaulting to `AppSettings.skeletonColor`).
-- Specifically, in `drawSkeleton` when `dim == false`:
-  ```swift
-  let boneColor: Color = if edge.group.isStretchable {
-      .black
-  } else if isKinematicEdge(edge) {
-      Color(red: 1, green: 0x69 / 255.0, blue: 0xB4 / 255.0)
-  } else {
-      skeletonColor
-  }
-  ```
-- Special bone colors (stretchable `.black`, kinematic `#FF69B4`), attachment/selection colors (`slaveColor`, `masterColor`, `attachableColor`, `selectedColor`, `lockedColor`), and base/point node colors remain unchanged.
-
-## 4. Onion Skeleton (`SkeletonCanvas.swift` & `SceneEditorScreen.swift`)
+## 3. Skeleton Color & Onion Skeleton (`Shared/UI/SkeletonCanvas.swift` & `at_elements/Screens/SceneEditorScreen.swift`)
 
 Matching Android `StickmanViewDrawer.drawEditor` + `DefaultSkeletonDrawer.drawSkeleton`:
 
-- **`SkeletonCanvas` inputs**:
-  - `previousFrame: StickmanFrame? = nil`
-  - `showOnionSkeleton: Bool = AppSettings.showOnionSkeleton`
-  - `skeletonColor: Color = AppSettings.skeletonColor`
+- **`SkeletonCanvas` constants & inputs**:
+  - `static let onionSkeletonColor = Color(red: 0xCC / 255, green: 0xCC / 255, blue: 0xCC / 255)` (Android `Color.LTGRAY`).
+  - `var previousFrameUnits: [StickmanUnit] = []`
+  - `@AppStorage(AppSettings.showOnionSkeletonKey) private var showOnionSkeleton = true`
+  - `@AppStorage(AppSettings.skeletonColorRGBKey) private var skeletonColorRGB = AppSettings.defaultSkeletonColorRGB`
 - **Draw order in `.editor` mode**:
-  1. Scene background & camera rect.
-  2. Current frame's filled units (`drawUnit`).
-  3. **Onion skeleton pass** (when `showOnionSkeleton`, `!hideAllBones`, and `let previousFrame`):
-     - Iterate over `unitsToDraw(in: previousFrame)` (filtering out hidden units via `hiddenUnitIndices`).
-     - Call `drawOnionSkeleton(context: &context, unit: unit, scale: scale)`.
-  4. Current frame's skeletons (`drawSkeleton` with `dim: unit.locked || isDimmed(idx)`).
-- **`drawOnionSkeleton` behavior**:
-  - Matches Android `DefaultSkeletonDrawer` when `dim == true` (`DIM_COLOR = Color.LTGRAY` = `#CCCCCC`, full opacity `1.0`):
-  - All visible bones (`!edge.group.isInvisible`, or `showInvisibleBones`) are drawn in `Self.onionSkeletonColor` (`Color(red: 0xCC / 255.0, green: 0xCC / 255.0, blue: 0xCC / 255.0)`), with line width `max(2.0, 2.0 * scale)`.
-  - Every non-invisible joint node (including base point and child endpoints) is drawn as a circle of radius `pointRadius` (`6.0 * scale`) filled with `Self.onionSkeletonColor` (`#CCCCCC`) with a `1 * scale` black stroke (no white inner dot on the base point, matching Android `if (!dim) { draw white inner circle }` in `DefaultSkeletonDrawer.java` lines 163–167).
-  - Non-interactive: `hitTestPoint` only inspects `frame`, never `previousFrame`.
+  1. Scene background & scene bound.
+  2. Current frame's unit contents (`drawUnitContent`).
+  3. Attach/stretch expose circles (`drawAttachExpose`, `drawStretchExpose`).
+  4. **Onion skeleton pass** (when `showSkeleton && showOnionSkeleton` and `!previousFrameUnits.isEmpty`):
+     - Sort `previousFrameUnits` by `(arrange, name)` (same ordering as `unitsToDraw`).
+     - Draw each unit with `drawSkeleton(drawn, context: &context, layout: layout, dim: true)`.
+  5. Current frame's skeletons (`drawUnitSkeleton` -> `drawSkeleton(drawn, context: &context, layout: layout, dim: false)`).
+  6. Camera rectangle, handlers, touch point.
+- **`drawSkeleton(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout, dim: Bool = false)`**:
+  - Let `normalColor = dim ? Self.onionSkeletonColor : AppSettings.color(fromRGB: skeletonColorRGB)`.
+  - **Edges**:
+    - When `dim == true`: `edgeColor = Self.onionSkeletonColor` (matching Android `DefaultSkeletonDrawer`: `!dim && sk_edge.mEnd.mStretchable ? COLOR_STRETCHABLE : simpleColor`).
+    - When `dim == false`: `isSelected` -> `Self.boneSelected`; `stretchable` -> `Self.boneStretchable`; `bones` (`.skeleton` mode) -> `Self.boneCommon`; otherwise -> `normalColor`.
+  - **Points**:
+    - Skip points where `!bones && !drawn.canBeDragged(point)` (matches Android `if (!Frame.canBeDragged(point)) return 0`).
+    - When `dim == true`: `color = Self.onionSkeletonColor` (matching Android `nodeColor`: when `dim` is true, returns `DIM_COLOR` even for stretchable points).
+    - When `dim == false`: `isSelected` -> `Self.boneSelected`; `point.stretchable` -> `Self.boneStretchable`; `bones` -> `Self.boneColor(point)`; otherwise -> `normalColor`.
 - **`SceneEditorScreen`**:
-  - Passes `previousFrame: currentFrameIndex > 0 ? scene.frames[currentFrameIndex - 1] : nil`, `showOnionSkeleton: showOnionSkeleton`, and `skeletonColor: skeletonColor` to `SkeletonCanvas`.
-  - Refreshes state when `AppSettingsSheet` closes or settings change.
+  - Pass `previousFrameUnits: scene.currentIndex > 0 ? scene.frames[scene.currentIndex - 1].units : []` to `SkeletonCanvas`.

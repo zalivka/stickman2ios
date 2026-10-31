@@ -128,6 +128,8 @@ enum SkeletonCanvasMode {
 
 struct SkeletonCanvas: View {
     static let color = Color(red: 1, green: 0x71 / 255, blue: 0)
+    /// Android `DefaultSkeletonDrawer.DIM_COLOR` (`Color.LTGRAY`).
+    static let onionSkeletonColor = Color(red: 0xCC / 255, green: 0xCC / 255, blue: 0xCC / 255)
     static let edgeWidth: CGFloat = 1
     static let nodeRadius: CGFloat = 3
     static let baseNodeRadius: CGFloat = 4.4
@@ -171,6 +173,7 @@ struct SkeletonCanvas: View {
     /// Nil when the frame has no units (Android `Scene.isEmpty` / empty cartoon).
     var unit: Binding<StickmanUnit>? = nil
     var frameUnits: [StickmanUnit] = []
+    var previousFrameUnits: [StickmanUnit] = []
     var assets: UnitAssets?
     var backgrounds: BackgroundAssets?
     var bgName: String?
@@ -201,6 +204,8 @@ struct SkeletonCanvas: View {
     var capturedUnitName: Binding<String?> = .constant(nil)
     /// Bumped when asset draw-order changes so the canvas redraws.
     var layerEpoch: Int = 0
+    @AppStorage(AppSettings.showOnionSkeletonKey) private var showOnionSkeleton = true
+    @AppStorage(AppSettings.skeletonColorRGBKey) private var skeletonColorRGB = AppSettings.defaultSkeletonColorRGB
     #if DEBUG
     @AppStorage(AppSettings.ignoreBmSampleKey) private var ignoreBmSample = false
     #else
@@ -290,6 +295,11 @@ struct SkeletonCanvas: View {
                     }
                     drawAttachExpose(context: &context, layout: layout)
                     drawStretchExpose(context: &context, layout: layout)
+                    if showSkeleton, showOnionSkeleton {
+                        for previous in previousUnitsToDraw {
+                            drawSkeleton(previous, context: &context, layout: layout, dim: true)
+                        }
+                    }
                     for drawn in unitsToDraw {
                         drawUnitSkeleton(drawn, context: &context, layout: layout)
                     }
@@ -463,6 +473,15 @@ struct SkeletonCanvas: View {
         }
     }
 
+    private var previousUnitsToDraw: [StickmanUnit] {
+        previousFrameUnits.sorted {
+            if $0.arrange != $1.arrange {
+                return $0.arrange < $1.arrange
+            }
+            return $0.name < $1.name
+        }
+    }
+
     /// Skeleton editor and item Preview omit `frameUnits` and draw `unit`.
     /// Empty scene frames pass `unit == nil` and draw nothing.
     private var drawnUnits: [StickmanUnit] {
@@ -587,25 +606,33 @@ struct SkeletonCanvas: View {
         context.fill(path, with: .color(.white))
     }
 
-    private func drawSkeleton(_ drawn: StickmanUnit, context: inout GraphicsContext, layout: SkeletonLayout) {
+    private func drawSkeleton(
+        _ drawn: StickmanUnit,
+        context: inout GraphicsContext,
+        layout: SkeletonLayout,
+        dim: Bool = false
+    ) {
         let bones = mode == .skeleton
         let selectedId = selectedPointId.wrappedValue
         let selectedEdge = selectedId.flatMap { drawn.upperEdge(of: $0) }
+        let normalColor = dim ? Self.onionSkeletonColor : AppSettings.color(fromRGB: skeletonColorRGB)
         for edge in drawn.edges {
             guard let from = drawn.point(optionalId: edge.from), let to = drawn.point(optionalId: edge.to) else { continue }
             var path = Path()
             path.move(to: layout.screenPoint(x: from.x, y: from.y))
             path.addLine(to: layout.screenPoint(x: to.x, y: to.y))
-            let isSelected = bones && selectedEdge?.from == edge.from && selectedEdge?.to == edge.to
+            let isSelected = !dim && bones && selectedEdge?.from == edge.from && selectedEdge?.to == edge.to
             let edgeColor: Color
-            if isSelected {
+            if dim {
+                edgeColor = Self.onionSkeletonColor
+            } else if isSelected {
                 edgeColor = Self.boneSelected
             } else if drawn.point(optionalId: edge.to)?.stretchable == true {
                 edgeColor = Self.boneStretchable
             } else if bones {
                 edgeColor = Self.boneCommon
             } else {
-                edgeColor = Self.color
+                edgeColor = normalColor
             }
             context.stroke(
                 path,
@@ -618,16 +645,18 @@ struct SkeletonCanvas: View {
                 continue
             }
             let center = layout.screenPoint(x: point.x, y: point.y)
-            let isSelected = bones && point.id == selectedId
+            let isSelected = !dim && bones && point.id == selectedId
             let color: Color
-            if isSelected {
+            if dim {
+                color = Self.onionSkeletonColor
+            } else if isSelected {
                 color = Self.boneSelected
             } else if point.stretchable {
                 color = Self.boneStretchable
             } else if bones {
                 color = Self.boneColor(point)
             } else {
-                color = Self.color
+                color = normalColor
             }
             let radius: CGFloat
             if bones {

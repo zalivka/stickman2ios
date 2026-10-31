@@ -508,9 +508,7 @@ struct StretchHoldButton: View {
     var onHoldStart: () -> Void
     var onHoldEnd: () -> Void
 
-    /// Same gap the call sites add after the panel width — the bottom gap matches it.
-    private static let gap: CGFloat = 8
-
+    /// Same gap the call sites add after the panel width — the bottom edge lines up with Next.
     var body: some View {
         ZStack {
             // Android `drawable/shift.xml`: pressed selects `shift_active`, otherwise `shift_inactive`.
@@ -523,7 +521,6 @@ struct StretchHoldButton: View {
         }
         .frame(width: 56, height: 56)
         .padding(.leading, leading)
-        .padding(.bottom, Self.gap)
         .accessibilityLabel("Hold to stretch bones")
     }
 
