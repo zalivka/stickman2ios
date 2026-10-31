@@ -75,3 +75,8 @@ tools/bonepaper_gen/zips.txt
 !tools/bonepaper_gen/out/bluehairsvg/
 tools/bonepaper_gen/out/bluehairsvg/*
 !tools/bonepaper_gen/out/bluehairsvg/build.py
+# The Palace Square picture: its generator is source, its renders are output.
+!tools/bonepaper_gen/out/square/
+tools/bonepaper_gen/out/square/*
+!tools/bonepaper_gen/out/square/build.py
+!tools/bonepaper_gen/out/square/src.svg
