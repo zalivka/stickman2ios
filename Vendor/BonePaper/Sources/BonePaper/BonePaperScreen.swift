@@ -494,9 +494,19 @@ public struct BonePaperScreen: View {
                         opacityMarks: drawingConfig.opacities,
                         eraserMarks: drawingConfig.eraserSizes,
                         canUndo: document.canUndo,
-                        onUndo: document.undo,
+                        onUndo: {
+                            document.undo()
+                            if supportsFramesStrip {
+                                framesSession.refreshActiveThumbnail(from: document.preview)
+                            }
+                        },
                         canRedo: document.canRedo,
-                        onRedo: document.redo,
+                        onRedo: {
+                            document.redo()
+                            if supportsFramesStrip {
+                                framesSession.refreshActiveThumbnail(from: document.preview)
+                            }
+                        },
                         color: color,
                         onToggleFillMode: {
                             fillMode = fillMode == .bucket ? .brushfill : .bucket
@@ -581,6 +591,9 @@ public struct BonePaperScreen: View {
         .task(id: document.filling) {
             guard document.filling else {
                 showFillWait = false
+                if supportsFramesStrip {
+                    framesSession.refreshActiveThumbnail(from: document.preview)
+                }
                 return
             }
             try? await Task.sleep(for: .milliseconds(500))
@@ -592,11 +605,6 @@ public struct BonePaperScreen: View {
                 withAnimation(.easeInOut(duration: BonePaperStageView.transitionDuration)) {
                     chromeOpacity = 1
                 }
-            }
-        }
-        .onChange(of: document.preview) { _, nextPreview in
-            if supportsFramesStrip {
-                framesSession.refreshActiveThumbnail(from: nextPreview)
             }
         }
         .onChange(of: brushSize) { _, next in
@@ -671,6 +679,9 @@ public struct BonePaperScreen: View {
             break
         }
         BonePaperToolStore.fallbackConfig = drawingConfig
+        if supportsFramesStrip, tool != .bucket {
+            framesSession.refreshActiveThumbnail(from: document.preview)
+        }
     }
 
     private func apply() {

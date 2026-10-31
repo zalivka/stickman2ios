@@ -528,6 +528,7 @@ final class BonePaperDrawView: UIView {
     private let checker = UIView()
     private let paperView = UIView()
     private let onionView = UIImageView()
+    private weak var displayedOnion: CGImage?
     private let bitmap = UIImageView()
     private let frameLayer = CAShapeLayer()
     private let boneLayer = CAShapeLayer()
@@ -611,12 +612,15 @@ final class BonePaperDrawView: UIView {
 
     func show(_ document: BonePaperDocument) {
         onionView.frame = bounds
-        if let onion {
-            onionView.image = UIImage(cgImage: onion)
-            onionView.isHidden = false
-        } else {
-            onionView.image = nil
-            onionView.isHidden = true
+        if displayedOnion !== onion {
+            displayedOnion = onion
+            if let onion {
+                onionView.image = UIImage(cgImage: onion)
+                onionView.isHidden = false
+            } else {
+                onionView.image = nil
+                onionView.isHidden = true
+            }
         }
         let rect = bitmapRect(document)
         bitmap.frame = rect
