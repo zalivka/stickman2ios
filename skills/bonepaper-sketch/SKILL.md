@@ -2,10 +2,11 @@
 name: bonepaper-sketch
 description: >-
   The ink engine (tools/bonepaper_gen/ink.py): EDT-based
-  sketch backgrounds and wide-brush marker washes for line art and hybrid
-  pictures (solid areas + thin strokes + enclosed interior tints). Use when the
-  user says slopmax3 (old name for this engine) or sketch, asks to vectorize
-  line art or wash regions
+  sketch backgrounds and wide-brush marker washes for line art, hybrid
+  pictures (solid areas + thin strokes + enclosed interior tints), and direct
+  640x480 source SVGs (ink.py svg). Use when the
+  user says slopmax / slopmax2 / slopmax3 (old names) or sketch, asks to draw a
+  sketch scene from scratch or vectorize line art / wash regions
   without a custom build.py, or when flat.py bg --comic is the wrong tool for
   strokes-on-paper.
 ---
@@ -33,13 +34,15 @@ Needs `scipy` (see `requirements.txt`).
 | Comic with fills + ink, colour must stay exact | `flat.py bg --comic` |
 | Line art / hybrid (hair fills + thin face strokes + washes) | **`ink.py sketch`** |
 | Shaded photo of an object on white paper (`pirate_roller`) | Extract silhouette boundary + DoG internal seams → **`ink.py sketch --tint`** |
-| Nothing to trace (draw from shapes) | `draw` — see [bonepaper-draw](../bonepaper-draw/SKILL.md) |
+| New sketch scene / background drawn from scratch (`spb_bridge`, `whale_shark`) | Author `src.svg` (640×480) → **`ink.py svg src.svg`** |
+| New flat-style item built from shapes | `draw` — see [bonepaper-draw](../bonepaper-draw/SKILL.md) |
 
 ## Commands
 
 | Job | Command | Writes |
 |-----|---------|--------|
-| Sketch | `ink.py sketch src.png -o out/name/name.zip` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `compare.png`, `edt_split.png`, `pockets.png` |
+| Direct SVG sketch | `ink.py svg src.svg -o out/name/name.zip [--wash-opacity 0.85 --slop 0.75]` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `src_svg.png`, `compare.png` |
+| Sketch from bitmap | `ink.py sketch src.png -o out/name/name.zip` | `bg.png` 1280×960, `bg.svg`, `thumb.png`, zip, `compare.png`, `edt_split.png`, `pockets.png` |
 | Sketch + hair wash | `ink.py sketch src.png --wash -o out/name/name.zip` | same; hair-scale ink regions get pale wide-brush hatch |
 | Sketch + wash + auto pocket tint | `ink.py sketch src.png --wash --auto-tint -o out/name/name.zip` | same; auto-colors all enclosed pockets from source RGB + `--skin-tint` for white pockets |
 | Sketch + wash + face tint | `ink.py sketch src.png --wash --tint "#FCE4DC" -o out/name/name.zip` | same; enclosed face/body paper pocket washed under ink |
@@ -86,6 +89,21 @@ Options:
    - Glues split branches when width jump `< 2.0 px`; preserves isolated short features (`nose` ticks) via tangent stretch while dropping junction crumbs.
 8. **Ink-budget gate (`ink_budget`)**: 8×8 grid comparison against fitted source (`luma < 200` in wash mode, `max < 90` in solid mode); loud fail on >2.5× drift.
 
+## Authoring a scene from scratch (`ink.py svg`)
+
+When drawing a new sketch background without a source bitmap (`out/spb_bridge`, `out/whale_shark`), write a 640×480 `src.svg` and run `.venv/bin/python ink.py svg out/<name>/src.svg -o out/<name>/<name>.zip --wash-opacity 0.85 --slop 0.75`. Follow these rules on the first pass:
+
+1. **Leave the sky as paper**: the first full-page `<rect width="640" height="480" fill="#HEX"/>` becomes the unhatched paper colour. Never put large filled `<rect>` or `<polygon>` bands across the sky — `hatch_region` washes them with a `<=16 px` brush and turns the sky into corduroy stripes. Suggest horizon glow or clouds with 2–4 wide, low-opacity open strokes (`stroke-width="12..16" stroke-opacity="0.45"`).
+2. **Value contrast first**: dark focal silhouettes (`luma < 60`) must sit against light paper or pale water (`luma > 130`), never dark-on-dark.
+3. **Sparse detail strokes**: every open `<path>`/`<line>` is clamped to `size >= 2.0 px` with hand wobble. Dense lattices, window grids, or 15+ reflection lines blur into a muddy wash that erases the underlying polygon fill. Use 3–5 bold strokes (`>= 12 px` apart) instead of fine cross-hatching.
+4. **SVG attributes understood by `_load_svg_scene`**:
+   - Hex colours only (`#RRGGBB`).
+   - `data-wash="stamp"` on small features (`short < 18 px`: windows, lamps, moon, distant spires, spots) so they stamp cleanly instead of being inset and hatched.
+   - `data-angle="DEG"` on filled polygons to control hatch direction (e.g. `0` for horizontal water/buildings, or the limb angle for angled beams).
+   - `data-role="outline"|"detail"` to mark linework. `ink.py svg --nooutlines` drops every `outline` item and keeps washes, stamps and `detail`. Tag contours and black structural lines `outline`; a blanket "skip black strokes" would also delete birds and lamp posts.
+5. **Occlusion is painter's order, not masking**: an element in front of another does not hide it. Background detail (lit windows, cornices) drawn after a foreground object paints straight through it. Cut those strokes against the foreground silhouette in the authoring script (`difference()`), and keep the foreground's own strokes in a separate list so the silhouette never clips itself. A pale opaque bar on a dark object reads as light shining through it — use the object's own colour, not white or gold.
+6. **Fast inspection**: `ink.py svg` writes `src_svg.png`, `bg.png`, and `compare.png` in ~1.5 s. Read `bg.png` directly — do not write temporary crop/ASCII scripts. **Render "after" images to fresh paths** (`v2/`): overwriting the same `bg.png` lets an IDE preview show the stale picture, and you will wrongly report a fix.
+
 ## Do not
 
 - Write a per-picture `build.py` for line art, hybrid ink+fill, or face/hair washes — run `ink.py sketch`.
@@ -94,6 +112,7 @@ Options:
 - Wash small regions (`short < 70`) with a wide brush or slice un-inset polygons.
 - Tint every white pocket from the log. A pocket between two strokes that nearly touch (stem and leaf, arm and body) is the gap, not the interior. See the reference.
 - Fill an interior darker than luma ~90 on white paper. `ink_hysteresis` keeps `luma < 90` once it touches a `luma < 55` stroke, so the fill is ink, not a pocket. `#4a3428` (luma ~57) and `#6b4226` (luma ~82) became black stamps; `#8d5a32` (luma ~101) stayed a pocket. A second dark mark inside the same outline welds into that blob. A highlight that should only shift the median colour is `stroke="none"`.
+- Emit a stroke shorter than `hand.py`'s `SLOP = 12`. It raises `hand: stroke shorter than slop` and aborts the whole render — and if the previous `bg.png` is still on disk the run looks successful. Keep authored ticks >= 14 px, and drop sub-14 px remnants from any clip rather than letting them reach the hand.
 - Omit the source stroke to hide an outline. No closed ink means no pocket and no wash. Sketch with the stroke, then delete the unwanted `<polyline stroke="#222222">` from `bg.svg` and re-raster.
 - Drop a whole polyline because part of it is unwanted. `glue_chains` joins touching outlines into one `points` list (a log chained onto a puff). Split at the boundary and keep the run you want.
 - Treat `painted 0` as a missed seed. The pocket was found; every hatch stroke was shorter than 15 px, or a `--tint-size` bigger than the short side inset the shape to nothing. A ~23 px log painted 0 at size 14 and painted at size 8.

@@ -33,6 +33,8 @@ Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. T
 
 `pack:item` resolves `newstickman` or `zalivka.newstickman` to exactly one `at_elements/packs/*.atp`, then reads `items/<item>.ati`.
 
+**The contour ring is drawn by `out/bluehairsvg/build.py`, which is gitignored** (`.gitignore` ignores `tools/bonepaper_gen/out/`). So `--nooutlines` is only half a feature in git: `flat.py` passes `outlines=` to `brush_svg`, but the `brush_svg` edit that honours it lives in the ignored tracer. A clean checkout has the flag and no effect. When vendoring or regenerating that tracer, carry `brush_svg(png, shapes, seed, outlines=True)` with it, or drop the flag rather than ship one that lies.
+
 Options:
 
 | Option | Use |
@@ -40,6 +42,7 @@ Options:
 | `--color-merge DIST` | Merge colour centres closer than DIST (default 36). Gray 128 on 160 (moon craters) and gray rocks on a cream sky need 16. |
 | `--bone-class ink\|line\|color` | Force the bone class for every bitmap when the auto test is wrong. Not on `bg`. |
 | `--skip-unit UNIT` | Scene only. Leave that base unit name untouched (no trace, no scale change). Repeatable. |
+| `--nooutlines` | `bg` only. Keep every flat colour fill (`_stamp`, `_fill_inside`) and draw no contour ring — neither the compact closed ring nor the elongated limb stroke. Also `-nooutlines` / `--no-outlines`. |
 | `--deploy DEVICE` | `devicectl` copy to the at_elements container: `.ats` to `saved/`, `.ati` to `customs/`, background to `bgs/<millis>.zip` (`usermade:<millis>`). Runs outside the sandbox. Do not build. |
 | `-o, --output` | `item`/`draw`: output directory. `scene`: the `.ats` path. `bg`: the `.zip` path. |
 

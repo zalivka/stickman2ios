@@ -1205,7 +1205,7 @@ def _elem_style(el, inherited: dict) -> dict:
     for k in ("fill", "stroke", "stroke-width", "opacity", "fill-opacity", "stroke-opacity"):
         if k in el.attrib:
             st[k] = el.attrib[k].strip()
-    for k in ("data-angle", "data-wash"):
+    for k in ("data-angle", "data-wash", "data-role"):
         if k in el.attrib:
             st[k] = el.attrib[k].strip()
         elif k in st and el.tag.split("}")[-1] not in ("svg", "g"):
@@ -1288,6 +1288,7 @@ def _load_svg_scene(svg_path: Path):
       stroke_opacity: float
       angle: float | None  (optional data-angle override)
       wash_mode: str | None (optional data-wash='stamp'|'hatch')
+      role: str | None (optional data-role='outline'|'detail')
     """
     tree = ET.parse(svg_path)
     root = tree.getroot()
@@ -1325,6 +1326,7 @@ def _load_svg_scene(svg_path: Path):
         stroke_op = op * float(st.get("stroke-opacity", "1.0"))
         ang = (float(st["data-angle"]) + _svg_rotation_deg(cur_tf)) if "data-angle" in st else None
         wash_mode = st.get("data-wash") or inherited.get("data-wash")
+        role = st.get("data-role") or inherited.get("data-role")
 
         geoms = []
         if tag == "rect":
@@ -1410,13 +1412,14 @@ def _load_svg_scene(svg_path: Path):
                         items.append({
                             "kind": "poly", "geom": part, "fill": fill, "stroke": stroke,
                             "stroke_width": sw, "fill_opacity": fill_op, "stroke_opacity": stroke_op,
-                            "angle": ang, "wash_mode": wash_mode,
+                            "angle": ang, "wash_mode": wash_mode, "role": role,
                         })
             elif kind == "line" and g.length >= 1.5:
                 items.append({
                     "kind": "line", "geom": g, "fill": None, "stroke": stroke or fill,
                     "stroke_width": sw if sw > 0 else 3.0, "fill_opacity": fill_op,
                     "stroke_opacity": stroke_op, "angle": ang, "wash_mode": wash_mode,
+                    "role": role,
                 })
 
     walk(root, {"fill": "#000000", "stroke": "none", "stroke-width": "3"}, "")
@@ -1453,7 +1456,7 @@ def _emit_hand_line(hand: Hand, scene: svg_export.Scene, pts: list[tuple[float, 
 
 def svg_sketch(src_svg: Path, out: Path, name: str, slop: float = 0.65,
                wash_opacity: float = 0.68, tint_size: float = 16.0,
-               occlude_fills: bool = True) -> Path:
+               occlude_fills: bool = True, outlines: bool = True) -> Path:
     """Direct SVG -> BonePaper sketch without rasterization or pixel tracing.
 
     1. Parses vector shapes and strokes directly from a 640x480 SVG.
@@ -1461,6 +1464,8 @@ def svg_sketch(src_svg: Path, out: Path, name: str, slop: float = 0.65,
        part's short side, or stamping tiny dots/spots directly so they never
        vanish as `painted 0` or crash `hand.py` SLOP).
     3. Draws polygon outlines and open curves/lines on top with `hand.stroke`.
+       `outlines=False` skips every item whose `data-role="outline"`, which is
+       how the author marks linework; washes and stamp fills stay.
     """
     paper, items = _load_svg_scene(src_svg)
     if not items:
@@ -1581,10 +1586,13 @@ def svg_sketch(src_svg: Path, out: Path, name: str, slop: float = 0.65,
                     stamps += 1
 
     # --- 2. Outlines & strokes pass (top layer, in SVG painter's order) --------
+    # `--nooutlines` drops only the author-tagged linework (data-role="outline").
     ink_strokes = 0
     for idx, it in enumerate(items):
         stroke_col = it["stroke"]
         if not stroke_col or it["stroke_width"] <= 0:
+            continue
+        if not outlines and it["role"] == "outline":
             continue
         old_op = hand.opacity
         hand.opacity = float(np.clip(it["stroke_opacity"], 0.08, 1.0))
@@ -1675,6 +1683,8 @@ def main(argv=None):
                     help="max brush width for polygon washes (default 16)")
     sv.add_argument("--no-occlude", action="store_true",
                     help="do not subtract upper polygons from lower washes")
+    sv.add_argument("--nooutlines", "--no-outlines", "-nooutlines", dest="outlines", action="store_false",
+                    help="draw no data-role=\"outline\" linework; washes and stamp fills stay")
     sv.add_argument("--deploy", metavar="DEVICE", help="devicectl device id; run outside the sandbox")
 
     args = p.parse_args(argv)
@@ -1697,7 +1707,7 @@ def main(argv=None):
         zip_path = svg_sketch(
             args.src, args.out, name, slop=args.slop,
             wash_opacity=args.wash_opacity, tint_size=args.tint_size,
-            occlude_fills=not args.no_occlude,
+            occlude_fills=not args.no_occlude, outlines=args.outlines,
         )
         if args.deploy:
             flat.deploy(args.deploy, zip_path, f"bgs/{int(time.time() * 1000)}.zip")
