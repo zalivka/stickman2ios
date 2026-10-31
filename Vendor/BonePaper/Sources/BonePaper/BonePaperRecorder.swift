@@ -134,6 +134,34 @@ final class BonePaperRecorder {
         pendingRaw = []
     }
 
+    func beginBrushfill(color: UIColor, opacity: CGFloat) {
+        if open != nil {
+            fatalError("BonePaperRecorder beginBrushfill with an open stroke")
+        }
+        open = Op(
+            op: "brushfill",
+            t: now(),
+            input: pendingInput,
+            color: BonePaperColorStore.hex(from: color),
+            opacity: Self.round(opacity, 1000),
+            zoom: Self.round(zoom, 1000),
+            points: [],
+            raw: pendingRaw
+        )
+        pendingRaw = []
+    }
+
+    func brushfillLine(from start: CGPoint, to end: CGPoint) {
+        guard var stroke = open, stroke.op == "brushfill" else {
+            fatalError("BonePaperRecorder brushfillLine with no open brushfill stroke")
+        }
+        if stroke.points?.isEmpty == true {
+            stroke.points?.append(Self.row(start, t: now()))
+        }
+        stroke.points?.append(Self.row(end, t: now()))
+        open = stroke
+    }
+
     func dot(at point: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
         guard var stroke = open, let points = stroke.points else {
             fatalError("BonePaperRecorder dot with no open stroke")

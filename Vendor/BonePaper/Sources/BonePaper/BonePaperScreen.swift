@@ -5,14 +5,19 @@ public struct BonePaperScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var document: BonePaperDocument
-    @State private var tool: BonePaperTool = UIColor(BonePaperToolStore.color).cgColor.alpha == 0 ? .fill : .pen
+    @State private var tool: BonePaperTool = UIColor(BonePaperToolStore.color).cgColor.alpha == 0 ? .bucket : .pen
+    @State private var fillMode: BonePaperTool = .bucket
     @State private var color: Color = BonePaperToolStore.color
+    @State private var activeSwatchBaseColor: Color = BonePaperToolStore.color
     @State private var brushSize: CGFloat = BonePaperToolStore.brushSize
     @State private var eraserSize: CGFloat = BonePaperToolStore.eraserSize
     @State private var opacity: CGFloat = BonePaperToolStore.opacity
     @State private var drawingConfig: BonePaperDrawingConfig
     @State private var zoom: CGFloat = 1
     @State private var showingStrokePreview = false
+    @State private var previewHideWorkItem: DispatchWorkItem?
+    @State private var activeStrokeSetting: BonePaperStrokeSetting?
+    @State private var activeSwatchTrack: BonePaperActiveSwatchTrack?
     @State private var stage = BonePaperStage()
     @State private var hoverColor: Color?
     @State private var chromeOpacity: Double
@@ -183,16 +188,32 @@ public struct BonePaperScreen: View {
                         }
                         BonePaperColorStrip(
                             color: $color,
+                            activeSwatchBaseColor: $activeSwatchBaseColor,
                             hover: $hoverColor,
+                            activeTrack: $activeSwatchTrack,
                             itemPalette: drawingConfig.palette,
+                            drawingConfig: drawingConfig,
                             stage: stage,
-                            onPick: {
-                                if tool != .fill {
+                            onPick: { _ in
+                                if tool != .bucket, tool != .brushfill {
                                     tool = .pen
                                 }
                             },
                             onPickTransparent: {
-                                tool = .fill
+                                fillMode = .bucket
+                                tool = .bucket
+                            },
+                            onSeekingBrightness: { dragging in
+                                if dragging {
+                                    activeStrokeSetting = nil
+                                    previewHideWorkItem?.cancel()
+                                    showingStrokePreview = true
+                                } else {
+                                    flashStrokePreview()
+                                }
+                            },
+                            onFlashPreview: {
+                                flashStrokePreview()
                             }
                         )
                     }
@@ -204,9 +225,11 @@ public struct BonePaperScreen: View {
                 .overlay(alignment: .bottomLeading) {
                     BonePaperStrokeControls(
                         tool: $tool,
+                        fillMode: $fillMode,
                         brushSize: $brushSize,
                         eraserSize: $eraserSize,
                         opacity: $opacity,
+                        activeSetting: $activeStrokeSetting,
                         brushMarks: drawingConfig.brushSizes,
                         opacityMarks: drawingConfig.opacities,
                         eraserMarks: drawingConfig.eraserSizes,
@@ -215,7 +238,27 @@ public struct BonePaperScreen: View {
                         canRedo: document.canRedo,
                         onRedo: document.redo,
                         color: color,
-                        onSeeking: { showingStrokePreview = $0 }
+                        onToggleFillMode: {
+                            fillMode = fillMode == .bucket ? .brushfill : .bucket
+                            if fillMode == .brushfill, UIColor(color).cgColor.alpha == 0 {
+                                color = .black
+                                activeSwatchBaseColor = .black
+                            }
+                            tool = fillMode
+                        },
+                        onSeeking: { dragging in
+                            if dragging {
+                                activeSwatchTrack = nil
+                                previewHideWorkItem?.cancel()
+                                showingStrokePreview = true
+                            } else {
+                                previewHideWorkItem?.cancel()
+                                showingStrokePreview = false
+                            }
+                        },
+                        onFlashPreview: {
+                            flashStrokePreview()
+                        }
                     )
                     .padding(.bottom, safe.bottom)
                     .offset(x: -safe.leading)
@@ -268,20 +311,61 @@ public struct BonePaperScreen: View {
         }
         .onChange(of: color) { _, next in
             BonePaperToolStore.color = next
+            if UIColor(next).cgColor.alpha == 0 {
+                fillMode = .bucket
+                if tool == .brushfill {
+                    tool = .bucket
+                }
+            }
+        }
+        .onChange(of: activeStrokeSetting) { _, next in
+            if next != nil {
+                activeSwatchTrack = nil
+            }
+        }
+        .onChange(of: activeSwatchTrack) { _, next in
+            if next != nil {
+                activeStrokeSetting = nil
+            }
         }
     }
 
+    private func flashStrokePreview() {
+        previewHideWorkItem?.cancel()
+        showingStrokePreview = true
+        let work = DispatchWorkItem {
+            showingStrokePreview = false
+        }
+        previewHideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+    }
+
     private func recordCommittedStroke() {
+        let activeUIColor = UIColor(color)
+        let baseUIColor = UIColor(activeSwatchBaseColor)
+        let paletteUIColor: UIColor = {
+            if activeUIColor.cgColor.alpha == 0 {
+                return activeUIColor
+            }
+            if baseUIColor.cgColor.alpha > 0,
+               BonePaperDrawingConfig.hueKey(for: baseUIColor) == BonePaperDrawingConfig.hueKey(for: activeUIColor) {
+                return baseUIColor
+            }
+            return activeUIColor
+        }()
+
         switch tool {
         case .pen:
-            let uiColor = UIColor(color)
-            guard uiColor.cgColor.alpha > 0 else { return }
-            let hex = BonePaperColorStore.hex(from: uiColor)
+            guard activeUIColor.cgColor.alpha > 0 else { return }
+            let hex = BonePaperColorStore.hex(from: paletteUIColor)
             drawingConfig.recordPenOrFill(colorHex: hex, brushSize: brushSize, opacity: opacity)
-        case .fill:
-            let uiColor = UIColor(color)
-            let hex = uiColor.cgColor.alpha > 0 ? BonePaperColorStore.hex(from: uiColor) : nil
+            drawingConfig.recordColorBrightness(baseColor: paletteUIColor, activeColor: activeUIColor)
+        case .bucket, .brushfill:
+            let hex = activeUIColor.cgColor.alpha > 0 ? BonePaperColorStore.hex(from: paletteUIColor) : nil
             drawingConfig.recordPenOrFill(colorHex: hex, brushSize: nil, opacity: opacity)
+            if activeUIColor.cgColor.alpha > 0 {
+                drawingConfig.recordColorBrightness(baseColor: paletteUIColor, activeColor: activeUIColor)
+            }
         case .eraser:
             drawingConfig.recordEraser(eraserSize: eraserSize)
         case .pan:

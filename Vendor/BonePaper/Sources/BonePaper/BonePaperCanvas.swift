@@ -272,7 +272,13 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
             path.addLine(to: CGPoint(x: targetStage.x + cross, y: targetStage.y))
             path.move(to: CGPoint(x: targetStage.x, y: targetStage.y - cross))
             path.addLine(to: CGPoint(x: targetStage.x, y: targetStage.y + cross))
-        case .fill, .pan:
+        case .brushfill:
+            let cross: CGFloat = 5
+            path.move(to: CGPoint(x: targetStage.x - cross, y: targetStage.y))
+            path.addLine(to: CGPoint(x: targetStage.x + cross, y: targetStage.y))
+            path.move(to: CGPoint(x: targetStage.x, y: targetStage.y - cross))
+            path.addLine(to: CGPoint(x: targetStage.x, y: targetStage.y + cross))
+        case .bucket, .pan:
             let radius: CGFloat = 6
             let cross: CGFloat = 9
             path.addEllipse(in: CGRect(
@@ -318,7 +324,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         }
         let rawStage = convert(point, from: nil)
         let targetStage = CGPoint(x: rawStage.x, y: rawStage.y - BonePaperFlags.brushOffset)
-        updateOffsetCursor(atStage: targetStage, tool: .fill, brushSize: paper.brushSize)
+        updateOffsetCursor(atStage: targetStage, tool: .bucket, brushSize: paper.brushSize)
         let local = paper.convert(targetStage, from: self)
         let world = CGFloat(document.worldSize)
         let at = CGPoint(x: local.x / side * world, y: local.y / side * world)
@@ -653,7 +659,7 @@ final class BonePaperDrawView: UIView {
         lastWorld = start
         strokeStartWorld = start
         leftCloseZone = false
-        if tool == .fill {
+        if tool == .bucket {
             return
         }
         pendingView = touch.location(in: self)
@@ -669,7 +675,7 @@ final class BonePaperDrawView: UIView {
         updateStageCursor(for: touch)
         document.recorder.touchMoved(samples(touch, event))
         let point = worldPoint(touch)
-        if tool == .fill {
+        if tool == .bucket {
             lastWorld = point
             return
         }
@@ -683,7 +689,15 @@ final class BonePaperDrawView: UIView {
             if hypot(dx, dy) < slop {
                 return
             }
-            if tool == .pen, color.cgColor.alpha == 0 {
+            if (tool == .pen || tool == .brushfill), color.cgColor.alpha == 0 {
+                return
+            }
+            if tool == .brushfill {
+                document.beginBrushfillStroke(color: color, opacity: opacity)
+                stroking = true
+                strokeStartWorld = startWorld
+                document.stampBrushfillWorld(from: startWorld, to: point)
+                lastWorld = point
                 return
             }
             document.beginStroke(erase: tool == .eraser, opacity: opacity)
@@ -698,6 +712,11 @@ final class BonePaperDrawView: UIView {
             return
         }
         guard let last = lastWorld else { return }
+        if tool == .brushfill {
+            document.stampBrushfillWorld(from: last, to: point)
+            lastWorld = point
+            return
+        }
         if !leftCloseZone, let startWorld = strokeStartWorld,
            hypot(point.x - startWorld.x, point.y - startWorld.y) > closeThresholdWorld {
             leftCloseZone = true
@@ -742,7 +761,7 @@ final class BonePaperDrawView: UIView {
             stroking = false
             return
         }
-        if tool == .fill {
+        if tool == .bucket {
             if let point = lastWorld {
                 let fill: BonePaperFill = color.cgColor.alpha == 0
                     ? .clear

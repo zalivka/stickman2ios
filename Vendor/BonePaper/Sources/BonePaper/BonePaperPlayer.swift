@@ -149,6 +149,7 @@ final class BonePaperPlayer: ObservableObject {
         var color: UIColor
         var size: CGFloat
         var erase: Bool
+        var brushfill: Bool = false
         var opacity: CGFloat
         var cancel: Bool
     }
@@ -308,18 +309,29 @@ final class BonePaperPlayer: ObservableObject {
             case .stroke(let s):
                 if stamped == 0 {
                     if clock < s.times[0] { return }
-                    document.beginStroke(erase: s.erase, opacity: s.opacity)
-                    document.stampDotWorld(at: s.points[0], color: s.color, size: s.size, erase: s.erase)
+                    if s.brushfill {
+                        document.beginBrushfillStroke(color: s.color, opacity: s.opacity)
+                    } else {
+                        document.beginStroke(erase: s.erase, opacity: s.opacity)
+                        document.stampDotWorld(at: s.points[0], color: s.color, size: s.size, erase: s.erase)
+                    }
                     stamped = 1
                 }
                 while stamped < s.points.count, s.times[stamped] <= clock {
-                    document.stampWorld(
-                        from: s.points[stamped - 1],
-                        to: s.points[stamped],
-                        color: s.color,
-                        size: s.size,
-                        erase: s.erase
-                    )
+                    if s.brushfill {
+                        document.stampBrushfillWorld(
+                            from: s.points[stamped - 1],
+                            to: s.points[stamped]
+                        )
+                    } else {
+                        document.stampWorld(
+                            from: s.points[stamped - 1],
+                            to: s.points[stamped],
+                            color: s.color,
+                            size: s.size,
+                            erase: s.erase
+                        )
+                    }
                     stamped += 1
                 }
                 if stamped < s.points.count { return }
@@ -422,9 +434,9 @@ final class BonePaperPlayer: ObservableObject {
             let start: Double
             let end: Double
             switch op.op {
-            case "stroke":
+            case "stroke", "brushfill":
                 guard let points = op.points, points.count >= 1 else {
-                    fatalError("BonePaperPlayer stroke at \(op.t) has no points")
+                    fatalError("BonePaperPlayer \(op.op) at \(op.t) has no points")
                 }
                 start = points[0][2]
                 end = points[points.count - 1][2]
@@ -464,6 +476,22 @@ final class BonePaperPlayer: ObservableObject {
                     color: color,
                     size: CGFloat(size),
                     erase: erase,
+                    opacity: CGFloat(opacity),
+                    cancel: op.end == "cancel"
+                )))
+            case "brushfill":
+                let points = op.points ?? []
+                guard let hex = op.color, let opacity = op.opacity else {
+                    fatalError("BonePaperPlayer brushfill at \(op.t) without colour or opacity")
+                }
+                let color = UIColor(BonePaperColorStore.color(from: hex))
+                steps.append(.stroke(Stroke(
+                    points: points.map { CGPoint(x: $0[0] + offset.x, y: $0[1] + offset.y) },
+                    times: points.map { played($0[2]) },
+                    color: color,
+                    size: 1,
+                    erase: false,
+                    brushfill: true,
                     opacity: CGFloat(opacity),
                     cancel: op.end == "cancel"
                 )))

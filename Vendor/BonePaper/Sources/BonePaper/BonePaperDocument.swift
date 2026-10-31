@@ -5,7 +5,8 @@ enum BonePaperTool {
     case pen
     case pan
     case eraser
-    case fill
+    case bucket
+    case brushfill
 }
 
 enum BonePaperFill {
@@ -94,6 +95,12 @@ public final class BonePaperDocument: ObservableObject {
     private var stroke: CGContext
     private var composite: CGContext
     private var strokeLive = false
+    private var brushfillLive = false
+    private var brushfillPath = CGMutablePath()
+    private var brushfillLastPoint: CGPoint = .zero
+    private var brushfillHasDot = false
+    private var brushfillHasSegment = false
+    private var brushfillColor: UIColor = .black
     private var strokeOpacity: CGFloat = 1
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
@@ -195,6 +202,9 @@ public final class BonePaperDocument: ObservableObject {
 
     func beginStroke(erase: Bool, opacity: CGFloat) {
         if filling { return }
+        if strokeLive || brushfillLive {
+            fatalError("BonePaperDocument beginStroke during an open stroke")
+        }
         recorder.begin(erase: erase, opacity: opacity)
         lastFillOperation = nil
         pushUndo()
@@ -212,6 +222,29 @@ public final class BonePaperDocument: ObservableObject {
         publishStacks()
     }
 
+    func beginBrushfillStroke(color: UIColor, opacity: CGFloat) {
+        if filling { return }
+        if strokeLive || brushfillLive {
+            fatalError("BonePaperDocument beginBrushfillStroke during an open stroke")
+        }
+        if opacity <= 0 {
+            fatalError("BonePaperDocument stroke opacity is \(opacity)")
+        }
+        recorder.beginBrushfill(color: color, opacity: opacity)
+        lastFillOperation = nil
+        pushUndo()
+        redoStack.removeAll()
+        stroke.clear(pixelRect)
+        brushfillPath = CGMutablePath()
+        brushfillLastPoint = .zero
+        brushfillHasDot = false
+        brushfillHasSegment = false
+        brushfillLive = true
+        strokeOpacity = opacity
+        brushfillColor = color.withAlphaComponent(1)
+        publishStacks()
+    }
+
     func endStroke() {
         if filling { return }
         recorder.end()
@@ -225,6 +258,26 @@ public final class BonePaperDocument: ObservableObject {
             context.restoreGState()
             stroke.clear(pixelRect)
             strokeLive = false
+        } else if brushfillLive {
+            if brushfillHasSegment {
+                brushfillPath.addLine(to: brushfillLastPoint)
+                brushfillHasSegment = false
+            }
+            brushfillPath.closeSubpath()
+            if !brushfillPath.isEmpty {
+                context.saveGState()
+                context.setShouldAntialias(BonePaperFlags.antialiasing)
+                context.setAlpha(strokeOpacity)
+                context.setFillColor(brushfillColor.cgColor)
+                context.addPath(brushfillPath)
+                context.fillPath()
+                context.restoreGState()
+            }
+            stroke.clear(pixelRect)
+            brushfillPath = CGMutablePath()
+            brushfillHasDot = false
+            brushfillHasSegment = false
+            brushfillLive = false
         }
         publishPreview()
     }
@@ -238,6 +291,10 @@ public final class BonePaperDocument: ObservableObject {
         }
         recorder.cancel()
         strokeLive = false
+        brushfillLive = false
+        brushfillPath = CGMutablePath()
+        brushfillHasDot = false
+        brushfillHasSegment = false
         stroke.clear(pixelRect)
         restore(snapshot)
         publishStacks()
@@ -266,10 +323,63 @@ public final class BonePaperDocument: ObservableObject {
         }
     }
 
+    func stampBrushfillWorld(from start: CGPoint, to end: CGPoint) {
+        if filling { return }
+        if !brushfillLive {
+            fatalError("BonePaperDocument brushfill stamp with no live brushfill stroke")
+        }
+        recorder.brushfillLine(from: start, to: end)
+        var a = bitmapFromWorld(start)
+        var b = bitmapFromWorld(end)
+        let shift = ensureFits(points: [a, b], radius: 2)
+        if shift.dx != 0 || shift.dy != 0 {
+            let scale = CGFloat(Self.sample)
+            var t = CGAffineTransform(translationX: shift.dx * scale, y: shift.dy * scale)
+            if let shifted = brushfillPath.mutableCopy(using: &t) {
+                brushfillPath = shifted
+            }
+            brushfillLastPoint.x += shift.dx * scale
+            brushfillLastPoint.y += shift.dy * scale
+            a.x += shift.dx
+            a.y += shift.dy
+            b.x += shift.dx
+            b.y += shift.dy
+        }
+        let p0 = sampledPoint(a)
+        let p1 = sampledPoint(b)
+        if !brushfillHasDot {
+            brushfillHasDot = true
+            brushfillPath.move(to: p0)
+        }
+        let mid = CGPoint(x: (p0.x + p1.x) * 0.5, y: (p0.y + p1.y) * 0.5)
+        brushfillPath.addQuadCurve(to: mid, control: p0)
+        brushfillLastPoint = p1
+        brushfillHasSegment = true
+        rasterizeBrushfillPreview()
+    }
+
+    private func rasterizeBrushfillPreview() {
+        stroke.clear(pixelRect)
+        guard brushfillHasSegment, let drawPath = brushfillPath.mutableCopy() else {
+            publishPreview()
+            return
+        }
+        drawPath.addLine(to: brushfillLastPoint)
+        drawPath.closeSubpath()
+        stroke.saveGState()
+        stroke.setShouldAntialias(BonePaperFlags.antialiasing)
+        stroke.setBlendMode(.normal)
+        stroke.setFillColor(brushfillColor.cgColor)
+        stroke.addPath(drawPath)
+        stroke.fillPath()
+        stroke.restoreGState()
+        publishPreview()
+    }
+
     /// Paint-bucket tap. The same operation in a row loosens skip/neighbour/ink; a different operation, stroke, undo or redo resets.
     func fillWorld(at world: CGPoint, fill: BonePaperFill) {
         if filling { return }
-        if strokeLive {
+        if strokeLive || brushfillLive {
             endStroke()
         }
         let px = Int(floor((world.x - CGFloat(originX)) * CGFloat(Self.sample)))
@@ -377,7 +487,7 @@ public final class BonePaperDocument: ObservableObject {
 
     func undo() {
         if filling { return }
-        if strokeLive {
+        if strokeLive || brushfillLive {
             endStroke()
         }
         guard let previous = undoStack.popLast() else { return }
@@ -390,7 +500,7 @@ public final class BonePaperDocument: ObservableObject {
 
     func redo() {
         if filling { return }
-        if strokeLive {
+        if strokeLive || brushfillLive {
             endStroke()
         }
         guard let next = redoStack.popLast() else { return }
@@ -405,7 +515,7 @@ public final class BonePaperDocument: ObservableObject {
         if filling {
             fatalError("BonePaperDocument export during fill")
         }
-        if strokeLive {
+        if strokeLive || brushfillLive {
             endStroke()
         }
         guard let committed = context.makeImage() else {
@@ -436,7 +546,7 @@ public final class BonePaperDocument: ObservableObject {
         if filling {
             fatalError("BonePaperDocument export during fill")
         }
-        if strokeLive {
+        if strokeLive || brushfillLive {
             endStroke()
         }
         guard let image = context.makeImage() else {
@@ -646,7 +756,7 @@ public final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument committed snapshot failed")
         }
         composite.draw(committed, in: pixelRect)
-        if strokeLive {
+        if strokeLive || brushfillLive {
             guard let layer = stroke.makeImage() else {
                 fatalError("BonePaperDocument stroke snapshot failed")
             }
