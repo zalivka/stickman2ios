@@ -32,7 +32,7 @@ public struct BonePaperFrameInput {
 }
 
 public struct BonePaperFrameSnapshot: Identifiable {
-    public var id: Int { state }
+    public let id = UUID()
     public var state: Int
     public var weight: Int
     public var buffer: CGImage
@@ -311,6 +311,31 @@ public final class BonePaperFramesSession: ObservableObject {
             )
         }
         return target.drawingConfig
+    }
+
+    public func moveFrame(
+        from sourceIndex: Int,
+        to destinationIndex: Int,
+        syncing document: BonePaperDocument,
+        currentConfig: BonePaperDrawingConfig
+    ) {
+        guard frames.indices.contains(sourceIndex),
+              frames.indices.contains(destinationIndex),
+              sourceIndex != destinationIndex else {
+            return
+        }
+        syncActiveFrame(from: document, drawingConfig: currentConfig)
+        let selectedID = frames[selectedState].id
+        let item = frames.remove(at: sourceIndex)
+        frames.insert(item, at: destinationIndex)
+        for idx in frames.indices {
+            frames[idx].state = idx
+            frames[idx].weight = idx + 1
+        }
+        if let newSelected = frames.firstIndex(where: { $0.id == selectedID }) {
+            selectedState = newSelected
+        }
+        updatePreviousFrameOnion()
     }
 
     public func exportAll(

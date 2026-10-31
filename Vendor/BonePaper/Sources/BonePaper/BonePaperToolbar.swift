@@ -355,6 +355,86 @@ enum BonePaperChrome {
     }
 }
 
+struct BonePaperMenuButton: View {
+    var activated: Bool
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(uiImage: BonePaperChrome.chromeImage("main_btn_nav"))
+                .resizable()
+                .scaledToFit()
+                .frame(width: 36, height: 36)
+                .frame(width: BonePaperChrome.leftRail)
+                .padding(.vertical, 6)
+                .background(activated ? Color(white: 0.22) : Color.clear)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Menu")
+    }
+}
+
+struct BonePaperSideMenu: View {
+    static let width: CGFloat = 200
+
+    var showsFramesToggle: Bool
+    var showFrames: Bool
+    var onToggleShowFrames: () -> Void
+    var onSettings: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsFramesToggle {
+                Button(action: onToggleShowFrames) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "square.stack")
+                            .font(.system(size: 16))
+                            .frame(width: 22)
+                        Text("Show frames")
+                            .font(.system(size: 15))
+                        Spacer(minLength: 0)
+                        Image(systemName: showFrames ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(showFrames ? BonePaperChrome.selected : Color(white: 0.85))
+                    }
+                    .foregroundStyle(Color(white: 0.85))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let onSettings {
+                Button(action: onSettings) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16))
+                            .frame(width: 22)
+                        Text("Settings")
+                            .font(.system(size: 15))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Color(white: 0.85))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+        .background(BonePaperChrome.pane.ignoresSafeArea())
+        .accessibilityIdentifier("bone paper side menu")
+    }
+}
+
 struct BonePaperBackButton: View {
     var extraLeading: CGFloat = 0
     var onBack: () -> Void

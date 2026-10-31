@@ -24,6 +24,9 @@ public struct BonePaperScreen: View {
     @State private var chromeOpacity: Double
     @State private var leaving = false
     @State private var showFillWait = false
+    @State private var showingMenu = false
+    @State private var showFramesPanel: Bool
+    @State private var isRearrangingFrames = false
 
     private let boneLength: CGFloat?
     private let staticBoneStart: CGPoint?
@@ -31,9 +34,10 @@ public struct BonePaperScreen: View {
     private let onion: CGImage?
     private let paper: UIColor?
     private let placement: BonePaperPlacement?
-    private let showsFramesStrip: Bool
+    private let supportsFramesStrip: Bool
     private let onApply: ((BonePaperExport) -> Void)?
     private let onApplyFrames: (([BonePaperFrameExport], Int) -> Void)?
+    private let onSettings: (() -> Void)?
     private let onClose: (() -> Void)?
 
     public init() {
@@ -53,6 +57,7 @@ public struct BonePaperScreen: View {
         /// scaling so reopening loses no quality. A size mismatch falls back to the upscaled source.
         buffer: CGImage? = nil,
         initialDrawingConfig: BonePaperDrawingConfig? = nil,
+        onSettings: (() -> Void)? = nil,
         onApply: ((BonePaperExport) -> Void)?,
         onClose: (() -> Void)? = nil
     ) {
@@ -107,14 +112,17 @@ public struct BonePaperScreen: View {
         } else {
             self.boneLength = nil
         }
+        let hasBone = boneStart != nil && boneTip != nil
+        _showFramesPanel = State(initialValue: hasBone)
         self.staticBoneStart = boneStart
         self.staticBoneTip = boneTip
         self.onion = onion
         self.paper = nil
         self.placement = placement
-        self.showsFramesStrip = boneStart != nil && boneTip != nil
+        self.supportsFramesStrip = hasBone
         self.onApply = onApply
         self.onApplyFrames = nil
+        self.onSettings = onSettings
         self.onClose = onClose
     }
 
@@ -129,6 +137,7 @@ public struct BonePaperScreen: View {
         defaultYOffset: CGFloat = 0,
         onion: CGImage? = nil,
         placement: BonePaperPlacement? = nil,
+        onSettings: (() -> Void)? = nil,
         onApplyFrames: @escaping ([BonePaperFrameExport], Int) -> Void,
         onClose: (() -> Void)? = nil
     ) {
@@ -161,20 +170,22 @@ public struct BonePaperScreen: View {
         _document = StateObject(wrappedValue: doc)
         _drawingConfig = State(initialValue: active.drawingConfig)
         _chromeOpacity = State(initialValue: placement == nil ? 1 : 0)
+        _showFramesPanel = State(initialValue: true)
         self.boneLength = boneLength
         self.staticBoneStart = nil
         self.staticBoneTip = nil
         self.onion = onion
         self.paper = nil
         self.placement = placement
-        self.showsFramesStrip = true
+        self.supportsFramesStrip = true
         self.onApply = nil
         self.onApplyFrames = onApplyFrames
+        self.onSettings = onSettings
         self.onClose = onClose
     }
 
     /// Blank fixed page over `sheet.paper`. The export is transparent where nothing was drawn.
-    public init(sheet: BonePaperSheet, onApply: @escaping (BonePaperExport) -> Void) {
+    public init(sheet: BonePaperSheet, onSettings: (() -> Void)? = nil, onApply: @escaping (BonePaperExport) -> Void) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet))
         _framesSession = StateObject(
             wrappedValue: BonePaperFramesSession(
@@ -185,20 +196,22 @@ public struct BonePaperScreen: View {
         )
         _drawingConfig = State(initialValue: BonePaperToolStore.fallbackConfig)
         _chromeOpacity = State(initialValue: 1)
+        _showFramesPanel = State(initialValue: false)
         boneLength = nil
         staticBoneStart = nil
         staticBoneTip = nil
         onion = nil
         paper = sheet.paper
         placement = nil
-        showsFramesStrip = false
+        supportsFramesStrip = false
         self.onApply = onApply
         onApplyFrames = nil
+        self.onSettings = onSettings
         onClose = nil
     }
 
     /// Blank page for drawing only. Apply stays visible and does nothing.
-    public init(sheet: BonePaperSheet) {
+    public init(sheet: BonePaperSheet, onSettings: (() -> Void)? = nil) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet))
         _framesSession = StateObject(
             wrappedValue: BonePaperFramesSession(
@@ -209,20 +222,22 @@ public struct BonePaperScreen: View {
         )
         _drawingConfig = State(initialValue: BonePaperToolStore.fallbackConfig)
         _chromeOpacity = State(initialValue: 1)
+        _showFramesPanel = State(initialValue: false)
         boneLength = nil
         staticBoneStart = nil
         staticBoneTip = nil
         onion = nil
         paper = sheet.paper
         placement = nil
-        showsFramesStrip = false
+        supportsFramesStrip = false
         onApply = nil
         onApplyFrames = nil
+        self.onSettings = onSettings
         onClose = nil
     }
 
     /// Same sheet as a blank page, with `buffer` already in the paint buffer.
-    public init(sheet: BonePaperSheet, buffer: CGImage, onApply: @escaping (BonePaperExport) -> Void) {
+    public init(sheet: BonePaperSheet, buffer: CGImage, onSettings: (() -> Void)? = nil, onApply: @escaping (BonePaperExport) -> Void) {
         _document = StateObject(wrappedValue: BonePaperDocument(sheet: sheet, buffer: buffer))
         _framesSession = StateObject(
             wrappedValue: BonePaperFramesSession(
@@ -233,15 +248,17 @@ public struct BonePaperScreen: View {
         )
         _drawingConfig = State(initialValue: BonePaperToolStore.fallbackConfig)
         _chromeOpacity = State(initialValue: 1)
+        _showFramesPanel = State(initialValue: false)
         boneLength = nil
         staticBoneStart = nil
         staticBoneTip = nil
         onion = nil
         paper = sheet.paper
         placement = nil
-        showsFramesStrip = false
+        supportsFramesStrip = false
         self.onApply = onApply
         onApplyFrames = nil
+        self.onSettings = onSettings
         onClose = nil
     }
 
@@ -274,7 +291,10 @@ public struct BonePaperScreen: View {
         GeometryReader { geo in
             let safe = geo.safeAreaInsets
             let topClearance: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 0 : safe.top
-            let stripWidth: CGFloat = showsFramesStrip ? BonePaperFramesStrip.width : 0
+            let menuTopOffset: CGFloat = 48
+            let isStripVisible = supportsFramesStrip && showFramesPanel
+            let stripWidth: CGFloat = isStripVisible ? BonePaperFramesStrip.width(rearranging: isRearrangingFrames) : 0
+            let backExtraLeading: CGFloat = showingMenu ? BonePaperSideMenu.width : stripWidth
             var fit = BonePaperChrome.fitInsets(safe: safe, topClearance: topClearance)
             let _ = { fit.left += stripWidth }()
             ZStack {
@@ -305,9 +325,10 @@ public struct BonePaperScreen: View {
                 }
                 .ignoresSafeArea()
                 .overlay(alignment: .leading) {
-                    if showsFramesStrip {
+                    if isStripVisible {
                         BonePaperFramesStrip(
                             session: framesSession,
+                            isRearranging: $isRearrangingFrames,
                             topInset: topClearance,
                             bottomInset: safe.bottom,
                             onSelect: { targetState in
@@ -344,12 +365,23 @@ public struct BonePaperScreen: View {
                                     into: document,
                                     currentConfig: drawingConfig
                                 )
+                            },
+                            onMove: { fromIndex, toIndex in
+                                activeStrokeSetting = nil
+                                activeSwatchTrack = nil
+                                framesSession.moveFrame(
+                                    from: fromIndex,
+                                    to: toIndex,
+                                    syncing: document,
+                                    currentConfig: drawingConfig
+                                )
                             }
                         )
                         .ignoresSafeArea(edges: .bottom)
                         .padding(.leading, BonePaperChrome.leftRail)
                         .offset(x: -safe.leading)
                         .opacity(chromeOpacity)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                 }
                 .overlay(alignment: .top) {
@@ -365,12 +397,6 @@ public struct BonePaperScreen: View {
                         .padding(.top, topClearance + BonePaperChrome.pad)
                         .allowsHitTesting(false)
                     }
-                }
-                .overlay(alignment: .topLeading) {
-                    BonePaperBackButton(extraLeading: stripWidth, onBack: { leave() })
-                        .padding(.top, topClearance)
-                        .offset(x: -safe.leading)
-                        .opacity(chromeOpacity)
                 }
                 .overlay(alignment: .topTrailing) {
                     VStack(spacing: BonePaperChrome.pad) {
@@ -416,6 +442,46 @@ public struct BonePaperScreen: View {
                     .padding(.top, topClearance + BonePaperChrome.pad)
                     .opacity(chromeOpacity)
                 }
+                .overlay(alignment: .leading) {
+                    if showingMenu {
+                        ZStack(alignment: .leading) {
+                            Color.black.opacity(0.35)
+                                .ignoresSafeArea()
+                                .padding(.leading, BonePaperChrome.leftRail)
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingMenu = false
+                                    }
+                                }
+                            BonePaperSideMenu(
+                                showsFramesToggle: supportsFramesStrip,
+                                showFrames: showFramesPanel,
+                                onToggleShowFrames: {
+                                    withAnimation(.easeInOut(duration: 0.17)) {
+                                        showFramesPanel.toggle()
+                                        if !showFramesPanel {
+                                            isRearrangingFrames = false
+                                        }
+                                        showingMenu = false
+                                    }
+                                },
+                                onSettings: onSettings.map { openSettings in
+                                    {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            showingMenu = false
+                                        }
+                                        openSettings()
+                                    }
+                                }
+                            )
+                            .padding(.top, topClearance)
+                            .padding(.leading, BonePaperChrome.leftRail)
+                            .transition(.move(edge: .leading))
+                        }
+                        .offset(x: -safe.leading)
+                        .opacity(chromeOpacity)
+                    }
+                }
                 .overlay(alignment: .bottomLeading) {
                     BonePaperStrokeControls(
                         tool: $tool,
@@ -454,9 +520,43 @@ public struct BonePaperScreen: View {
                             flashStrokePreview()
                         }
                     )
+                    .padding(.top, topClearance + menuTopOffset)
                     .padding(.bottom, safe.bottom)
                     .offset(x: -safe.leading)
                     .opacity(chromeOpacity)
+                }
+                .overlay(alignment: .topLeading) {
+                    BonePaperMenuButton(
+                        activated: showingMenu,
+                        onTap: {
+                            activeStrokeSetting = nil
+                            activeSwatchTrack = nil
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingMenu.toggle()
+                            }
+                        }
+                    )
+                    .padding(.top, topClearance)
+                    .offset(x: -safe.leading)
+                    .opacity(chromeOpacity)
+                }
+                .overlay(alignment: .topLeading) {
+                    BonePaperBackButton(
+                        extraLeading: backExtraLeading,
+                        onBack: {
+                            if showingMenu {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showingMenu = false
+                                }
+                            } else {
+                                leave()
+                            }
+                        }
+                    )
+                    .padding(.top, topClearance)
+                    .offset(x: -safe.leading)
+                    .opacity(chromeOpacity)
+                    .animation(.easeInOut(duration: 0.17), value: backExtraLeading)
                 }
                 .overlay {
                     if showFillWait {
@@ -495,7 +595,7 @@ public struct BonePaperScreen: View {
             }
         }
         .onChange(of: document.preview) { _, nextPreview in
-            if showsFramesStrip {
+            if supportsFramesStrip {
                 framesSession.refreshActiveThumbnail(from: nextPreview)
             }
         }

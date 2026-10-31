@@ -68,6 +68,7 @@ struct BgAnimatorScreen: View {
     @State private var showingChooser = false
     @State private var pendingRangeBg: String?
     @State private var drawSession: DrawSession?
+    @State private var showingDrawSettings = false
     @State private var toast = ""
     @State private var backgroundRevision = 0
     @StateObject private var undo = SceneUndo()
@@ -214,7 +215,11 @@ struct BgAnimatorScreen: View {
         .fullScreenCover(item: $drawSession) { session in
             Group {
                 if let buffer = session.buffer {
-                    BonePaperScreen(sheet: session.sheet, buffer: buffer) { export in
+                    BonePaperScreen(
+                        sheet: session.sheet,
+                        buffer: buffer,
+                        onSettings: { showingDrawSettings = true }
+                    ) { export in
                         applyDrawn(
                             export,
                             sheet: session.sheet,
@@ -223,10 +228,16 @@ struct BgAnimatorScreen: View {
                         )
                     }
                 } else {
-                    BonePaperScreen(sheet: session.sheet) { export in
+                    BonePaperScreen(
+                        sheet: session.sheet,
+                        onSettings: { showingDrawSettings = true }
+                    ) { export in
                         applyDrawn(export, sheet: session.sheet, replaceName: nil)
                     }
                 }
+            }
+            .sheet(isPresented: $showingDrawSettings) {
+                AppSettingsSheet()
             }
         }
     }
