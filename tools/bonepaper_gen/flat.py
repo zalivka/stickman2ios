@@ -785,53 +785,61 @@ def cmd_bg(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     im = fit_page(Image.open(args.source).convert("RGB"))
-    lines = []
-    if args.comic:
-        source = im
-        im, ink = flatten(source, args.comic)
-        im.save(output.parent / "flat.png")
-        lines = ink_strokes(source, ink, im)
-    work = mark_page(im.convert("RGBA"))
-    shapes = regions(work, args.merge)
-    shapes = [(area, page_color(color), geom) for area, color, geom in shapes]
-
-    def spans(geom):
-        x0, y0, x1, y1 = geom.bounds
-        return sum((x0 <= 3, y0 <= 3, x1 >= w - 3, y1 >= h - 3)) >= 3
-
-    pages = [item for item in shapes if spans(item[2])]
-    if not pages:
-        raise SystemExit("no shape reaches three page edges; there is no page colour")
-    page = max(pages, key=lambda item: item[0])
-    paper = page[1]
-    shapes = [inset(item) for item in shapes if item is not page]
-    shapes = [item for item in shapes if item is not None]
     label = output.stem
-    checked(shapes, PAGE, f"{label} paper={paper}", page=True)
-    tracer.brush_svg(work, shapes, seed=seed_for(label))
-    scene = tracer.brush_svg.scene
-    if lines:
-        hand = Hand(seed_for(label) + 1, (0, 0))
-        hand.t = tracer.brush_svg.session["duration"]
-        for pts, color, size in lines:
-            keys = [(x + PAD, y + PAD) for x, y in pts]
-            hand.stroke(hand.curve(keys), color, size=size, jitter=tracer.JITTER)
-        scene.run(hand.ops)
-    svg = page_svg(scene, paper)
-    if "#FF00B4" in svg:
-        raise SystemExit("sentinel left in the background")
+    lines = []
+    if args.photo:
+        # A photograph is continuous tone. Quantising it makes one band per
+        # shade, so the CV front-end segments by EDT half-width instead, and the
+        # page is painted as fills with a thin contour rather than 14 px rings.
+        import photo
+        shapes, lines, paper = photo.segment(np.array(im), colors=args.colors, edges=args.edges)
+        checked(shapes, PAGE, f"{label} paper={paper}", page=True)
+        scene = photo.render(im, shapes, lines, seed_for(label), outline=args.outline)
+        svg = page_svg(scene, paper)
+    else:
+        if args.comic:
+            source = im
+            im, ink = flatten(source, args.comic)
+            im.save(output.parent / "flat.png")
+            lines = ink_strokes(source, ink, im)
+        work = mark_page(im.convert("RGBA"))
+        shapes = regions(work, args.merge)
+        shapes = [(area, page_color(color), geom) for area, color, geom in shapes]
+
+        def spans(geom):
+            x0, y0, x1, y1 = geom.bounds
+            return sum((x0 <= 3, y0 <= 3, x1 >= w - 3, y1 >= h - 3)) >= 3
+
+        pages = [item for item in shapes if spans(item[2])]
+        if not pages:
+            raise SystemExit("no shape reaches three page edges; there is no page colour")
+        page = max(pages, key=lambda item: item[0])
+        paper = page[1]
+        shapes = [inset(item) for item in shapes if item is not page]
+        shapes = [item for item in shapes if item is not None]
+        checked(shapes, PAGE, f"{label} paper={paper}", page=True)
+        tracer.brush_svg(work, shapes, seed=seed_for(label), outlines=args.outlines)
+        scene = tracer.brush_svg.scene
+        if lines:
+            hand = Hand(seed_for(label) + 1, (0, 0))
+            hand.t = tracer.brush_svg.session["duration"]
+            for pts, color, size in lines:
+                keys = [(x + PAD, y + PAD) for x, y in pts]
+                hand.stroke(hand.curve(keys), color, size=size, jitter=tracer.JITTER)
+            scene.run(hand.ops)
+        svg = page_svg(scene, paper)
+        if "#FF00B4" in svg:
+            raise SystemExit("sentinel left in the background")
     png = rasterize(svg, w * 2, h * 2)
     # The SVG window is PAGE: shapes traced from another canvas would crop
     # here. A solid-uniform render also means the trace produced no content.
-    corners = [png.getpixel(p) for p in ((0, 0), (png.width - 1, 0), (0, png.height - 1), (png.width - 1, png.height - 1))]
     from PIL import Image as _Image
     extrema = _Image.fromarray(np.array(png)).convert("RGB").getextrema()
     if all(v[1] - v[0] < 8 for v in extrema):
         raise SystemExit(f"{label}: render is a uniform colour; the scene content was lost")
     (output.parent / "bg.svg").write_text(svg)
     png.save(output.parent / "bg.png")
-    thumb = cover_thumb(png)
-    thumb.save(output.parent / "thumb.png")
+    cover_thumb(png).save(output.parent / "thumb.png")
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as out:
         for name in ("bg.png", "bg.svg", "thumb.png"):
             out.write(output.parent / name, name)
@@ -904,6 +912,13 @@ def main():
     p.add_argument("-o", "--output", required=True, metavar="ZIP", help="zip path; bg.png, bg.svg, thumb.png go beside it")
     p.add_argument("--comic", dest="comic", type=int, nargs="?", const=24, metavar="COLORS",
                    help="comic or line art with flats: drop ink and text, octree to COLORS (24), mode filter")
+    p.add_argument("--nooutlines", "--no-outlines", "-nooutlines", dest="outlines", action="store_false",
+                   help="keep the flat colour fills and draw no contour linework")
+    p.add_argument("--photo", action="store_true", help="photograph: CV segmentation (photo.py) instead of colour quantisation")
+    p.add_argument("--colors", type=int, default=24, metavar="N", help="--photo cluster count (default 24)")
+    p.add_argument("--no-edges", dest="edges", action="store_false", help="--photo: skip Canny structural strokes")
+    p.add_argument("--outline", type=float, default=3.2, metavar="PX",
+                   help="--photo contour brush width (default 3.2; 0 = fills and ink only)")
     trace_opts(p, bones=False)
     p.set_defaults(run=cmd_bg)
 
