@@ -66,5 +66,12 @@ fastlane/test_output
 # Python tooling (tools/bonepaper_gen)
 .venv/
 __pycache__/
-tools/bonepaper_gen/out/
+# Exclude the directory's *contents*, not the directory, so the tracer can be
+# re-included below (git cannot re-include a file under an excluded directory).
+tools/bonepaper_gen/out/*
 tools/bonepaper_gen/zips.txt
+# The brush tracer is source, not output: every traced shape list goes through
+# brush_svg. Keep it in git even though it lives under out/.
+!tools/bonepaper_gen/out/bluehairsvg/
+tools/bonepaper_gen/out/bluehairsvg/*
+!tools/bonepaper_gen/out/bluehairsvg/build.py

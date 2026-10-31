@@ -98,11 +98,10 @@ Changed:
 - `tools/bonepaper_gen/ink.py` — `data-role` parsing, `outlines` param, CLI flag.
 - `tools/bonepaper_gen/flat.py` — `bg --nooutlines` flag and pass-through.
 - `tools/bonepaper_gen/out/bluehairsvg/build.py` — `brush_svg(outlines=...)`,
-  plus a loud exit if `outlines=False` leaves no fills at all. **Note: this file
-  is gitignored** (`.gitignore:69` ignores `tools/bonepaper_gen/out/`), so the
-  flat engine's half of this feature is an untracked edit. It must be mirrored
-  anywhere that tracer is vendored, or the flat flag will silently stop
-  existing.
+  plus a loud exit if `outlines=False` leaves no fills at all. This file is
+  **tracked** even though it lives under `out/`: `.gitignore` excludes
+  `tools/bonepaper_gen/out/*` and then re-includes this one path, because every
+  traced shape list goes through it.
 
 Created:
 

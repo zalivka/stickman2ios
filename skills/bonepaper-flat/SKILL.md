@@ -33,7 +33,7 @@ Run from `tools/bonepaper_gen` with `.venv/bin/python`. Do not edit `hand.py`. T
 
 `pack:item` resolves `newstickman` or `zalivka.newstickman` to exactly one `at_elements/packs/*.atp`, then reads `items/<item>.ati`.
 
-**The contour ring is drawn by `out/bluehairsvg/build.py`, which is gitignored** (`.gitignore` ignores `tools/bonepaper_gen/out/`). So `--nooutlines` is only half a feature in git: `flat.py` passes `outlines=` to `brush_svg`, but the `brush_svg` edit that honours it lives in the ignored tracer. A clean checkout has the flag and no effect. When vendoring or regenerating that tracer, carry `brush_svg(png, shapes, seed, outlines=True)` with it, or drop the flag rather than ship one that lies.
+**The contour ring is drawn by `out/bluehairsvg/build.py`** — the shared tracer. `--nooutlines` is threaded end to end: `flat.py` passes `outlines=` into `brush_svg`, which keeps `_stamp`/`_fill_inside` for every shape and skips both contour emitters. That file is tracked (`git`'s ignore rule excludes `tools/bonepaper_gen/out/*` but re-includes this one) because every traced shape list goes through it, so the flag cannot silently rot out of the repo. If the tracer is vendored somewhere else, carry `brush_svg(png, shapes, seed, outlines=True)` with it.
 
 Options:
 
