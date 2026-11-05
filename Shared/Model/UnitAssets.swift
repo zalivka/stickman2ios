@@ -207,7 +207,7 @@ final class UnitAssets {
     }
 
     func hasAssetsFor(unitName: String) -> Bool {
-        edgeAssets.keys.contains { $0.unitName == unitName }
+        edgeAssets.keys.contains { $0.unitName == unitName } || restModel[unitName] != nil
     }
 
     func hasArchive(for unitName: String) -> Bool {
@@ -1323,6 +1323,9 @@ final class UnitAssets {
         _ rows: [EdgeAssetRow],
         zipIndex: ZipStore.Index
     ) throws -> (edgeAssets: [EdgeKey: [Int: EdgeAsset]], drawingConfig: BonePaperDrawingConfig?) {
+        if rows.isEmpty {
+            return ([:], nil)
+        }
         var bitmaps: [String: PNG.DecodedAsset] = [:]
         var pngBytes: [String: Data] = [:]
         func bitmap(named name: String) throws -> PNG.DecodedAsset {
@@ -1709,13 +1712,14 @@ enum AssetsXML {
         if fullName.isEmpty {
             throw SceneLoadError(message: "AssetsXML serialize has empty unit name")
         }
-        if rows.isEmpty {
-            throw SceneLoadError(message: "AssetsXML serialize '\(fullName)' has no rows")
-        }
         var xml = XMLWrite.header
         xml += "<unit"
         xml += XMLWrite.attr("name", fullName)
         xml += XMLWrite.attr("version", XMLWrite.versionCode())
+        if rows.isEmpty {
+            xml += " />\n"
+            return try XMLWrite.data(xml)
+        }
         xml += ">\n"
         for row in rows {
             xml += "<edgeAsset"
@@ -1756,8 +1760,8 @@ enum AssetsXML {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
             throw ItemLoadError("UnitAssets assets.xml parse failed: \(detail)")
         }
-        if sink.assets.isEmpty {
-            throw ItemLoadError("UnitAssets assets.xml has no edgeAsset rows")
+        guard let unitName = sink.unitName, !unitName.isEmpty else {
+            throw ItemLoadError("UnitAssets assets.xml missing unit")
         }
         return sink.assets
     }

@@ -51,7 +51,7 @@ enum ItemSaver {
                 )
             )
         } else if let source, try ZipStore.namesThrowing(in: source).contains("assets.xml") {
-            throw SceneLoadError(message: "ItemSaver '\(fullName)' live assets empty but source has assets.xml")
+            files.append((name: "assets.xml", data: try AssetsXML.serialize(rows: [], fullName: fullName)))
         }
 
         if let source {
