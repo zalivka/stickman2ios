@@ -41,6 +41,7 @@ struct DualNavigationChrome: View {
             }
         }
         .paddingTrailingIsland()
+        .paddingBottomSafeArea()
         .onChange(of: nextPressToken) { _, _ in
             next()
         }

@@ -39,6 +39,7 @@ struct SpeedEffectsScreen: View {
                                 .padding(16)
                         }
                         .paddingTrailingIsland()
+                        .paddingBottomSafeArea()
                     }
                 } else {
                     SkeletonCanvas.previewBackdrop
