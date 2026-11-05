@@ -34,7 +34,32 @@ enum JpegWriteError: Error, CustomStringConvertible {
 
 enum JpegSequenceWriter {
     static let directoryName = "export_jpegs"
+    private static let poolSize = 3
     private static let queue = DispatchQueue(label: "jpeg.sequence")
+    private static let encodeQueue = DispatchQueue(
+        label: "jpeg.sequence.encode",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    private final class EncodeErrorBox: @unchecked Sendable {
+        private nonisolated(unsafe) let lock = NSLock()
+        private nonisolated(unsafe) var firstError: Error?
+
+        nonisolated func record(_ error: Error) {
+            lock.lock()
+            if firstError == nil {
+                firstError = error
+            }
+            lock.unlock()
+        }
+
+        nonisolated func take() -> Error? {
+            lock.lock()
+            defer { lock.unlock() }
+            return firstError
+        }
+    }
 
     static func directory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
@@ -114,6 +139,22 @@ enum JpegSequenceWriter {
         }
     }
 
+    private static func writeFrameToDisk(cgImage: CGImage, index: Int) throws {
+        let uiImage = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+        guard let data = uiImage.jpegData(compressionQuality: 0.95), !data.isEmpty else {
+            throw JpegWriteError.failed("JpegSequenceWriter frame \(index) JPEG encode failed")
+        }
+        let url = try fileURL(index: index)
+        do {
+            try data.write(to: url)
+        } catch {
+            throw JpegWriteError.failed("JpegSequenceWriter write \(url.lastPathComponent): \(error)")
+        }
+        if !FileManager.default.fileExists(atPath: url.path) {
+            throw JpegWriteError.failed("JpegSequenceWriter missing \(url.lastPathComponent) after write")
+        }
+    }
+
     private static func writeJpegs(
         scene: StickmanScene,
         stateLists: [String: [Int]],
@@ -136,46 +177,90 @@ enum JpegSequenceWriter {
         } catch {
             throw JpegWriteError.failed("JpegSequenceWriter could not create \(dir.path): \(error)")
         }
-        let count = try MovieGenerator.streamFrames(
-            scene: scene,
-            stateLists: stateLists,
-            onFrame: { frame, index in
-                if stop.isCancelled {
-                    throw JpegWriteError.cancelled
-                }
-                try autoreleasepool {
-                    let cgImage = try FrameRasterizer.render(
-                        frame: frame,
-                        assets: assets,
-                        backgrounds: backgrounds,
-                        sceneWidth: scene.width,
-                        sceneHeight: scene.height
-                    )
-                    let uiImage = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
-                    guard let data = uiImage.jpegData(compressionQuality: 0.95), !data.isEmpty else {
-                        throw JpegWriteError.failed("JpegSequenceWriter frame \(index) JPEG encode failed")
+
+        let useWorkerPool = DevFlags.saveBitmapsInSeparateThread
+        let slotSemaphore = DispatchSemaphore(value: poolSize)
+        let encodeGroup = DispatchGroup()
+        let errorBox = EncodeErrorBox()
+
+        let count: Int
+        do {
+            count = try MovieGenerator.streamFrames(
+                scene: scene,
+                stateLists: stateLists,
+                onFrame: { frame, index in
+                    if stop.isCancelled {
+                        throw JpegWriteError.cancelled
                     }
-                    let url = try fileURL(index: index)
-                    do {
-                        try data.write(to: url, options: .atomic)
-                    } catch {
-                        throw JpegWriteError.failed("JpegSequenceWriter write \(url.lastPathComponent): \(error)")
+                    if let prevError = errorBox.take() {
+                        throw prevError
                     }
-                    if !fm.fileExists(atPath: url.path) {
-                        throw JpegWriteError.failed("JpegSequenceWriter missing \(url.lastPathComponent) after write")
+                    let cgImage: CGImage = try autoreleasepool {
+                        try FrameRasterizer.render(
+                            frame: frame,
+                            assets: assets,
+                            backgrounds: backgrounds,
+                            sceneWidth: scene.width,
+                            sceneHeight: scene.height
+                        )
+                    }
+                    if !useWorkerPool {
+                        try autoreleasepool {
+                            try writeFrameToDisk(cgImage: cgImage, index: index)
+                        }
+                        if stop.isCancelled {
+                            throw JpegWriteError.cancelled
+                        }
+                        return
+                    }
+
+                    slotSemaphore.wait()
+                    if stop.isCancelled {
+                        slotSemaphore.signal()
+                        throw JpegWriteError.cancelled
+                    }
+                    if let prevError = errorBox.take() {
+                        slotSemaphore.signal()
+                        throw prevError
+                    }
+
+                    encodeGroup.enter()
+                    encodeQueue.async {
+                        defer {
+                            slotSemaphore.signal()
+                            encodeGroup.leave()
+                        }
+                        if stop.isCancelled || errorBox.take() != nil {
+                            return
+                        }
+                        autoreleasepool {
+                            do {
+                                try writeFrameToDisk(cgImage: cgImage, index: index)
+                            } catch {
+                                errorBox.record(error)
+                            }
+                        }
+                    }
+                },
+                onSpanProgress: { spanIndex, gaps in
+                    let percent = min(max((spanIndex + 1) * 100 / gaps, 0), 100)
+                    DispatchQueue.main.async {
+                        progress(percent)
                     }
                 }
-                if stop.isCancelled {
-                    throw JpegWriteError.cancelled
-                }
-            },
-            onSpanProgress: { spanIndex, gaps in
-                let percent = min(max((spanIndex + 1) * 100 / gaps, 0), 100)
-                DispatchQueue.main.async {
-                    progress(percent)
-                }
-            }
-        )
+            )
+        } catch {
+            encodeGroup.wait()
+            throw error
+        }
+
+        encodeGroup.wait()
+        if stop.isCancelled {
+            throw JpegWriteError.cancelled
+        }
+        if let workerError = errorBox.take() {
+            throw workerError
+        }
         if count == 0 {
             throw JpegWriteError.failed("JpegSequenceWriter movie has no frames")
         }
