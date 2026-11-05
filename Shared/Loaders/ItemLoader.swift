@@ -143,6 +143,42 @@ nonisolated enum ZipStore {
         (try? eocdOffset(in: data)) != nil
     }
 
+    struct Index {
+        fileprivate let zip: Data
+        fileprivate let entriesByName: [String: Entry]
+        let names: [String]
+
+        func contains(_ name: String) -> Bool {
+            entriesByName[name] != nil
+        }
+
+        func dataThrowing(named name: String) throws -> Data {
+            guard let entry = entriesByName[name] else {
+                throw ZipError(message: "ItemLoader zip missing '\(name)'")
+            }
+            return try ZipStore.payload(
+                zip: zip,
+                localOffset: entry.localOffset,
+                method: entry.method,
+                compressed: entry.compressed,
+                uncompressed: entry.uncompressed
+            )
+        }
+    }
+
+    static func indexThrowing(in zip: Data) throws -> Index {
+        let all = try entries(in: zip)
+        var byName: [String: Entry] = [:]
+        byName.reserveCapacity(all.count)
+        var names: [String] = []
+        names.reserveCapacity(all.count)
+        for entry in all {
+            byName[entry.name] = entry
+            names.append(entry.name)
+        }
+        return Index(zip: zip, entriesByName: byName, names: names)
+    }
+
     static func namesThrowing(in zip: Data) throws -> [String] {
         try entries(in: zip).map(\.name)
     }
@@ -260,7 +296,7 @@ nonisolated enum ZipStore {
         return out
     }
 
-    nonisolated private struct Entry {
+    nonisolated fileprivate struct Entry {
         var name: String
         var method: UInt16
         var compressed: Int

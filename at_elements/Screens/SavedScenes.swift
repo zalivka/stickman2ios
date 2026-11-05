@@ -32,13 +32,11 @@ enum SavedScenes {
         return items(from: urls.filter { $0.pathExtension.lowercased() == SceneSaver.ext })
     }
 
-    /// A scene stays in the grid only when its archive, model, and thumb all read.
+    /// A scene stays in the grid only when its archive has model.xml and a readable thumbnail.
     private static func isListable(_ url: URL) -> Bool {
         guard let zip = try? Data(contentsOf: url),
               let names = try? ZipStore.namesThrowing(in: zip),
-              names.contains("model.xml"),
-              let xml = try? ZipStore.dataThrowing(named: "model.xml", in: zip),
-              (try? SceneXML.parse(xml)) != nil
+              names.contains("model.xml")
         else {
             return false
         }

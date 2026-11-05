@@ -25,7 +25,11 @@ enum XMLWrite {
     }
 
     static func float(_ value: CGFloat) -> String {
-        String(format: "%g", locale: Locale(identifier: "en_US_POSIX"), Double(value))
+        let f = Float(value)
+        if f.isFinite, f.rounded(.towardZero) == f, abs(f) < 1_000_000 {
+            return String(Int(f))
+        }
+        return String(f)
     }
 
     static func versionCode() -> String {

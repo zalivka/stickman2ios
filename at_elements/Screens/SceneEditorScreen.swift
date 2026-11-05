@@ -69,7 +69,7 @@ struct SceneEditorScreen: View {
 
     /// Backing out within this long after open never asks to save.
     private static let leaveGraceSeconds = 10.0
-    @State private var savedDocument: Data?
+    @State private var savedSceneSnapshot: StickmanScene
     @StateObject private var videoExport = VideoExport()
     @StateObject private var clipboard = CopyPasteBuffer()
     @StateObject private var undo = SceneUndo()
@@ -116,7 +116,7 @@ struct SceneEditorScreen: View {
             )
         }
         _selectedUnitName = State(initialValue: nil)
-        _savedDocument = State(initialValue: SceneSaver.documentBytes(scene: scene))
+        _savedSceneSnapshot = State(initialValue: scene)
         _tutorialStep = State(initialValue: tutorial ? .move : nil)
     }
 
@@ -749,7 +749,7 @@ struct SceneEditorScreen: View {
         setTextError = ""
         showingLeaveAlert = false
         dismissAfterSave = false
-        savedDocument = SceneSaver.documentBytes(scene: scene)
+        savedSceneSnapshot = scene
         frameInsertFlash = 0
         tutorialStep = .move
         playHintScheduled = false
@@ -1552,7 +1552,10 @@ struct SceneEditorScreen: View {
             return
         }
         // nil documentBytes means serialization failed; treat as dirty and offer the save.
-        if let bytes = SceneSaver.documentBytes(scene: scene), bytes == savedDocument {
+        if let bytes = SceneSaver.documentBytes(scene: scene),
+           let savedBytes = SceneSaver.documentBytes(scene: savedSceneSnapshot),
+           bytes == savedBytes
+        {
             dismiss()
             return
         }
@@ -1596,7 +1599,7 @@ struct SceneEditorScreen: View {
                 name: saveName
             )
             lastSavedName = saved
-            savedDocument = SceneSaver.documentBytes(scene: scene)
+            savedSceneSnapshot = scene
             Analytics.event("scene_saved")
             showingSave = false
             if dismissAfterSave {
