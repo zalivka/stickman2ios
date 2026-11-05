@@ -6,7 +6,6 @@ struct DualNavigationChrome: View {
     @Binding var currentIndex: Int
     @Binding var range: ClosedRange<Int>
     @Binding var mode: DualNavigation.Mode
-    var onEnterRange: (() -> Void)? = nil
     var onLeaveRange: (() -> Void)? = nil
     /// Android `MainEditor.onNextFramePressed` when `isEnd()` — clone the last frame.
     var onNextAtEnd: (() -> Void)? = nil
@@ -102,7 +101,6 @@ struct DualNavigationChrome: View {
     private func enterRange() {
         range = DualNavigation.defaultRange(current: currentIndex, frameCount: frameCount)
         mode = .range
-        onEnterRange?()
     }
 
     private func enterFrames() {

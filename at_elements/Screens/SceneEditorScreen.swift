@@ -301,13 +301,6 @@ struct SceneEditorScreen: View {
                     currentIndex: currentIndexBinding,
                     range: $range,
                     mode: $mode,
-                    onEnterRange: {
-                        do {
-                            try undo.commitEnteringRange(from: scene, indices: Array(range))
-                        } catch {
-                            bail(error)
-                        }
-                    },
                     onLeaveRange: {
                         undo.clearRangeBaseline()
                     },
@@ -323,13 +316,7 @@ struct SceneEditorScreen: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .onChange(of: range) { _, _ in
-            if mode == .range {
-                do {
-                    try undo.commitEnteringRange(from: scene, indices: Array(range))
-                } catch {
-                    bail(error)
-                }
-            }
+            undo.clearRangeBaseline()
         }
         .ignoresSafeArea(edges: .horizontal)
         .modifier(StatusBarClearance())

@@ -56,21 +56,8 @@ final class SceneUndo: ObservableObject {
         if rangeBaseline {
             return
         }
-        push(.selection(
-            frames: try Self.cloneFrames(scene, indices: indices),
-            tweens: scene.unitTweens,
-            cameraTweens: scene.cameraTweens,
-            audio: scene.audio.clips
-        ))
-    }
-
-    func commitEnteringRange(from scene: StickmanScene, indices: [Int]) throws {
-        if indices.count < 2 {
-            rangeBaseline = false
-            return
-        }
-        if rangeBaseline, case .selection = stack.last {
-            stack.removeLast()
+        if indices.count > 1 {
+            rangeBaseline = true
         }
         push(.selection(
             frames: try Self.cloneFrames(scene, indices: indices),
@@ -78,7 +65,6 @@ final class SceneUndo: ObservableObject {
             cameraTweens: scene.cameraTweens,
             audio: scene.audio.clips
         ))
-        rangeBaseline = true
     }
 
     func clearRangeBaseline() {
@@ -150,7 +136,7 @@ final class SceneUndo: ObservableObject {
 
     func commitTimeline(from scene: StickmanScene) throws {
         push(.timeline(
-            frames: try scene.frames.map { try $0.clone() },
+            frames: scene.frames,
             currentIndex: scene.currentIndex,
             animations: scene.unitAnimations,
             speed: scene.speedModifier,
@@ -217,7 +203,7 @@ final class SceneUndo: ObservableObject {
             if frames.isEmpty {
                 throw SceneLoadError(message: "SceneUndo timeline restore empty")
             }
-            scene.frames = frames
+            scene.frames = try frames.map { try $0.clone() }
             scene.unitAnimations = animations
             scene.speedModifier = speed
             scene.unitTweens = tweens
@@ -248,12 +234,12 @@ final class SceneUndo: ObservableObject {
             assertionFailure("SceneUndo selection empty")
             return []
         }
-        return try indices.compactMap { index in
+        return indices.compactMap { index in
             if index < 0 || index >= scene.frames.count {
                 assertionFailure("SceneUndo selection \(index) out of \(scene.frames.count)")
                 return nil
             }
-            return try scene.frames[index].clone()
+            return scene.frames[index]
         }
     }
 }
