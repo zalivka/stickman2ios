@@ -1,34 +1,40 @@
 import Foundation
 
 nonisolated enum OngoingAnimations {
-    private struct Log {
+    fileprivate struct Log {
         var assetsState = 0
         var backward = false
         var counter = 0
+    }
+
+    struct State {
+        fileprivate var running: [String: Log] = [:]
+        fileprivate var dropped: Set<String> = []
     }
 
     static func apply(source: StickmanScene, frames: inout [StickmanFrame], stateLists: [String: [Int]]) {
         if source.unitAnimations.isEmpty {
             return
         }
-        var running: [String: Log] = [:]
-        // A unit whose animation cannot advance is dropped for the whole clip: one bad FBF
-        // unit must not stop the rest of the scene from playing.
-        var dropped: Set<String> = []
+        var state = State()
         for index in frames.indices {
-            apply(source: source, frame: &frames[index], stateLists: stateLists, running: &running, dropped: &dropped)
+            apply(source: source, frame: &frames[index], stateLists: stateLists, state: &state)
         }
     }
 
-    private static func apply(
+    static func apply(
         source: StickmanScene,
         frame: inout StickmanFrame,
         stateLists: [String: [Int]],
-        running: inout [String: Log],
-        dropped: inout Set<String>
+        state: inout State
     ) {
+        if source.unitAnimations.isEmpty {
+            return
+        }
+        // A unit whose animation cannot advance is dropped for the whole clip: one bad FBF
+        // unit must not stop the rest of the scene from playing.
         for (unitName, animation) in source.unitAnimations {
-            if dropped.contains(unitName) {
+            if state.dropped.contains(unitName) {
                 continue
             }
             guard let unitIndex = frame.units.firstIndex(where: { $0.name == unitName }) else {
@@ -40,7 +46,7 @@ nonisolated enum OngoingAnimations {
                 start = true
             } else if range.start == frame.originFrameIndex {
                 start = true
-            } else if running[unitName] != nil {
+            } else if state.running[unitName] != nil {
                 start = true
             }
             if start {
@@ -48,15 +54,15 @@ nonisolated enum OngoingAnimations {
                     guard let states = stateLists[unitName] else {
                         throw SceneLoadError(message: "OngoingAnimations missing states for '\(unitName)'")
                     }
-                    try tick(unit: &frame.units[unitIndex], animation: animation, states: states, running: &running)
+                    try tick(unit: &frame.units[unitIndex], animation: animation, states: states, running: &state.running)
                 } catch {
                     print("OngoingAnimations dropping '\(unitName)': \(error)")
-                    dropped.insert(unitName)
-                    running.removeValue(forKey: unitName)
+                    state.dropped.insert(unitName)
+                    state.running.removeValue(forKey: unitName)
                 }
             }
             if frame.originFrameIndex == range.end {
-                running.removeValue(forKey: unitName)
+                state.running.removeValue(forKey: unitName)
             }
         }
     }
