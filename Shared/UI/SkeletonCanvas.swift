@@ -970,7 +970,7 @@ struct SkeletonCanvas: View {
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let live = liveShift(for: bone.asset)
             let yOffset = (mirror ? -(bone.asset.yOffset + live.dy) : bone.asset.yOffset + live.dy) * drawn.scale
-            let picture = bone.asset.drawnPicture(ignoreSample: ignoreSample)
+            let picture = bone.asset.drawnPicture(ignoreSample: ignoreSample, unitScale: drawn.scale)
             let bitmapScale = drawn.scale / picture.divisor
             context.drawLayer { ctx in
                 ctx.translateBy(
@@ -1133,7 +1133,11 @@ struct SkeletonCanvas: View {
                 context.fill(Path(rect), with: .color(sceneFill))
                 return
             }
+            let sampleScale = backgrounds.sampleScale(for: name)
             context.concatenate(bgMove.toTransform())
+            if sampleScale != 1 {
+                context.scaleBy(x: sampleScale, y: sampleScale)
+            }
             context.draw(
                 Image(decorative: image, scale: 1),
                 at: .zero,

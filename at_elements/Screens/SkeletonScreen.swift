@@ -235,8 +235,8 @@ struct SkeletonScreen: View {
                 frames: session.frames,
                 initialState: session.initialState,
                 boneLength: session.boneLength,
-                defaultWidth: session.baseAsset.bitmap.width,
-                defaultHeight: session.baseAsset.bitmap.height,
+                defaultWidth: session.baseAsset.bitmapWidth,
+                defaultHeight: session.baseAsset.bitmapHeight,
                 defaultXOffset: session.baseAsset.xOffset,
                 defaultYOffset: session.baseAsset.yOffset,
                 onion: session.onion,
@@ -490,8 +490,8 @@ struct SkeletonScreen: View {
             excludeFrom: from,
             excludeTo: to,
             worldSize: BonePaperScreen.worldSide,
-            pngWidth: activeAsset.bitmap.width,
-            pngHeight: activeAsset.bitmap.height,
+            pngWidth: activeAsset.bitmapWidth,
+            pngHeight: activeAsset.bitmapHeight,
             boneStartPNG: start,
             mirror: mirror
         )
@@ -558,8 +558,8 @@ struct SkeletonScreen: View {
     ) {
         let limit = BonePaperScreen.worldSide
         for item in stateAssets {
-            let width = item.bitmap.width
-            let height = item.bitmap.height
+            let width = item.bitmapWidth
+            let height = item.bitmapHeight
             if width > limit || height > limit {
                 showToast("This picture is too big (\(width)×\(height)). Maximum side is \(limit).")
                 return
@@ -567,10 +567,11 @@ struct SkeletonScreen: View {
         }
         let config = (optionalUnit.flatMap { assets?.drawingConfig(for: $0.name) }) ?? BonePaperDrawingConfig()
         let frameInputs = stateAssets.map { item in
-            BonePaperFrameInput(
+            let sourceImage = assets?.fullResolutionBitmap(for: item) ?? item.bitmap
+            return BonePaperFrameInput(
                 state: item.state,
                 weight: item.weight,
-                source: item.bitmap,
+                source: sourceImage,
                 buffer: validatedBuffer(asset: item),
                 xOffset: item.xOffset,
                 yOffset: item.yOffset,
@@ -596,9 +597,11 @@ struct SkeletonScreen: View {
     /// Nil reopens from the upscaled 1x path, same as before this feature.
     private func validatedBuffer(asset: UnitAssets.EdgeAsset) -> CGImage? {
         let sample = BonePaperDocument.sample
+        let baseW = asset.bitmapWidth
+        let baseH = asset.bitmapHeight
         if let sidecar = asset.sidecarImage,
-           sidecar.width == asset.bitmap.width * sample,
-           sidecar.height == asset.bitmap.height * sample {
+           sidecar.width == baseW * sample,
+           sidecar.height == baseH * sample {
             return sidecar
         }
         guard let data = asset.paintBuffer, !data.isEmpty else { return nil }
@@ -606,9 +609,9 @@ struct SkeletonScreen: View {
             print("SkeletonScreen '\(title)' dropped unreadable paint buffer for '\(asset.bmName)'")
             return nil
         }
-        guard image.width == asset.bitmap.width * sample,
-              image.height == asset.bitmap.height * sample else {
-            print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
+        guard image.width == baseW * sample,
+              image.height == baseH * sample else {
+            print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(baseW * sample)x\(baseH * sample)")
             return nil
         }
         return image
@@ -692,7 +695,7 @@ struct SkeletonScreen: View {
         if let asset = assets.getDrawable(key, state: unit.assetsState) {
             radius = BoneSplitDraft.clampRadius(
                 BonePictureSplit.defaultRadius(
-                    bitmap: asset.bitmap,
+                    bitmap: assets.fullResolutionBitmap(for: asset),
                     xOffset: asset.xOffset,
                     yOffset: asset.yOffset,
                     splitDistance: splitDist,

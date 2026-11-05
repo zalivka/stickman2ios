@@ -172,12 +172,13 @@ enum SceneLoader {
                 backgrounds.recordLoadError("\(error)")
                 png = nil
             }
-            if let png, let image = BackgroundAssets.tryDecode(png) {
+            if let png, let decoded = BackgroundAssets.tryDecodeSampled(png) {
                 let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
                 let bgName = "usermade:\(own)"
                 backgrounds.install(
                     name: bgName,
-                    image: image,
+                    image: decoded.image,
+                    sampleScale: decoded.sampleScale,
                     archive: try ZipStore.archive([(name: "bg.png", data: png)])
                 )
                 for i in scene.frames.indices {

@@ -61,7 +61,7 @@ enum FrameRasterizer {
     private enum BackgroundDraw {
         case sceneFill(rect: CGRect)
         case color(CGColor, rect: CGRect)
-        case image(CGImage, PictureMove)
+        case image(CGImage, PictureMove, sampleScale: CGFloat)
     }
 
     private static func resolveBackground(
@@ -79,7 +79,7 @@ enum FrameRasterizer {
             guard let image = backgrounds.image(for: name) else {
                 throw SceneLoadError(message: "FrameRasterizer missing background '\(name)'")
             }
-            return .image(image, move)
+            return .image(image, move, sampleScale: backgrounds.sampleScale(for: name))
         }
         if name.hasPrefix("#") {
             guard let rgba = HexRGB.parse(name) else {
@@ -98,9 +98,12 @@ enum FrameRasterizer {
         case .color(let color, let rect):
             context.setFillColor(color)
             context.fill(rect)
-        case .image(let image, let move):
+        case .image(let image, let move, let sampleScale):
             context.saveGState()
             context.concatenate(move.toTransform())
+            if sampleScale != 1 {
+                context.scaleBy(x: sampleScale, y: sampleScale)
+            }
             drawImage(image, alpha: 1)
             context.restoreGState()
         }
@@ -196,7 +199,7 @@ enum FrameRasterizer {
             let ratio = BoneStretch.ratio(unit: drawn, edge: bone.edge, assets: assets)
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let yOffset = (mirror ? -bone.asset.yOffset : bone.asset.yOffset) * drawn.scale
-            let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample)
+            let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample, unitScale: drawn.scale)
             let pictureScale = drawn.scale / picture.divisor
             context.saveGState()
             context.translateBy(x: bone.start.x, y: bone.start.y)

@@ -46,9 +46,10 @@ enum BackgroundResolver {
     }
 
     /// Android `buildFittedMoveForBackground`: match scene width, centre both axes.
-    static func fittedMove(image: CGImage, sceneWidth: CGFloat, sceneHeight: CGFloat) -> PictureMove {
-        let width = CGFloat(image.width)
-        let height = CGFloat(image.height)
+    static func fittedMove(image: CGImage, sampleScale: CGFloat = 1, sceneWidth: CGFloat, sceneHeight: CGFloat) -> PictureMove {
+        let s = sampleScale > 0 ? sampleScale : 1
+        let width = CGFloat(image.width) * s
+        let height = CGFloat(image.height) * s
         if width <= 0 || height <= 0 {
             return .identity
         }

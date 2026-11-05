@@ -97,7 +97,7 @@ enum SkeletonOnion {
                     cg.scaleBy(x: ratio, y: 1)
                 }
                 cg.translateBy(x: bone.asset.xOffset, y: yOffset)
-                let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample)
+                let picture = bone.asset.drawnPicture(ignoreSample: AppSettings.ignoreBmSample, unitScale: unit.scale)
                 let pictureScale = 1 / picture.divisor
                 cg.scaleBy(x: pictureScale, y: mirror ? -pictureScale : pictureScale)
                 UIImage(cgImage: picture.image).draw(at: .zero)
