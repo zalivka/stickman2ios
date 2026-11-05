@@ -358,18 +358,18 @@ final class UnitAssets {
             guard let asset = getDrawable(key, state: state) else { continue }
             guard let start = unit.point(optionalId: edge.from), let end = unit.point(optionalId: edge.to) else { continue }
             let angle = atan2(end.y - start.y, end.x - start.x)
+            let ratio = BoneStretch.ratio(unit: unit, edge: edge, assets: self) ?? 1
             let mirror = unit.flipped && !asset.nativeFlipped
             let scale = unit.scale
-            let xOffset = asset.xOffset * scale
+            let xOffset = asset.xOffset * scale * ratio
             let yOffset = (mirror ? -asset.yOffset : asset.yOffset) * scale
-            let yScale = mirror ? -scale : scale
-            let width = CGFloat(asset.bitmapWidth)
-            let height = CGFloat(asset.bitmapHeight)
+            let xSpan = CGFloat(asset.bitmapWidth) * scale * ratio
+            let ySpan = CGFloat(asset.bitmapHeight) * (mirror ? -scale : scale)
             let locals: [CGPoint] = [
                 CGPoint(x: xOffset, y: yOffset),
-                CGPoint(x: xOffset + width * scale, y: yOffset),
-                CGPoint(x: xOffset + width * scale, y: yOffset + height * yScale),
-                CGPoint(x: xOffset, y: yOffset + height * yScale)
+                CGPoint(x: xOffset + xSpan, y: yOffset),
+                CGPoint(x: xOffset + xSpan, y: yOffset + ySpan),
+                CGPoint(x: xOffset, y: yOffset + ySpan)
             ]
             let cosine = cos(angle)
             let sine = sin(angle)

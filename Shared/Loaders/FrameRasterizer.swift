@@ -29,6 +29,9 @@ enum FrameRasterizer {
             sceneWidth: sceneWidth,
             sceneHeight: sceneHeight
         )
+        let cameraRect = DevFlags.cameraCullingOnExport
+            ? cameraRectangle(sceneWidth: sceneWidth, sceneHeight: sceneHeight, cameraMove: frame.cameraMove)
+            : nil
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -43,6 +46,9 @@ enum FrameRasterizer {
             cg.concatenate(frame.cameraMove.toTransform())
             drawBackground(background, context: cg)
             for unit in unitsToDraw(frame.units) {
+                if let cameraRect, isOutOfSight(unit, assets: assets, cameraRect: cameraRect) {
+                    continue
+                }
                 drawUnit(unit, assets: assets, context: cg)
             }
             cg.restoreGState()
@@ -116,6 +122,114 @@ enum FrameRasterizer {
             }
             return $0.name < $1.name
         }
+    }
+
+    /// Android `FrameDrawer.cameraRectangle(scene, cameraMovement)`.
+    private static func cameraRectangle(
+        sceneWidth: CGFloat,
+        sceneHeight: CGFloat,
+        cameraMove: PictureMove
+    ) -> CGRect {
+        let viewport = CGRect(x: 0, y: 0, width: sceneWidth, height: sceneHeight)
+        let transform = cameraMove.toTransform()
+        if transform.a * transform.d - transform.b * transform.c == 0 {
+            assertionFailure("FrameRasterizer camera transform is not invertible")
+            return viewport
+        }
+        return viewport.applying(transform.inverted())
+    }
+
+    /// Android `Unit.isOutOfSight(camRect)` + `AssetsOpsImpl.updateBoundingBoxFor`.
+    private static func isOutOfSight(
+        _ unit: StickmanUnit,
+        assets: UnitAssets,
+        cameraRect: CGRect
+    ) -> Bool {
+        if unit.points.isEmpty {
+            return true
+        }
+        switch unit.unitType {
+        case .bubble:
+            return !bubbleBoundingBox(unit).intersects(cameraRect)
+        case .unit:
+            return !unitBoundingBox(unit, assets: assets).intersects(cameraRect)
+        }
+    }
+
+    private static func unitBoundingBox(_ unit: StickmanUnit, assets: UnitAssets) -> CGRect {
+        var minX = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+        for point in unit.points {
+            if point.x < minX { minX = point.x }
+            if point.x > maxX { maxX = point.x }
+            if point.y < minY { minY = point.y }
+            if point.y > maxY { maxY = point.y }
+        }
+        for corner in assets.assetCornerPoints(for: unit, state: unit.assetsState) {
+            if corner.x < minX { minX = corner.x }
+            if corner.x > maxX { maxX = corner.x }
+            if corner.y < minY { minY = corner.y }
+            if corner.y > maxY { maxY = corner.y }
+        }
+        let minSide: CGFloat = 60
+        if maxX - minX < minSide {
+            maxX += minSide / 2
+            minX -= minSide / 2
+        }
+        if maxY - minY < minSide {
+            maxY += minSide / 2
+            minY -= minSide / 2
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private static func bubbleBoundingBox(_ unit: StickmanUnit) -> CGRect {
+        guard let bubble = unit.bubble,
+              let start = unit.point(optionalId: 1),
+              let end = unit.point(optionalId: 2)
+        else {
+            return .null
+        }
+        let font = UIFont.systemFont(ofSize: bubble.fontSize)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let ns = bubble.text as NSString
+        let rawSize: CGSize
+        if bubble.oneLiner {
+            rawSize = ns.size(withAttributes: attributes)
+        } else {
+            rawSize = ns.boundingRect(
+                with: CGSize(width: 150, height: 2000),
+                options: [.usesLineFragmentOrigin],
+                attributes: attributes,
+                context: nil
+            ).size
+        }
+        let width = max(rawSize.width, 1) * unit.scale
+        let height = max(rawSize.height, 1) * unit.scale
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let cosine = cos(angle)
+        let sine = sin(angle)
+        let locals = [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: width, y: 0),
+            CGPoint(x: width, y: height),
+            CGPoint(x: 0, y: height)
+        ]
+        var minX = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+        for local in locals {
+            let x = start.x + local.x * cosine - local.y * sine
+            let y = start.y + local.x * sine + local.y * cosine
+            if x < minX { minX = x }
+            if x > maxX { maxX = x }
+            if y < minY { minY = y }
+            if y > maxY { maxY = y }
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     /// UIKit Y-down. Raw `CGContext.draw(CGImage)` is Y-up and flips bitmaps/bg.

@@ -12,4 +12,7 @@ enum DevFlags {
 
     /// Offload export JPEG compression and disk writes to a worker pool with a 3-slot semaphore (`FeatureFlags.SAVE_BITMAPS_IN_SEPARATE_THREAD`).
     static let saveBitmapsInSeparateThread = true
+
+    /// Skip drawing off-camera units during export (`FeatureFlags.CAMERA_CULLING_ON_EXPORT`).
+    static let cameraCullingOnExport = true
 }
