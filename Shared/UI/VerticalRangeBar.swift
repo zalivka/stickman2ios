@@ -12,18 +12,19 @@ struct VerticalRangeBar: View {
         case identity
     }
 
-    static let barWidth: CGFloat = 75
-    static let horizontalHeight: CGFloat = 72
+    static let barWidth: CGFloat = 84
+    static let horizontalHeight: CGFloat = 80
     static let tickHeight: CGFloat = 4
-    static let pinRadius: CGFloat = 14
-    static let circleRadius: CGFloat = 5
+    static let pinRadius: CGFloat = 17
+    static let circleRadius: CGFloat = 9
     static let strokeWidth: CGFloat = 2
-    static let targetRadius: CGFloat = 24
+    static let targetRadius: CGFloat = 44
+    static let bubbleOffset: CGFloat = 28
     static let selectedTickThickness: CGFloat = 5
     static let unselectedTrackThickness: CGFloat = 2
     static let tickColor = Color(red: 0, green: 197 / 255, blue: 1)
     static let unselectedTrackColor = Color(white: 0.55)
-    static let pad: CGFloat = 19
+    static let pad: CGFloat = 22
     /// Android `DualNavigation.PIN_DRAG_UPDATE_INTERVAL_MS` (4 fps max while dragging).
     static let pinDragUpdateInterval: CFTimeInterval = 0.25
 
@@ -115,6 +116,20 @@ struct VerticalRangeBar: View {
         let lowHit = hitsPin(location: location, track: low)
         let highHit = hitsPin(location: location, track: high)
         if lowHit && highHit {
+            if low == high {
+                let along = axis == .vertical ? location.y : location.x
+                let pinAlong = axis == .vertical ? low.y : low.x
+                switch (axis, pinMapping) {
+                case (.vertical, .inverted):
+                    return along < pinAlong ? .low : .high
+                case (.vertical, .identity):
+                    return along > pinAlong ? .low : .high
+                case (.horizontal, .identity):
+                    return along < pinAlong ? .low : .high
+                case (.horizontal, .inverted):
+                    return along > pinAlong ? .low : .high
+                }
+            }
             return pinDistance(location, low) <= pinDistance(location, high) ? .low : .high
         }
         if lowHit { return .low }
@@ -128,7 +143,9 @@ struct VerticalRangeBar: View {
 
     private func pinDistance(_ location: CGPoint, _ track: CGPoint) -> CGFloat {
         let bubble = bubbleCenter(from: track)
+        let alongDist = axis == .vertical ? abs(location.y - track.y) : abs(location.x - track.x)
         return min(
+            alongDist,
             hypot(location.x - track.x, location.y - track.y),
             hypot(location.x - bubble.x, location.y - bubble.y)
         )
@@ -258,7 +275,7 @@ struct VerticalRangeBar: View {
         context.fill(Path(ellipseIn: strokeRect), with: .color(Self.tickColor))
         context.draw(
             Text("\(frame + 1)")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundColor(.white),
             at: bubble,
             anchor: .center
@@ -315,8 +332,8 @@ struct VerticalRangeBar: View {
 
     private func bubbleCenter(from track: CGPoint) -> CGPoint {
         axis == .vertical
-            ? CGPoint(x: track.x - 22, y: track.y)
-            : CGPoint(x: track.x, y: track.y - 22)
+            ? CGPoint(x: track.x - Self.bubbleOffset, y: track.y)
+            : CGPoint(x: track.x, y: track.y - Self.bubbleOffset)
     }
 
     private func nearestPin(at location: CGPoint, size: CGSize) -> Int {
@@ -358,12 +375,15 @@ private struct RangeBarTouchOverlay: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .clear
-        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
-        pan.maximumNumberOfTouches = 1
-        view.addGestureRecognizer(pan)
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap))
-        tap.numberOfTapsRequired = 2
-        view.addGestureRecognizer(tap)
+        view.isMultipleTouchEnabled = false
+        let press = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePress)
+        )
+        press.minimumPressDuration = 0
+        press.allowableMovement = .greatestFiniteMagnitude
+        press.cancelsTouchesInView = false
+        view.addGestureRecognizer(press)
         return view
     }
 
@@ -379,23 +399,35 @@ private struct RangeBarTouchOverlay: UIViewRepresentable {
         var onChanged: (CGPoint) -> Void = { _ in }
         var onEnded: (CGPoint) -> Void = { _ in }
         var onDoubleTap: () -> Void = {}
+        private var startPoint: CGPoint = .zero
+        private var lastTapTime: TimeInterval = 0
 
-        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+        @objc func handlePress(_ gesture: UILongPressGestureRecognizer) {
             let point = gesture.location(in: gesture.view)
             switch gesture.state {
             case .began:
+                startPoint = point
                 onBegan(point)
             case .changed:
                 onChanged(point)
-            case .ended, .cancelled, .failed:
+            case .ended:
+                onEnded(point)
+                let now = CACurrentMediaTime()
+                let dist = hypot(point.x - startPoint.x, point.y - startPoint.y)
+                if dist < 12, now - lastTapTime < 0.35 {
+                    lastTapTime = 0
+                    onDoubleTap()
+                } else if dist < 12 {
+                    lastTapTime = now
+                } else {
+                    lastTapTime = 0
+                }
+            case .cancelled, .failed:
+                lastTapTime = 0
                 onEnded(point)
             default:
-                break
+                lastTapTime = 0
             }
-        }
-
-        @objc func handleDoubleTap() {
-            onDoubleTap()
         }
     }
 }
