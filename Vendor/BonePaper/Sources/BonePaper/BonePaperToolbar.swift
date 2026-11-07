@@ -380,7 +380,9 @@ struct BonePaperSideMenu: View {
 
     var showsFramesToggle: Bool
     var showFrames: Bool
+    var hasMask: Bool
     var onToggleShowFrames: () -> Void
+    var onMask: () -> Void
     var onSettings: (() -> Void)?
 
     var body: some View {
@@ -406,6 +408,23 @@ struct BonePaperSideMenu: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Button(action: onMask) {
+                HStack(spacing: 10) {
+                    Image(systemName: "circle.lefthalf.filled")
+                        .font(.system(size: 16))
+                        .frame(width: 22)
+                    Text(hasMask ? "Clear mask" : "Mask")
+                        .font(.system(size: 15))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(hasMask ? BonePaperChrome.selected : Color(white: 0.85))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             if let onSettings {
                 Button(action: onSettings) {

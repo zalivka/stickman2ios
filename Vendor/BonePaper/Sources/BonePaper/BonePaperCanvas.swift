@@ -530,6 +530,10 @@ final class BonePaperDrawView: UIView {
     private let onionView = UIImageView()
     private weak var displayedOnion: CGImage?
     private let bitmap = UIImageView()
+    /// Displays `document.maskOverlay` above the drawing to dim the area outside the active mask.
+    /// Named `maskOverlayView` to avoid colliding with `UIView.mask`.
+    private let maskOverlayView = UIImageView()
+    private weak var displayedMaskOverlay: CGImage?
     private let frameLayer = CAShapeLayer()
     private let boneLayer = CAShapeLayer()
     private var lastWorld: CGPoint?
@@ -558,6 +562,10 @@ final class BonePaperDrawView: UIView {
         bitmap.isUserInteractionEnabled = false
         bitmap.contentMode = .scaleToFill
         bitmap.backgroundColor = .clear
+        maskOverlayView.isUserInteractionEnabled = false
+        maskOverlayView.contentMode = .scaleToFill
+        maskOverlayView.backgroundColor = .clear
+        maskOverlayView.isHidden = true
         frameLayer.fillColor = nil
         frameLayer.strokeColor = UIColor(red: 1, green: 0.35, blue: 0.72, alpha: 1).cgColor
         frameLayer.lineWidth = 1
@@ -568,6 +576,7 @@ final class BonePaperDrawView: UIView {
         addSubview(paperView)
         addSubview(onionView)
         addSubview(bitmap)
+        addSubview(maskOverlayView)
         layer.addSublayer(frameLayer)
         layer.addSublayer(boneLayer)
     }
@@ -587,6 +596,7 @@ final class BonePaperDrawView: UIView {
     func setBackdropAlpha(_ alpha: CGFloat) {
         checker.alpha = alpha
         onionView.alpha = alpha
+        maskOverlayView.alpha = alpha
     }
 
     /// The pink frame is a bare layer, so `UIView.animate` does not drive it.
@@ -625,6 +635,17 @@ final class BonePaperDrawView: UIView {
         let rect = bitmapRect(document)
         bitmap.frame = rect
         bitmap.image = UIImage(cgImage: document.preview)
+        maskOverlayView.frame = rect
+        if displayedMaskOverlay !== document.maskOverlay {
+            displayedMaskOverlay = document.maskOverlay
+            if let overlay = document.maskOverlay {
+                maskOverlayView.image = UIImage(cgImage: overlay)
+                maskOverlayView.isHidden = false
+            } else {
+                maskOverlayView.image = nil
+                maskOverlayView.isHidden = true
+            }
+        }
         paperView.frame = rect
         paperView.backgroundColor = paperColor
         paperView.isHidden = paperColor == nil

@@ -456,6 +456,7 @@ public struct BonePaperScreen: View {
                             BonePaperSideMenu(
                                 showsFramesToggle: supportsFramesStrip,
                                 showFrames: showFramesPanel,
+                                hasMask: document.hasMask,
                                 onToggleShowFrames: {
                                     withAnimation(.easeInOut(duration: 0.17)) {
                                         showFramesPanel.toggle()
@@ -463,6 +464,22 @@ public struct BonePaperScreen: View {
                                             isRearrangingFrames = false
                                         }
                                         showingMenu = false
+                                    }
+                                },
+                                onMask: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingMenu = false
+                                    }
+                                    if document.hasMask {
+                                        document.clearMask()
+                                    } else {
+                                        if document.convertDrawingToMask() {
+                                            if supportsFramesStrip {
+                                                framesSession.refreshActiveThumbnail(from: document.preview)
+                                            }
+                                        } else {
+                                            BonePaperHexToast.showMessage("Draw a shape first")
+                                        }
                                     }
                                 },
                                 onSettings: onSettings.map { openSettings in

@@ -87,6 +87,8 @@ public final class BonePaperDocument: ObservableObject {
     private(set) var extraTop: Int = 0
 
     @Published private(set) var preview: CGImage
+    /// Editor-only shaded overlay (dark outside the active mask, clear inside); nil when no mask is active.
+    @Published private(set) var maskOverlay: CGImage?
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
     @Published private(set) var filling = false
@@ -94,6 +96,11 @@ public final class BonePaperDocument: ObservableObject {
     private var context: CGContext
     private var stroke: CGContext
     private var composite: CGContext
+    /// Per-pixel 8-bit alpha (0...255) of the active silhouette mask at `pixelWidth × pixelHeight`; nil when unmasked.
+    /// Used by flood fill to treat `0` as an impassable wall and scale edge fill alpha.
+    private var maskAlpha: [UInt8]?
+    /// 8-bit grayscale `CGImage` built once from `maskAlpha` for native `CGContext.clip(to:mask:)` during strokes.
+    private var maskImage: CGImage?
     private var strokeLive = false
     private var brushfillLive = false
     private var brushfillPath = CGMutablePath()
@@ -200,6 +207,73 @@ public final class BonePaperDocument: ObservableObject {
         self.preview = preview
     }
 
+    var hasMask: Bool {
+        maskAlpha != nil
+    }
+
+    /// Converts the current drawing's alpha silhouette into the active mask and clears the paint buffer.
+    /// Returns `false` if the paint buffer has no visible pixels.
+    @discardableResult
+    func convertDrawingToMask() -> Bool {
+        if filling { return false }
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        guard let data = context.data else {
+            fatalError("BonePaperDocument mask has no pixel data")
+        }
+        let stride = context.bytesPerRow
+        if stride < pixelWidth * 4 {
+            fatalError("BonePaperDocument mask stride \(stride) width \(pixelWidth)")
+        }
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        let w = pixelWidth
+        let h = pixelHeight
+        var alpha = [UInt8](repeating: 0, count: w * h)
+        var hasOpaque = false
+        for y in 0..<h {
+            let row = y * stride
+            let base = y * w
+            for x in 0..<w {
+                let a = pixels[row + x * 4 + 3]
+                if a > 0 {
+                    alpha[base + x] = a
+                    hasOpaque = true
+                }
+            }
+        }
+        guard hasOpaque else { return false }
+        lastFillOperation = nil
+        fillStreak = 0
+        pushUndo()
+        redoStack.removeAll()
+        maskAlpha = alpha
+        maskImage = Self.makeMaskImage(alpha: alpha, width: w, height: h)
+        maskOverlay = Self.makeMaskOverlay(alpha: alpha, width: w, height: h)
+        context.clear(pixelRect)
+        publishPreview()
+        publishStacks()
+        return true
+    }
+
+    /// Removes the active mask while keeping whatever was drawn inside it.
+    func clearMask() {
+        if filling { return }
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        guard maskAlpha != nil else { return }
+        lastFillOperation = nil
+        fillStreak = 0
+        pushUndo()
+        redoStack.removeAll()
+        maskAlpha = nil
+        maskImage = nil
+        maskOverlay = nil
+        publishPreview()
+        publishStacks()
+    }
+
     func beginStroke(erase: Bool, opacity: CGFloat) {
         if filling { return }
         if strokeLive || brushfillLive {
@@ -253,6 +327,9 @@ public final class BonePaperDocument: ObservableObject {
                 fatalError("BonePaperDocument stroke snapshot failed")
             }
             context.saveGState()
+            if let maskImage {
+                context.clip(to: pixelRect, mask: maskImage)
+            }
             context.setAlpha(strokeOpacity)
             context.draw(layer, in: pixelRect)
             context.restoreGState()
@@ -266,6 +343,9 @@ public final class BonePaperDocument: ObservableObject {
             brushfillPath.closeSubpath()
             if !brushfillPath.isEmpty {
                 context.saveGState()
+                if let maskImage {
+                    context.clip(to: pixelRect, mask: maskImage)
+                }
                 context.setShouldAntialias(BonePaperFlags.antialiasing)
                 context.setAlpha(strokeOpacity)
                 context.setFillColor(brushfillColor.cgColor)
@@ -387,6 +467,10 @@ public final class BonePaperDocument: ObservableObject {
         if px < 0 || py < 0 || px >= pixelWidth || py >= pixelHeight {
             return
         }
+        let activeMask = maskAlpha
+        if let activeMask, activeMask[py * pixelWidth + px] == 0 {
+            return
+        }
         guard let data = context.data else {
             fatalError("BonePaperDocument fill has no pixel data")
         }
@@ -419,6 +503,7 @@ public final class BonePaperDocument: ObservableObject {
         fillQueue.async {
             var mask = Self.fillRegion(
                 pixels: pixels,
+                clipMask: activeMask,
                 width: width,
                 height: height,
                 stride: stride,
@@ -449,9 +534,9 @@ public final class BonePaperDocument: ObservableObject {
                 )
             case .color(let paint):
                 if BonePaperFlags.antialiasing {
-                    Self.growRing(pixels: pixels, mask: &mask, width: width, height: height, stride: stride)
+                    Self.growRing(pixels: pixels, clipMask: activeMask, mask: &mask, width: width, height: height, stride: stride)
                 }
-                Self.paintBehind(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
+                Self.paintBehind(pixels: pixels, clipMask: activeMask, mask: mask, width: width, stride: stride, paint: paint)
             }
             DispatchQueue.main.async {
                 self.publishPreview()
@@ -544,6 +629,9 @@ public final class BonePaperDocument: ObservableObject {
         fillStreak = 0
         undoStack.removeAll()
         redoStack.removeAll()
+        maskAlpha = nil
+        maskImage = nil
+        maskOverlay = nil
         self.width = width
         self.height = height
         self.originX = originX
@@ -709,7 +797,7 @@ public final class BonePaperDocument: ObservableObject {
         if radius < 0 {
             fatalError("BonePaperDocument ensureFits radius is \(radius)")
         }
-        if fixed {
+        if fixed || maskAlpha != nil {
             return .zero
         }
         var minX = CGFloat(0)
@@ -812,6 +900,9 @@ public final class BonePaperDocument: ObservableObject {
         }
         return Snapshot(
             image: image,
+            maskAlpha: maskAlpha,
+            maskImage: maskImage,
+            maskOverlay: maskOverlay,
             width: width,
             height: height,
             originX: originX,
@@ -828,6 +919,9 @@ public final class BonePaperDocument: ObservableObject {
         originY = snapshot.originY
         extraLeft = snapshot.extraLeft
         extraTop = snapshot.extraTop
+        maskAlpha = snapshot.maskAlpha
+        maskImage = snapshot.maskImage
+        maskOverlay = snapshot.maskOverlay
         context = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
         stroke = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
         composite = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
@@ -846,6 +940,9 @@ public final class BonePaperDocument: ObservableObject {
                 fatalError("BonePaperDocument stroke snapshot failed")
             }
             composite.saveGState()
+            if let maskImage {
+                composite.clip(to: pixelRect, mask: maskImage)
+            }
             composite.setAlpha(strokeOpacity)
             composite.draw(layer, in: pixelRect)
             composite.restoreGState()
@@ -947,6 +1044,7 @@ public final class BonePaperDocument: ObservableObject {
     /// OKLab runs only for a pixel whose bytes differ. A flat sky never converts the interior.
     private static func fillRegion(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         width: Int,
         height: Int,
         stride: Int,
@@ -959,7 +1057,7 @@ public final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument fill stride \(stride) is not a multiple of 4")
         }
         if !BonePaperFlags.antialiasing {
-            return fillExact(pixels: pixels, width: width, height: height, stride: stride, seedX: seedX, seedY: seedY)
+            return fillExact(pixels: pixels, clipMask: clipMask, width: width, height: height, stride: stride, seedX: seedX, seedY: seedY)
         }
         func rgba(_ offset: Int) -> UInt32 {
             UnsafeRawPointer(pixels).load(fromByteOffset: offset, as: UInt32.self)
@@ -983,6 +1081,7 @@ public final class BonePaperDocument: ObservableObject {
             func visit(_ nx: Int, _ ny: Int) {
                 let n = ny * width + nx
                 if mask[n] != 0 { return }
+                if let clipMask, clipMask[n] == 0 { return }
                 let nextOffset = ny * stride + nx * 4
                 if rgba(nextOffset) == currentBytes {
                     mask[n] = 1
@@ -1011,6 +1110,7 @@ public final class BonePaperDocument: ObservableObject {
     /// 4-connected flood of pixels whose premultiplied bytes equal the tap. Used when antialiasing is off.
     private static func fillExact(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         width: Int,
         height: Int,
         stride: Int,
@@ -1032,6 +1132,7 @@ public final class BonePaperDocument: ObservableObject {
                 if nx < 0 || ny < 0 || nx >= width || ny >= height { continue }
                 let n = ny * width + nx
                 if mask[n] != 0 { continue }
+                if let clipMask, clipMask[n] == 0 { continue }
                 if rgba(ny * stride + nx * 4) != seedBytes { continue }
                 mask[n] = 1
                 stack.append(Int32(n))
@@ -1080,6 +1181,7 @@ public final class BonePaperDocument: ObservableObject {
     /// Opaque ink is claimed but not crossed. Transparent pixels are not entered, so this does not jump a gap.
     private static func growRing(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         mask: inout [UInt8],
         width: Int,
         height: Int,
@@ -1087,6 +1189,7 @@ public final class BonePaperDocument: ObservableObject {
     ) {
         func claim(_ n: Int, into next: inout [Int32]) {
             if mask[n] != 0 { return }
+            if let clipMask, clipMask[n] == 0 { return }
             let alpha = pixels[(n / width) * stride + (n % width) * 4 + 3]
             if alpha == 0 { return }
             mask[n] = 2
@@ -1122,23 +1225,79 @@ public final class BonePaperDocument: ObservableObject {
     /// Destination-over into mask 1+2: line edges stay on top, so the fill tucks under the AA fringe.
     private static func paintBehind(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         mask: [UInt8],
         width: Int,
         stride: Int,
         paint: FillPaint
     ) {
-        let r = paint.r * paint.a
-        let g = paint.g * paint.a
-        let b = paint.b * paint.a
-        let a = paint.a * 255
+        let r = paint.r
+        let g = paint.g
+        let b = paint.b
+        let baseA = paint.a
         for m in mask.indices where mask[m] != 0 {
+            let maskScale = clipMask.map { Int($0[m]) } ?? 255
+            if maskScale == 0 { continue }
+            let effA = (baseA * maskScale + 127) / 255
+            if effA == 0 { continue }
+            let pr = r * effA
+            let pg = g * effA
+            let pb = b * effA
+            let pa = effA * 255
             let i = (m / width) * stride + (m % width) * 4
             let keep = 255 - Int(pixels[i + 3])
-            pixels[i] = UInt8(clamping: Int(pixels[i]) + (r * keep + 32512) / 65025)
-            pixels[i + 1] = UInt8(clamping: Int(pixels[i + 1]) + (g * keep + 32512) / 65025)
-            pixels[i + 2] = UInt8(clamping: Int(pixels[i + 2]) + (b * keep + 32512) / 65025)
-            pixels[i + 3] = UInt8(clamping: Int(pixels[i + 3]) + (a * keep + 32512) / 65025)
+            pixels[i] = UInt8(clamping: Int(pixels[i]) + (pr * keep + 32512) / 65025)
+            pixels[i + 1] = UInt8(clamping: Int(pixels[i + 1]) + (pg * keep + 32512) / 65025)
+            pixels[i + 2] = UInt8(clamping: Int(pixels[i + 2]) + (pb * keep + 32512) / 65025)
+            pixels[i + 3] = UInt8(clamping: Int(pixels[i + 3]) + (pa * keep + 32512) / 65025)
         }
+    }
+
+    /// Builds an 8-bit grayscale `CGImage` for `CGContext.clip(to:mask:)` where 255 is inside the mask and 0 is clipped.
+    private static func makeMaskImage(alpha: [UInt8], width: Int, height: Int) -> CGImage {
+        let data = Data(alpha) as CFData
+        guard let provider = CGDataProvider(data: data),
+              let image = CGImage(
+                  width: width,
+                  height: height,
+                  bitsPerComponent: 8,
+                  bitsPerPixel: 8,
+                  bytesPerRow: width,
+                  space: CGColorSpaceCreateDeviceGray(),
+                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                  provider: provider,
+                  decode: nil,
+                  shouldInterpolate: false,
+                  intent: .defaultIntent
+              ) else {
+            fatalError("BonePaperDocument makeMaskImage failed")
+        }
+        return image
+    }
+
+    /// Shaded overlay for the canvas: dark outside the mask silhouette, transparent inside.
+    private static func makeMaskOverlay(alpha: [UInt8], width: Int, height: Int) -> CGImage {
+        let ctx = makeBuffer(width: width, height: height)
+        guard let data = ctx.data else {
+            fatalError("BonePaperDocument makeMaskOverlay has no pixel data")
+        }
+        let stride = ctx.bytesPerRow
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        let shadeMaxAlpha = 115 // ~45% black outside the mask
+        for y in 0..<height {
+            let row = y * stride
+            let base = y * width
+            for x in 0..<width {
+                let outside = 255 - Int(alpha[base + x])
+                if outside <= 0 { continue }
+                let a = UInt8((outside * shadeMaxAlpha + 127) / 255)
+                pixels[row + x * 4 + 3] = a
+            }
+        }
+        guard let image = ctx.makeImage() else {
+            fatalError("BonePaperDocument makeMaskOverlay makeImage failed")
+        }
+        return image
     }
 
     /// Streak 0 is the first tap. Each later same-colour tap widens neighbour ×(1 + step) and skip/ink additively.
@@ -1195,6 +1354,9 @@ public final class BonePaperDocument: ObservableObject {
 
     private struct Snapshot {
         var image: CGImage
+        var maskAlpha: [UInt8]?
+        var maskImage: CGImage?
+        var maskOverlay: CGImage?
         var width: Int
         var height: Int
         var originX: Int
