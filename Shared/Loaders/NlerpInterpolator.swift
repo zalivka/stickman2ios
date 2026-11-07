@@ -78,14 +78,24 @@ enum NlerpInterpolator {
     }
 
     static func inbetween(unit1: StickmanUnit, unit2: StickmanUnit, t: CGFloat) throws -> StickmanUnit {
+        let scaleVal = lerp(unit1.scale, unit2.scale, t)
+        let alphaVal = min(max(lerp(unit1.alpha, unit2.alpha, t), 0), 1)
+        // Flip mirrors the bones, so a blend rotates every limb across the gap.
+        // Hold unit1 until the destination keyframe, which is emitted as itself.
+        if unit1.flipped != unit2.flipped {
+            var held = unit1
+            let base = try held.basePoint()
+            try held.scaleAt(pivotX: base.x, pivotY: base.y, target: scaleVal)
+            held.alpha = alphaVal
+            return held
+        }
+
         let scale1 = try validScale(unit1)
         let scale2 = try validScale(unit2)
         let base1 = try unit1.basePoint()
         let base2 = try unit2.basePoint()
         let xVal = lerp(base1.x, base2.x, t)
         let yVal = lerp(base1.y, base2.y, t)
-        let scaleVal = lerp(unit1.scale, unit2.scale, t)
-        let alphaVal = min(max(lerp(unit1.alpha, unit2.alpha, t), 0), 1)
 
         if unit1.edges.isEmpty {
             var result = unit1

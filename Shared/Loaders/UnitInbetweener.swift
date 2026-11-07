@@ -20,6 +20,9 @@ enum UnitInbetweener {
         if SlavesRegistry.isEnslaved(startRoot) {
             throw SceneLoadError(message: "UnitInbetweener enslaved '\(rootName)'")
         }
+        if !endpointFlipsMatch(scene: scene, rootName: rootName, from: from, to: to) {
+            return false
+        }
         let conflicts = try scene.ensureStructureOnRange(
             root: startRoot,
             in: scene.frames[from].units,
@@ -85,6 +88,37 @@ enum UnitInbetweener {
                 shakeFrequency: shakeFrequency,
                 frameCount: scene.frames.count
             )
+        }
+        return true
+    }
+
+    /// Root and every slave present on both ends share a flip flag.
+    /// A missing unit is ignored; structure checks report that. Interior frames are not consulted.
+    static func endpointFlipsMatch(scene: StickmanScene, rootName: String, from: Int, to: Int) -> Bool {
+        guard from >= 0, to < scene.frames.count, from <= to else {
+            return true
+        }
+        guard let start = scene.frames[from].units.first(where: { $0.name == rootName }),
+              let end = scene.frames[to].units.first(where: { $0.name == rootName })
+        else {
+            return true
+        }
+        if start.flipped != end.flipped {
+            return false
+        }
+        var registry = SlavesRegistry()
+        guard (try? registry.populate(units: scene.frames[from].units)) != nil else {
+            return true
+        }
+        for slaveName in registry.allSlaves(of: rootName) {
+            guard let startSlave = scene.frames[from].units.first(where: { $0.name == slaveName }),
+                  let endSlave = scene.frames[to].units.first(where: { $0.name == slaveName })
+            else {
+                continue
+            }
+            if startSlave.flipped != endSlave.flipped {
+                return false
+            }
         }
         return true
     }

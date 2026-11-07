@@ -562,6 +562,10 @@ struct SceneEditorScreen: View {
                 },
                 canApply: canApplyTween(range:),
                 onApply: { next in
+                    if !tweenEndpointFlipsMatch(range: next) {
+                        showToast("Can't tween: the first and last frame are flipped differently")
+                        return
+                    }
                     showingTweenRange = false
                     tweenApplyRange = next
                     showingTweenEasing = true
@@ -1154,7 +1158,9 @@ struct SceneEditorScreen: View {
                 }
                 try scene.frames[frameIndex].flipUnit(named: selectedUnitName)
             }
-            try retweenSelectedAfterPoseEdit(frames: rearrangeFrames)
+            if try retweenSelectedAfterPoseEdit(frames: rearrangeFrames) {
+                showToast("Can't tween: the first and last frame are flipped differently")
+            }
         } catch {
             bail(error)
         }
@@ -1921,6 +1927,10 @@ struct SceneEditorScreen: View {
             return
         }
         let rootName = rootTweenName(of: selectedUnit)
+        if !tweenEndpointFlipsMatch(range: from...to) {
+            showToast("Can't tween: the first and last frame are flipped differently")
+            return
+        }
         if !canApplyTween(range: from...to) {
             showToast("Select frames that both contain the unit")
             return
@@ -1936,7 +1946,10 @@ struct SceneEditorScreen: View {
                 strength: strength,
                 shakeFrequency: frequency
             ) {
-                showToast("Can't tween inconsistent items")
+                let message = tweenEndpointFlipsMatch(range: from...to)
+                    ? "Can't tween inconsistent items"
+                    : "Can't tween: the first and last frame are flipped differently"
+                showToast(message)
                 return
             }
         } catch {
@@ -1965,12 +1978,25 @@ struct SceneEditorScreen: View {
         }
     }
 
-    private func retweenSelectedAfterPoseEdit(frames: [Int]) throws {
+    @discardableResult
+    private func retweenSelectedAfterPoseEdit(frames: [Int]) throws -> Bool {
         guard let selectedUnit, let frame = scene.currentFrameOrNil else {
-            return
+            return false
         }
         let root = SlavesRegistry.rootMaster(of: selectedUnit, in: frame.units)
-        try scene.retweenEndpoints(unitName: root.name, frames: frames)
+        return try scene.retweenEndpoints(unitName: root.name, frames: frames)
+    }
+
+    private func tweenEndpointFlipsMatch(range: ClosedRange<Int>) -> Bool {
+        guard let selectedUnit else {
+            return true
+        }
+        return UnitInbetweener.endpointFlipsMatch(
+            scene: scene,
+            rootName: rootTweenName(of: selectedUnit),
+            from: range.lowerBound,
+            to: range.upperBound
+        )
     }
 
     private func rootTweenName(of unit: StickmanUnit) -> String {

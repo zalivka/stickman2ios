@@ -524,6 +524,7 @@ struct StickmanUnit {
         }
         scale = other.scale
         alpha = other.alpha
+        flipped = other.flipped
     }
 
     func handlerRotateDiff(handler: CGPoint) throws -> CGFloat {
@@ -1469,15 +1470,18 @@ struct StickmanScene {
         }
     }
 
-    mutating func retweenEndpoints(unitName: String, frames edited: [Int]) throws {
+    /// True when a span was removed because its endpoint flip flags differ.
+    @discardableResult
+    mutating func retweenEndpoints(unitName: String, frames edited: [Int]) throws -> Bool {
         if edited.isEmpty {
-            return
+            return false
         }
         let editedSet = Set(edited)
         let spans = unitTweens.ranges.filter { span in
             span.unitName == unitName && (editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame))
         }
         var seen = Set<String>()
+        var droppedForFlip = false
         for span in spans {
             guard let unit = self.frames[safe: span.fromFrame]?.units.first(where: { $0.name == span.unitName }) else {
                 continue
@@ -1487,7 +1491,7 @@ struct StickmanScene {
             if !seen.insert(key).inserted {
                 continue
             }
-            try retweenSpan(
+            if try retweenSpan(
                 AutoTweenRange(
                     unitName: root.name,
                     fromFrame: span.fromFrame,
@@ -1496,28 +1500,42 @@ struct StickmanScene {
                     easingStrength: span.easingStrength,
                     shakeFrequency: span.shakeFrequency
                 )
-            )
+            ) {
+                droppedForFlip = true
+            }
         }
+        return droppedForFlip
     }
 
-    mutating func retweenSpan(_ span: AutoTweenRange) throws {
+    /// True when `span` was removed because its endpoint flip flags differ.
+    @discardableResult
+    mutating func retweenSpan(_ span: AutoTweenRange) throws -> Bool {
         if span.fromFrame < 0 || span.toFrame >= frames.count {
             unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
-            return
+            return false
         }
         guard let startUnit = frames[span.fromFrame].units.first(where: { $0.name == span.unitName }),
               frames[span.toFrame].units.contains(where: { $0.name == span.unitName })
         else {
             unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
-            return
+            return false
         }
         let root = SlavesRegistry.rootMaster(of: startUnit, in: frames[span.fromFrame].units)
         if SlavesRegistry.isEnslaved(root) {
             unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
-            return
+            return false
         }
         if root.name != span.unitName {
-            return
+            return false
+        }
+        if !UnitInbetweener.endpointFlipsMatch(
+            scene: self,
+            rootName: root.name,
+            from: span.fromFrame,
+            to: span.toFrame
+        ) {
+            try dropSpanAndSlaves(span)
+            return true
         }
         if try !UnitInbetweener.propagate(
             scene: &self,
@@ -1528,7 +1546,21 @@ struct StickmanScene {
             strength: span.easingStrength,
             shakeFrequency: span.shakeFrequency
         ) {
-            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            try dropSpanAndSlaves(span)
+        }
+        return false
+    }
+
+    private mutating func dropSpanAndSlaves(_ span: AutoTweenRange) throws {
+        unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+        guard let endpoint = frames[safe: span.fromFrame],
+              let unit = endpoint.units.first(where: { $0.name == span.unitName })
+        else {
+            return
+        }
+        let root = SlavesRegistry.rootMaster(of: unit, in: endpoint.units)
+        for connected in try SlavesRegistry.allConnected(of: root, in: endpoint.units) where connected.name != span.unitName {
+            unitTweens.removeExact(unitName: connected.name, from: span.fromFrame, to: span.toFrame)
         }
     }
 
