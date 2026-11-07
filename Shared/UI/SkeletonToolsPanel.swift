@@ -257,8 +257,9 @@ struct SkeletonSecondaryPanel: View {
                 switch content {
                 case .empty:
                     SkeletonChrome.pane
-                case .bones(let onBoneHoldStart, let onBoneHoldEnd, let onProps, let canProps, let onSplit, let canSplit, let onDelete, let onMoveDown, let onMoveUp):
+                case .bones(let structureLocked, let onBoneHoldStart, let onBoneHoldEnd, let onProps, let canProps, let onSplit, let canSplit, let onDelete, let onMoveDown, let onMoveUp):
                     SkeletonBonesTools(
+                        structureLocked: structureLocked,
                         onBoneHoldStart: onBoneHoldStart,
                         onBoneHoldEnd: onBoneHoldEnd,
                         onProps: onProps,
@@ -285,9 +286,10 @@ struct SkeletonSecondaryPanel: View {
     }
 }
 
-enum SkeletonSecondaryContent {
+    enum SkeletonSecondaryContent {
     case empty
     case bones(
+        structureLocked: Bool,
         onBoneHoldStart: () -> Void,
         onBoneHoldEnd: () -> Void,
         onProps: () -> Void,
@@ -307,6 +309,7 @@ enum SkeletonSecondaryContent {
 
 /// Android `skeleton_node_tools`: New (hold), Props, Split, Delete, Down, Up.
 struct SkeletonBonesTools: View {
+    var structureLocked: Bool = false
     var onBoneHoldStart: () -> Void
     var onBoneHoldEnd: () -> Void
     var onProps: () -> Void
@@ -321,9 +324,17 @@ struct SkeletonBonesTools: View {
     var body: some View {
         VStack(spacing: 0) {
             boneNewButton
+                .opacity(structureLocked ? 0 : 1)
+                .allowsHitTesting(!structureLocked)
             toolButton(title: "Props", icon: "skel_edit_point_active", enabled: canProps, action: onProps)
-            splitButton
+                .opacity(structureLocked ? 0 : 1)
+                .allowsHitTesting(!structureLocked)
+            if !structureLocked {
+                splitButton
+            }
             toolButton(title: "Delete", icon: "skel_btn_del_active", action: onDelete)
+                .opacity(structureLocked ? 0 : 1)
+                .allowsHitTesting(!structureLocked)
             toolButton(title: "Down", icon: "bone_down_active", action: onMoveDown)
             toolButton(title: "Up", icon: "bone_up_active", action: onMoveUp)
         }
@@ -544,13 +555,14 @@ struct StretchHoldBanner: View {
 }
 
 struct SkeletonSideMenu: View {
+    var saveLabel: String = "Save as"
     var onSaveAs: () -> Void
     var onPreview: () -> Void
     var onSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            row("Save as", icon: "square.and.arrow.down", action: onSaveAs)
+            row(saveLabel, icon: "square.and.arrow.down", action: onSaveAs)
             row("Preview", icon: "eye", action: onPreview)
             row("Settings", icon: "gearshape", action: onSettings)
             Spacer(minLength: 0)

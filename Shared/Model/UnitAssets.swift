@@ -290,6 +290,15 @@ final class UnitAssets {
         applyDecodedItem(decoded, forceReload: forceReload)
     }
 
+    func reloadItemFromArchive(_ zip: Data, entryName: String) throws {
+        let decoded = try Self.decodeItemFromArchive(zip, entryName: entryName)
+        edgeAssets = edgeAssets.filter { $0.key.unitName != decoded.key }
+        looseBones = looseBones.filter { $0.value.unitName != decoded.key }
+        restModel.removeValue(forKey: decoded.key)
+        drawingConfigs.removeValue(forKey: decoded.key)
+        applyDecodedItem(decoded)
+    }
+
     func archive(for unitName: String) -> StoredArchive? {
         let key = Self.removeNumber(unitName)
         guard let stored = archives[key] else {

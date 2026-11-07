@@ -80,6 +80,16 @@ enum ThumbCache {
         lock.unlock()
     }
 
+    static func dropPropThumbs(unitName: String) {
+        let pure = UnitAssets.removeNumber(unitName)
+        let prefix = "props:" + pure
+        lock.lock()
+        images = images.filter { key, _ in key != prefix && !key.hasPrefix(prefix + "#") }
+        failures = failures.filter { key, _ in key != prefix && !key.hasPrefix(prefix + "#") }
+        toasted = toasted.filter { $0 != prefix && !$0.hasPrefix(prefix + "#") }
+        lock.unlock()
+    }
+
     private static func dropChooserCustoms() {
         lock.lock()
         images = images.filter { !$0.key.hasPrefix("chooser:@:") }

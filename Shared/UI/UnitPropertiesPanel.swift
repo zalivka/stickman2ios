@@ -24,6 +24,7 @@ struct UnitPropertiesPanel: View {
     var onSelectState: (Int) -> Void
     var onOpenAnimation: () -> Void
     var onCopy: () -> Void
+    var onEditItem: (() -> Void)? = nil
     var onSetText: (() -> Void)? = nil
     var poseLocked: Bool = false
     var structureOwned: Bool = false
@@ -127,6 +128,9 @@ struct UnitPropertiesPanel: View {
                 actionButton("Flip", icon: "props_flip", enabled: !poseLocked, action: onFlip)
                 if SlavesRegistry.isEnslaved(unit) {
                     actionButton("Detach", icon: "props_detach", enabled: !poseLocked && !structureOwned, action: onDetach)
+                }
+                if let onEditItem {
+                    actionButton("Edit", icon: "props_edit_custom", action: onEditItem)
                 }
                 // Android maps “Up” to props_down and “Down” to props_up.
                 actionButton(

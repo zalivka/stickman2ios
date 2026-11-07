@@ -26,7 +26,50 @@ enum ItemSaver {
             throw SceneLoadError(message: "ItemSaver illegal name '\(rawName)'")
         }
         let name = rawName.replacingOccurrences(of: " ", with: "_")
-        let fullName = "\(pack):\(name)"
+        return try write(
+            unit: unit,
+            assets: assets,
+            source: source,
+            fileName: name,
+            displayName: name,
+            thumb: thumb,
+            poster: poster
+        )
+    }
+
+    static func saveInPlace(
+        unit: StickmanUnit,
+        assets: UnitAssets,
+        source: Data?,
+        systemName: String,
+        displayName: String,
+        thumb: Data,
+        poster: Data
+    ) throws -> URL {
+        if systemName.isEmpty {
+            throw SceneLoadError(message: "ItemSaver empty systemName")
+        }
+        return try write(
+            unit: unit,
+            assets: assets,
+            source: source,
+            fileName: systemName,
+            displayName: displayName.isEmpty ? systemName : displayName,
+            thumb: thumb,
+            poster: poster
+        )
+    }
+
+    private static func write(
+        unit: StickmanUnit,
+        assets: UnitAssets,
+        source: Data?,
+        fileName: String,
+        displayName: String,
+        thumb: Data,
+        poster: Data
+    ) throws -> URL {
+        let fullName = "\(pack):\(fileName)"
 
         var files: [(name: String, data: Data)] = [
             (name: "model.xml", data: try ModelXML.serialize(unit, fullName: fullName))
@@ -69,8 +112,8 @@ enum ItemSaver {
                 files.append((name: entry, data: try ZipStore.dataThrowing(named: entry, in: source)))
             }
         }
-        files.append((name: "\(name).name", data: Data()))
-        files.append((name: "meta.txt", data: try meta(name: name, scale: unit.scale)))
+        files.append((name: "\(fileName).name", data: Data()))
+        files.append((name: "meta.txt", data: try meta(name: displayName, scale: unit.scale)))
         files.append((name: "thumb.png", data: thumb))
         files.append((name: "poster.png", data: poster))
 
@@ -78,7 +121,7 @@ enum ItemSaver {
         let fm = FileManager.default
         let dir = CustomItems.directory()
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("\(name).\(CustomItems.ext)")
+        let url = CustomItems.file(systemName: fileName)
         if fm.fileExists(atPath: url.path) {
             try fm.removeItem(at: url)
         }

@@ -100,6 +100,10 @@ nonisolated enum CustomItems {
         return directory().appendingPathComponent("\(systemName).\(ext)")
     }
 
+    static func item(systemName: String) -> Item? {
+        collect().first { $0.systemName == systemName }
+    }
+
     @discardableResult
     static func delete(_ item: Item) -> Bool {
         do {

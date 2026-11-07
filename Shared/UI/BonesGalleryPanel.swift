@@ -4,6 +4,7 @@ import SwiftUI
 struct BonesGalleryPanel: View {
     var bones: [UnitAssets.GalleryBone]
     var highlightedBmName: String?
+    var bitmapsOnly: Bool = false
     var onNewBone: () -> Void
     var onAttach: (String) -> Void
     var onEdit: (String) -> Void
@@ -13,8 +14,10 @@ struct BonesGalleryPanel: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                newBoneHeader
-                    .frame(height: SkeletonChrome.galleryRowHeight)
+                if !bitmapsOnly {
+                    newBoneHeader
+                        .frame(height: SkeletonChrome.galleryRowHeight)
+                }
                 ForEach(bones) { bone in
                     boneRow(bone)
                         .frame(height: SkeletonChrome.galleryRowHeight)
@@ -55,7 +58,11 @@ struct BonesGalleryPanel: View {
 
     private func boneRow(_ bone: UnitAssets.GalleryBone) -> some View {
         Button {
-            onAttach(bone.bmName)
+            if bitmapsOnly {
+                onEdit(bone.bmName)
+            } else {
+                onAttach(bone.bmName)
+            }
         } label: {
             ZStack(alignment: .leading) {
                 Rectangle()
@@ -83,7 +90,9 @@ struct BonesGalleryPanel: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Attach Bone") { onAttach(bone.bmName) }
+            if !bitmapsOnly {
+                Button("Attach Bone") { onAttach(bone.bmName) }
+            }
             Button("Edit Bone") { onEdit(bone.bmName) }
         }
         .accessibilityLabel("Bone \(bone.bmName)")
