@@ -20,6 +20,20 @@ private enum ScenePropsSheet: String, Identifiable {
     var id: String { rawValue }
 }
 
+private enum ItemEditTicket: Identifiable {
+    case custom(unitName: String, item: CustomItems.Item)
+    case packItem(unitName: String, item: Item)
+
+    var id: String {
+        switch self {
+        case .custom(let unitName, let item):
+            return "custom:\(unitName):\(item.systemName)"
+        case .packItem(let unitName, let item):
+            return "pack:\(unitName):\(item.makeFullName())"
+        }
+    }
+}
+
 struct SceneEditorScreen: View {
     @State private var scene: StickmanScene
     @State private var assets: UnitAssets
@@ -44,6 +58,9 @@ struct SceneEditorScreen: View {
     @State private var showingMenu = false
     @State private var showingSettings = false
     @State private var showingCreateItems = false
+    @State private var editableItem: Item?
+    @State private var itemEditor: ItemEditTicket?
+    @State private var assetsEpoch = 0
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
     @State private var capturedUnitName: String?
@@ -69,7 +86,7 @@ struct SceneEditorScreen: View {
 
     /// Backing out within this long after open never asks to save.
     private static let leaveGraceSeconds = 10.0
-    @State private var savedDocument: Data?
+    @State private var savedSceneSnapshot: StickmanScene
     @StateObject private var videoExport = VideoExport()
     @StateObject private var clipboard = CopyPasteBuffer()
     @StateObject private var undo = SceneUndo()
@@ -116,7 +133,7 @@ struct SceneEditorScreen: View {
             )
         }
         _selectedUnitName = State(initialValue: nil)
-        _savedDocument = State(initialValue: SceneSaver.documentBytes(scene: scene))
+        _savedSceneSnapshot = State(initialValue: scene)
         _tutorialStep = State(initialValue: tutorial ? .move : nil)
     }
 
@@ -187,6 +204,7 @@ struct SceneEditorScreen: View {
                     onMessage: { showToast($0) },
                     selectedUnitName: $selectedUnitName,
                     capturedUnitName: $capturedUnitName,
+                    layerEpoch: assetsEpoch,
                     onPrepareUndo: prepareSelectionUndo,
                     canMutatePoseFor: { name in
                         !scene.isPoseLocked(unitName: name, frameIndex: scene.currentIndex)
@@ -248,6 +266,7 @@ struct SceneEditorScreen: View {
                             onSelectState: setSelectedUnitState,
                             onOpenAnimation: { showingFBF = true },
                             onCopy: copySelectedUnit,
+                            onEditItem: selectedUnit.unitType != .bubble && editableItem != nil ? { openItemEditor() } : nil,
                             onSetText: selectedUnit.unitType == .bubble ? { openSetText() } : nil,
                             poseLocked: scene.isPoseLocked(
                                 unitName: selectedUnit.name,
@@ -301,13 +320,6 @@ struct SceneEditorScreen: View {
                     currentIndex: currentIndexBinding,
                     range: $range,
                     mode: $mode,
-                    onEnterRange: {
-                        do {
-                            try undo.commitEnteringRange(from: scene, indices: Array(range))
-                        } catch {
-                            bail(error)
-                        }
-                    },
                     onLeaveRange: {
                         undo.clearRangeBaseline()
                     },
@@ -323,13 +335,10 @@ struct SceneEditorScreen: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showingMenu)
         .onChange(of: range) { _, _ in
-            if mode == .range {
-                do {
-                    try undo.commitEnteringRange(from: scene, indices: Array(range))
-                } catch {
-                    bail(error)
-                }
-            }
+            undo.clearRangeBaseline()
+        }
+        .onChange(of: selectedUnitName) { _, next in
+            refreshEditableItem(for: next)
         }
         .ignoresSafeArea(edges: .horizontal)
         .modifier(StatusBarClearance())
@@ -458,6 +467,18 @@ struct SceneEditorScreen: View {
         }
         .navigationDestination(isPresented: $showingCreateItems) {
             CustomItemsListScreen()
+        }
+        .fullScreenCover(item: $itemEditor) { ticket in
+            switch ticket {
+            case .custom(let unitName, let item):
+                SkeletonScreen(editCustom: item) { _ in
+                    reloadEditedUnitAssets(unitName: unitName)
+                }
+            case .packItem(_, let item):
+                SkeletonScreen(editPackItem: item) { _ in
+                    assetsEpoch += 1
+                }
+            }
         }
         .sheet(item: $scenePropsSheet) { sheet in
             switch sheet {
@@ -730,6 +751,8 @@ struct SceneEditorScreen: View {
         showingEditFrame = false
         showingMenu = false
         showingCreateItems = false
+        editableItem = nil
+        itemEditor = nil
         scenePropsSheet = nil
         selectedUnitName = nil
         capturedUnitName = nil
@@ -749,7 +772,7 @@ struct SceneEditorScreen: View {
         setTextError = ""
         showingLeaveAlert = false
         dismissAfterSave = false
-        savedDocument = SceneSaver.documentBytes(scene: scene)
+        savedSceneSnapshot = scene
         frameInsertFlash = 0
         tutorialStep = .move
         playHintScheduled = false
@@ -910,6 +933,64 @@ struct SceneEditorScreen: View {
     private var selectedUnit: StickmanUnit? {
         guard let selectedUnitName else { return nil }
         return scene.currentFrameOrNil?.units.first { $0.name == selectedUnitName }
+    }
+
+    /// Android `ItemInformation.isEditableAsCustom(fullname)`: `@` custom pack or a pack with `editable_items="true"`.
+    private func refreshEditableItem(for unitName: String?) {
+        guard let unitName else {
+            editableItem = nil
+            return
+        }
+        let pure = UnitAssets.removeNumber(unitName)
+        Task {
+            let resolved: Item? = await Manifest.shared.schedule {
+                guard let item = Manifest.shared.findItem(fullname: pure) else {
+                    return nil
+                }
+                if item.packName == Pack.customName {
+                    return item
+                }
+                if Manifest.shared.pack(named: item.packName)?.editableItems == true {
+                    return item
+                }
+                return nil
+            }
+            if selectedUnitName == unitName {
+                editableItem = resolved
+            }
+        }
+    }
+
+    private func openItemEditor() {
+        guard let unit = selectedUnit, unit.unitType != .bubble, let item = editableItem else {
+            return
+        }
+        if item.packName == Pack.customName {
+            guard let custom = CustomItems.item(systemName: item.systemName) else {
+                showToast("Custom item not found")
+                return
+            }
+            itemEditor = .custom(unitName: unit.name, item: custom)
+        } else {
+            itemEditor = .packItem(unitName: unit.name, item: item)
+        }
+    }
+
+    private func reloadEditedUnitAssets(unitName: String) {
+        let pure = UnitAssets.removeNumber(unitName)
+        Task {
+            do {
+                let zip = try await Manifest.shared.scheduleThrowing {
+                    _ = Manifest.shared.reloadCustomPack()
+                    return try Manifest.shared.itemZip(fullname: pure)
+                }
+                try assets.reloadItemFromArchive(zip, entryName: UnitAssets.atiEntryName(for: pure))
+                ThumbCache.dropPropThumbs(unitName: pure)
+                assetsEpoch += 1
+            } catch {
+                showToast(ItemLoadError.text(error))
+            }
+        }
     }
 
     /// Android `MainEditor.hasSelectedUnitWithStretchableBone`; forced on while held for the
@@ -1552,7 +1633,10 @@ struct SceneEditorScreen: View {
             return
         }
         // nil documentBytes means serialization failed; treat as dirty and offer the save.
-        if let bytes = SceneSaver.documentBytes(scene: scene), bytes == savedDocument {
+        if let bytes = SceneSaver.documentBytes(scene: scene),
+           let savedBytes = SceneSaver.documentBytes(scene: savedSceneSnapshot),
+           bytes == savedBytes
+        {
             dismiss()
             return
         }
@@ -1596,7 +1680,7 @@ struct SceneEditorScreen: View {
                 name: saveName
             )
             lastSavedName = saved
-            savedDocument = SceneSaver.documentBytes(scene: scene)
+            savedSceneSnapshot = scene
             Analytics.event("scene_saved")
             showingSave = false
             if dismissAfterSave {

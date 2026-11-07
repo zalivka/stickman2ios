@@ -65,11 +65,10 @@ final class VideoExport: ObservableObject {
                         // ffmpeg runs for seconds; Android merges on
                         // `Schedulers.io()`, never on the main thread.
                         let count = rendered.count
-                        let movie = rendered.movie
                         DispatchQueue.global(qos: .userInitiated).async {
                             let merged: URL?
                             do {
-                                merged = try Self.mergeSoundtrack(movie)
+                                merged = try Self.mergeSoundtrack(source: snapshot, totalGeneratedFrames: count)
                             } catch {
                                 DispatchQueue.main.async {
                                     JpegSequenceWriter.clean()
@@ -116,10 +115,10 @@ final class VideoExport: ObservableObject {
         finish(.cancelled)
     }
 
-    /// Android `StageAudio.mergeAudioBlocking` on the generated movie: offsets
-    /// come from generated `originFrameIndex`, not source keyframes.
-    private static func mergeSoundtrack(_ movie: StickmanScene) throws -> URL? {
-        let timed = try movie.audio.timedFiles(movie: movie)
+    /// Android `StageAudio.mergeAudioBlocking(speechPoints, totalGenFrames)`:
+    /// offsets come from `originStartGenIndices(source)` rather than a retained movie.
+    private static func mergeSoundtrack(source: StickmanScene, totalGeneratedFrames: Int) throws -> URL? {
+        let timed = try source.audio.timedFiles(source: source, totalGeneratedFrames: totalGeneratedFrames)
         if timed.isEmpty {
             return nil
         }

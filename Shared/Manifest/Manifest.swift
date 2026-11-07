@@ -69,6 +69,20 @@ nonisolated final class Manifest: @unchecked Sendable {
         }
     }
 
+    func scheduleThrowing<T>(_ task: @escaping () throws -> T) async throws -> T {
+        BootLog.say("Manifest.schedule enqueue")
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                BootLog.say("Manifest.schedule run")
+                do {
+                    continuation.resume(returning: try task())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     func requestReload() async -> Int {
         await schedule { self.reloadAll() }
     }

@@ -8,6 +8,16 @@ final class UnitAssets {
     nonisolated static let stateDefault = 0
     /// Android `Constants.DEFAULT_LENGTH` — gallery new-bone hint and attach length.
     static let defaultBoneLength: CGFloat = 200
+    /// Android `EagerRetentionStrategy.MAX_EDITOR_BITMAP_DIMENSION`.
+    nonisolated static let maxBitmapDimension = 1024
+
+    nonisolated static func computePowerOfTwoSampleSize(width: Int, height: Int, maxDimension: Int) -> Int {
+        var sample = 1
+        while (width / sample) > maxDimension || (height / sample) > maxDimension {
+            sample *= 2
+        }
+        return sample
+    }
 
     struct EdgeKey: Hashable {
         var unitName = ""
@@ -45,6 +55,12 @@ final class UnitAssets {
         var nativeFlipped: Bool
         var bmName: String
         var bitmap: CGImage
+        /// Original 1x width in world pixels before giant-bitmap downsampling (`0` falls back to `bitmap.width`).
+        var origWidth: Int = 0
+        /// Original 1x height in world pixels before giant-bitmap downsampling (`0` falls back to `bitmap.height`).
+        var origHeight: Int = 0
+        /// Power-of-two downsample factor applied when decoding `bitmap` (`1` = full 1x resolution).
+        var decodeSample: Int = 1
         /// Sidecar pixels per `bm` pixel. `1` (omitted on disk) draws `bitmap`. Greater than `1`
         /// draws `sidecarImage` at `1 / sample` when that image is exactly `bitmap` times `sample`.
         var sample: Int = 1
@@ -57,6 +73,14 @@ final class UnitAssets {
         var sidecarImage: CGImage?
         var svgName: String?
         var commandScale: String?
+
+        var bitmapWidth: Int {
+            origWidth > 0 ? origWidth : bitmap.width
+        }
+
+        var bitmapHeight: Int {
+            origHeight > 0 ? origHeight : bitmap.height
+        }
 
         /// Stores the sidecar and, when `sample > 1` and the size is `bitmap * sample`, the image drawn for it.
         /// A buffer that is not a PNG, or not `bitmap` times `BonePaperDocument.sample`, is logged and dropped.
@@ -75,15 +99,17 @@ final class UnitAssets {
                 return
             }
             let factor = BonePaperDocument.sample
-            guard raw.width == bitmap.width * factor,
-                  raw.height == bitmap.height * factor else {
-                print("UnitAssets '\(name)' sidecar \(raw.width)x\(raw.height) != \(bitmap.width * factor)x\(bitmap.height * factor)")
+            let baseW = bitmapWidth
+            let baseH = bitmapHeight
+            guard raw.width == baseW * factor,
+                  raw.height == baseH * factor else {
+                print("UnitAssets '\(name)' sidecar \(raw.width)x\(raw.height) != \(baseW * factor)x\(baseH * factor)")
                 return
             }
             paintBuffer = data
             if sample > 1,
-               raw.width == bitmap.width * sample,
-               raw.height == bitmap.height * sample {
+               raw.width == baseW * sample,
+               raw.height == baseH * sample {
                 if predecoded != nil {
                     sidecarImage = raw
                 } else {
@@ -98,14 +124,35 @@ final class UnitAssets {
             }
         }
 
-        /// The picture to draw. `divisor` is `1` for the `bm` PNG, or `sample` when the sidecar is used.
-        func drawnPicture(ignoreSample: Bool) -> (image: CGImage, divisor: CGFloat) {
-            if !ignoreSample,
-               sample > 1,
-               let sidecar = sidecarImage,
-               sidecar.width == bitmap.width * sample,
-               sidecar.height == bitmap.height * sample {
+        private func canUseSidecar(ignoreSample: Bool, unitScale: CGFloat) -> Bool {
+            if ignoreSample {
+                return false
+            }
+            if DevFlags.optimizeGiantBitmaps && unitScale <= 0.5 {
+                return false
+            }
+            let baseW = bitmapWidth
+            let baseH = bitmapHeight
+            guard sample > 1,
+                  let sidecar = sidecarImage,
+                  baseW > 0,
+                  baseH > 0,
+                  sidecar.width == baseW * sample,
+                  sidecar.height == baseH * sample else {
+                return false
+            }
+            return true
+        }
+
+        /// The picture to draw. `divisor` is `1` for a full-res `bm` PNG, `1 / decodeSample` when downsampled,
+        /// or `sample` when the sidecar is used.
+        func drawnPicture(ignoreSample: Bool, unitScale: CGFloat = 1) -> (image: CGImage, divisor: CGFloat) {
+            if canUseSidecar(ignoreSample: ignoreSample, unitScale: unitScale),
+               let sidecar = sidecarImage {
                 return (sidecar, CGFloat(sample))
+            }
+            if DevFlags.optimizeGiantBitmaps && decodeSample > 1 {
+                return (bitmap, 1 / CGFloat(decodeSample))
             }
             return (bitmap, 1)
         }
@@ -160,35 +207,96 @@ final class UnitAssets {
     }
 
     func hasAssetsFor(unitName: String) -> Bool {
-        edgeAssets.keys.contains { $0.unitName == unitName }
+        edgeAssets.keys.contains { $0.unitName == unitName } || restModel[unitName] != nil
     }
 
     func hasArchive(for unitName: String) -> Bool {
         archives[Self.removeNumber(unitName)] != nil
     }
 
+    struct DecodedArchiveItem {
+        var entryName: String
+        var zip: Data
+        var key: String
+        var restLengths: [Int: CGFloat]
+        var edgeAssets: [EdgeKey: [Int: EdgeAsset]]
+        var drawingConfig: BonePaperDrawingConfig?
+    }
+
+    static func decodeItemFromArchive(_ zip: Data, entryName: String) throws -> DecodedArchiveItem {
+        if entryName.isEmpty {
+            throw ItemLoadError("UnitAssets empty archive entry name")
+        }
+        let zipIndex = try ZipStore.indexThrowing(in: zip)
+        let model = try ModelXML.parse(try zipIndex.dataThrowing(named: "model.xml"))
+        let key = Self.removeNumber(model.name)
+        let restLengths = try computeRestLengths(from: model)
+        if model.unitType == .bubble {
+            return DecodedArchiveItem(
+                entryName: entryName,
+                zip: zip,
+                key: key,
+                restLengths: restLengths,
+                edgeAssets: [:],
+                drawingConfig: nil
+            )
+        }
+        let xml = try zipIndex.dataThrowing(named: "assets.xml")
+        let parsed = try AssetsXML.parse(xml)
+        let installed = try decodeRows(parsed, zipIndex: zipIndex)
+        return DecodedArchiveItem(
+            entryName: entryName,
+            zip: zip,
+            key: key,
+            restLengths: restLengths,
+            edgeAssets: installed.edgeAssets,
+            drawingConfig: installed.drawingConfig
+        )
+    }
+
+    func applyDecodedItem(_ decoded: DecodedArchiveItem, forceReload: Bool = true) {
+        if !forceReload && hasAssetsFor(unitName: decoded.key) {
+            if archives[decoded.key] == nil {
+                archives[decoded.key] = StoredArchive(entryName: decoded.entryName, zip: decoded.zip)
+            }
+            return
+        }
+        for (edgeKey, states) in decoded.edgeAssets {
+            edgeAssets[edgeKey] = states
+        }
+        if let config = decoded.drawingConfig {
+            drawingConfigs[decoded.key] = config
+        }
+        archives[decoded.key] = StoredArchive(entryName: decoded.entryName, zip: decoded.zip)
+        restModel[decoded.key] = decoded.restLengths
+    }
+
     func loadItemFromArchive(_ zip: Data, entryName: String, forceReload: Bool = true) throws {
         if entryName.isEmpty {
             throw ItemLoadError("UnitAssets empty archive entry name")
         }
-        let model = try ModelXML.parse(try ZipStore.dataThrowing(named: "model.xml", in: zip))
-        let key = Self.removeNumber(model.name)
-        if !forceReload && hasAssetsFor(unitName: model.name) {
-            if archives[key] == nil {
-                archives[key] = StoredArchive(entryName: entryName, zip: zip)
+        if !forceReload {
+            let zipIndex = try ZipStore.indexThrowing(in: zip)
+            let model = try ModelXML.parse(try zipIndex.dataThrowing(named: "model.xml"))
+            let key = Self.removeNumber(model.name)
+            if hasAssetsFor(unitName: model.name) {
+                if archives[key] == nil {
+                    archives[key] = StoredArchive(entryName: entryName, zip: zip)
+                }
+                return
             }
-            return
         }
-        if model.unitType == .bubble {
-            archives[key] = StoredArchive(entryName: entryName, zip: zip)
-            try captureRest(from: model)
-            return
-        }
-        let xml = try ZipStore.dataThrowing(named: "assets.xml", in: zip)
-        let parsed = try AssetsXML.parse(xml)
-        try install(parsed, zip: zip)
-        archives[key] = StoredArchive(entryName: entryName, zip: zip)
-        try captureRest(from: model)
+        let decoded = try Self.decodeItemFromArchive(zip, entryName: entryName)
+        applyDecodedItem(decoded, forceReload: forceReload)
+    }
+
+    func reloadItemFromArchive(_ zip: Data, entryName: String) throws {
+        let decoded = try Self.decodeItemFromArchive(zip, entryName: entryName)
+        edgeAssets = edgeAssets.filter { $0.key.unitName != decoded.key }
+        looseBones = looseBones.filter { $0.value.unitName != decoded.key }
+        restModel.removeValue(forKey: decoded.key)
+        drawingConfigs.removeValue(forKey: decoded.key)
+        applyDecodedItem(decoded)
     }
 
     func archive(for unitName: String) -> StoredArchive? {
@@ -230,6 +338,16 @@ final class UnitAssets {
         return atiEntryName(packName: pack, systemName: own)
     }
 
+    func fullResolutionBitmap(for asset: EdgeAsset) -> CGImage {
+        if asset.decodeSample > 1,
+           let stored = archives[Self.removeNumber(asset.unitName)],
+           let data = try? ZipStore.dataThrowing(named: asset.bmName, in: stored.zip),
+           let full = PNG.decodedImage(from: data) {
+            return full
+        }
+        return asset.bitmap
+    }
+
     func getDrawable(_ key: EdgeKey, state: Int) -> EdgeAsset? {
         var states = edgeStates(key)
         if states.isEmpty {
@@ -249,18 +367,18 @@ final class UnitAssets {
             guard let asset = getDrawable(key, state: state) else { continue }
             guard let start = unit.point(optionalId: edge.from), let end = unit.point(optionalId: edge.to) else { continue }
             let angle = atan2(end.y - start.y, end.x - start.x)
+            let ratio = BoneStretch.ratio(unit: unit, edge: edge, assets: self) ?? 1
             let mirror = unit.flipped && !asset.nativeFlipped
             let scale = unit.scale
-            let xOffset = asset.xOffset * scale
+            let xOffset = asset.xOffset * scale * ratio
             let yOffset = (mirror ? -asset.yOffset : asset.yOffset) * scale
-            let yScale = mirror ? -scale : scale
-            let width = CGFloat(asset.bitmap.width)
-            let height = CGFloat(asset.bitmap.height)
+            let xSpan = CGFloat(asset.bitmapWidth) * scale * ratio
+            let ySpan = CGFloat(asset.bitmapHeight) * (mirror ? -scale : scale)
             let locals: [CGPoint] = [
                 CGPoint(x: xOffset, y: yOffset),
-                CGPoint(x: xOffset + width * scale, y: yOffset),
-                CGPoint(x: xOffset + width * scale, y: yOffset + height * yScale),
-                CGPoint(x: xOffset, y: yOffset + height * yScale)
+                CGPoint(x: xOffset + xSpan, y: yOffset),
+                CGPoint(x: xOffset + xSpan, y: yOffset + ySpan),
+                CGPoint(x: xOffset, y: yOffset + ySpan)
             ]
             let cosine = cos(angle)
             let sine = sin(angle)
@@ -576,6 +694,9 @@ final class UnitAssets {
                         nativeFlipped: template.nativeFlipped,
                         bmName: frame.bmName,
                         bitmap: frame.image,
+                        origWidth: frame.image.width,
+                        origHeight: frame.image.height,
+                        decodeSample: 1,
                         sample: BonePaperDocument.sample,
                         paintBuffer: nil,
                         sidecarImage: nil,
@@ -610,6 +731,9 @@ final class UnitAssets {
                 nativeFlipped: baseAsset.nativeFlipped,
                 bmName: frame.bmName,
                 bitmap: frame.image,
+                origWidth: frame.image.width,
+                origHeight: frame.image.height,
+                decodeSample: 1,
                 sample: BonePaperDocument.sample,
                 paintBuffer: nil,
                 sidecarImage: nil,
@@ -790,8 +914,17 @@ final class UnitAssets {
                 if let existing = splitCache[cacheKey] {
                     cached = existing
                 } else {
+                    let sourceBitmap: CGImage
+                    if asset.decodeSample > 1,
+                       let stored = archives[name],
+                       let data = try? ZipStore.dataThrowing(named: asset.bmName, in: stored.zip),
+                       let full = PNG.decodedImage(from: data) {
+                        sourceBitmap = full
+                    } else {
+                        sourceBitmap = asset.bitmap
+                    }
                     let pair = try BonePictureSplit.split(
-                        bitmap: asset.bitmap,
+                        bitmap: sourceBitmap,
                         paintBuffer: asset.paintBuffer,
                         xOffset: asset.xOffset,
                         yOffset: asset.yOffset,
@@ -819,6 +952,9 @@ final class UnitAssets {
                     nativeFlipped: asset.nativeFlipped,
                     bmName: cached.proxBm,
                     bitmap: cached.pair.proximal.image,
+                    origWidth: cached.pair.proximal.image.width,
+                    origHeight: cached.pair.proximal.image.height,
+                    decodeSample: 1,
                     sample: asset.sample,
                     paintBuffer: nil,
                     sidecarImage: nil,
@@ -837,6 +973,9 @@ final class UnitAssets {
                     nativeFlipped: asset.nativeFlipped,
                     bmName: cached.distBm,
                     bitmap: cached.pair.distal.image,
+                    origWidth: cached.pair.distal.image.width,
+                    origHeight: cached.pair.distal.image.height,
+                    decodeSample: 1,
                     sample: asset.sample,
                     paintBuffer: nil,
                     sidecarImage: nil,
@@ -921,6 +1060,9 @@ final class UnitAssets {
             for (state, asset) in states where asset.bmName == bmName {
                 var updated = asset
                 updated.bitmap = image
+                updated.origWidth = image.width
+                updated.origHeight = image.height
+                updated.decodeSample = 1
                 updated.sample = sample
                 updated.xOffset -= extraLeft
                 updated.yOffset -= extraTop
@@ -937,6 +1079,9 @@ final class UnitAssets {
         }
         if var loose = looseBones[bmName] {
             loose.bitmap = image
+            loose.origWidth = image.width
+            loose.origHeight = image.height
+            loose.decodeSample = 1
             loose.sample = sample
             loose.xOffset -= extraLeft
             loose.yOffset -= extraTop
@@ -959,7 +1104,14 @@ final class UnitAssets {
             for asset in states.values {
                 if seen.contains(asset.bmName) { continue }
                 seen.insert(asset.bmName)
-                files.append((name: asset.bmName, data: try PNG.data(from: asset.bitmap, name: asset.bmName)))
+                if asset.decodeSample > 1,
+                   let stored = archives[name],
+                   let origData = try? ZipStore.dataThrowing(named: asset.bmName, in: stored.zip),
+                   !origData.isEmpty {
+                    files.append((name: asset.bmName, data: origData))
+                } else {
+                    files.append((name: asset.bmName, data: try PNG.data(from: asset.bitmap, name: asset.bmName)))
+                }
             }
         }
         return files.sorted { $0.name < $1.name }
@@ -1176,22 +1328,31 @@ final class UnitAssets {
         return context.makeImage()
     }
 
-    private func install(_ rows: [EdgeAssetRow], zip: Data) throws {
-        let names = Set(try ZipStore.namesThrowing(in: zip))
-        var bitmaps: [String: CGImage] = [:]
-        func bitmap(named name: String) throws -> CGImage {
+    private static func decodeRows(
+        _ rows: [EdgeAssetRow],
+        zipIndex: ZipStore.Index
+    ) throws -> (edgeAssets: [EdgeKey: [Int: EdgeAsset]], drawingConfig: BonePaperDrawingConfig?) {
+        if rows.isEmpty {
+            return ([:], nil)
+        }
+        var bitmaps: [String: PNG.DecodedAsset] = [:]
+        var pngBytes: [String: Data] = [:]
+        func bitmap(named name: String) throws -> PNG.DecodedAsset {
             if let cached = bitmaps[name] { return cached }
-            let data = try ZipStore.dataThrowing(named: name, in: zip)
-            let image = try PNG.loaded(from: data, name: name)
-            bitmaps[name] = image
-            return image
+            let data = try zipIndex.dataThrowing(named: name)
+            pngBytes[name] = data
+            let decoded = try PNG.loadedAsset(from: data, name: name)
+            bitmaps[name] = decoded
+            return decoded
         }
 
         var assets: [EdgeAsset] = []
+        assets.reserveCapacity(rows.count)
         for row in rows {
-            if !names.contains(row.bmName) {
+            if !zipIndex.contains(row.bmName) {
                 continue
             }
+            let decoded = try bitmap(named: row.bmName)
             assets.append(
                 EdgeAsset(
                     unitName: row.unitName,
@@ -1203,7 +1364,10 @@ final class UnitAssets {
                     state: row.state,
                     nativeFlipped: row.nativeFlipped,
                     bmName: row.bmName,
-                    bitmap: try bitmap(named: row.bmName),
+                    bitmap: decoded.image,
+                    origWidth: decoded.origWidth,
+                    origHeight: decoded.origHeight,
+                    decodeSample: decoded.decodeSample,
                     sample: row.sample,
                     paintBuffer: nil,
                     svgName: row.svgName,
@@ -1215,6 +1379,7 @@ final class UnitAssets {
             throw ItemLoadError("UnitAssets zip has no packed bitmaps for \(rows.map(\.bmName))")
         }
 
+        var localEdges: [EdgeKey: [Int: EdgeAsset]] = [:]
         for asset in assets {
             let key = EdgeKey(
                 unitName: asset.unitName,
@@ -1222,20 +1387,16 @@ final class UnitAssets {
                 end: asset.end,
                 flipped: asset.nativeFlipped
             )
-            edgeAssets[key] = [:]
-        }
-        for asset in assets {
-            let key = EdgeKey(
-                unitName: asset.unitName,
-                start: asset.start,
-                end: asset.end,
-                flipped: asset.nativeFlipped
-            )
-            var states = edgeAssets[key] ?? [:]
+            var states = localEdges[key] ?? [:]
             states[asset.state] = asset
-            edgeAssets[key] = states
+            localEdges[key] = states
         }
-        attachSidecars(zip: zip, unitName: assets[0].unitName)
+        let drawingConfig = attachSidecars(
+            into: &localEdges,
+            zipIndex: zipIndex,
+            pngBytes: pngBytes
+        )
+        return (localEdges, drawingConfig)
     }
 
     /// Manifest entry name for paint-buffer sidecars.
@@ -1277,34 +1438,36 @@ final class UnitAssets {
     /// Attach validated sidecar buffers to the just-installed edge assets. Anything unexpected —
     /// missing manifest, malformed JSON, replaced picture, bad size — drops the buffer with a log,
     /// never a crash. The picture itself always loads.
-    private func attachSidecars(zip: Data, unitName: String) {
-        let names: Set<String>
-        do {
-            names = Set(try ZipStore.namesThrowing(in: zip))
-        } catch {
-            print("UnitAssets sidecars ignored: \(error)")
-            return
-        }
-        guard names.contains(Self.sidecarManifest) else { return }
+    private static func attachSidecars(
+        into localEdges: inout [EdgeKey: [Int: EdgeAsset]],
+        zipIndex: ZipStore.Index,
+        pngBytes: [String: Data]
+    ) -> BonePaperDrawingConfig? {
+        guard zipIndex.contains(Self.sidecarManifest) else { return nil }
         let manifest: BonePaperManifest
         do {
             manifest = try JSONDecoder().decode(
                 BonePaperManifest.self,
-                from: try ZipStore.dataThrowing(named: Self.sidecarManifest, in: zip)
+                from: try zipIndex.dataThrowing(named: Self.sidecarManifest)
             )
         } catch {
             print("UnitAssets \(Self.sidecarManifest) ignored: \(error)")
-            return
+            return nil
         }
-        let unitKey = Self.removeNumber(unitName)
+        let cleanConfig: BonePaperDrawingConfig?
         if let config = manifest.drawingConfig?.sanitized(), !config.isEmpty {
-            drawingConfigs[unitKey] = config
+            cleanConfig = config
+        } else {
+            cleanConfig = nil
         }
         var sidecarCache: [String: (data: Data, image: CGImage)?] = [:]
-        for (key, states) in edgeAssets {
+        for (key, states) in localEdges {
             var next = states
             var changed = false
             for (state, asset) in states {
+                if DevFlags.optimizeGiantBitmaps && asset.decodeSample > 1 {
+                    continue
+                }
                 guard let record = manifest.buffers[asset.bmName] else { continue }
                 let cached: (data: Data, image: CGImage)?
                 if let seen = sidecarCache[asset.bmName] {
@@ -1313,8 +1476,8 @@ final class UnitAssets {
                     let loaded = Self.validatedSidecar(
                         record: record,
                         asset: asset,
-                        zip: zip,
-                        names: names
+                        zipIndex: zipIndex,
+                        pngBytes: pngBytes
                     )
                     sidecarCache[asset.bmName] = loaded
                     cached = loaded
@@ -1326,9 +1489,10 @@ final class UnitAssets {
                 changed = true
             }
             if changed {
-                edgeAssets[key] = next
+                localEdges[key] = next
             }
         }
+        return cleanConfig
     }
 
     private static func predecodedSidecar(_ data: Data?, bitmap: CGImage, name: String) -> CGImage? {
@@ -1349,22 +1513,22 @@ final class UnitAssets {
     private static func validatedSidecar(
         record: BonePaperManifest.Entry,
         asset: EdgeAsset,
-        zip: Data,
-        names: Set<String>
+        zipIndex: ZipStore.Index,
+        pngBytes: [String: Data]
     ) -> (data: Data, image: CGImage)? {
-        guard names.contains(record.entry) else {
+        guard zipIndex.contains(record.entry) else {
             print("UnitAssets '\(asset.bmName)' sidecar missing '\(record.entry)'")
             return nil
         }
-        guard names.contains(asset.bmName) else {
+        guard zipIndex.contains(asset.bmName) else {
             print("UnitAssets '\(asset.bmName)' picture missing beside its sidecar")
             return nil
         }
         let png: Data
         let data: Data
         do {
-            png = try ZipStore.dataThrowing(named: asset.bmName, in: zip)
-            data = try ZipStore.dataThrowing(named: record.entry, in: zip)
+            png = try pngBytes[asset.bmName] ?? zipIndex.dataThrowing(named: asset.bmName)
+            data = try zipIndex.dataThrowing(named: record.entry)
         } catch {
             print("UnitAssets '\(asset.bmName)' sidecar ignored: \(error)")
             return nil
@@ -1378,9 +1542,11 @@ final class UnitAssets {
             return nil
         }
         let sample = BonePaperDocument.sample
-        guard raw.width == asset.bitmap.width * sample,
-              raw.height == asset.bitmap.height * sample else {
-            print("UnitAssets '\(asset.bmName)' sidecar size \(raw.width)x\(raw.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
+        let baseW = asset.bitmapWidth
+        let baseH = asset.bitmapHeight
+        guard raw.width == baseW * sample,
+              raw.height == baseH * sample else {
+            print("UnitAssets '\(asset.bmName)' sidecar size \(raw.width)x\(raw.height) != \(baseW * sample)x\(baseH * sample)")
             return nil
         }
         let decoded: CGImage
@@ -1401,7 +1567,7 @@ final class UnitAssets {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func captureRest(from model: StickmanUnit) throws {
+    private static func computeRestLengths(from model: StickmanUnit) throws -> [Int: CGFloat] {
         var lengths: [Int: CGFloat] = [:]
         for point in model.points {
             if point.isBase { continue }
@@ -1412,7 +1578,7 @@ final class UnitAssets {
                 lengths[point.id] = rest
             }
         }
-        restModel[Self.removeNumber(model.name)] = lengths
+        return lengths
     }
 
     private func edgeStates(_ key: EdgeKey) -> [Int: EdgeAsset] {
@@ -1462,6 +1628,13 @@ struct BonePaperManifest: Codable {
 }
 
 private enum PNG {
+    struct DecodedAsset {
+        var image: CGImage
+        var origWidth: Int
+        var origHeight: Int
+        var decodeSample: Int
+    }
+
     /// Nil instead of a crash for untrusted bytes (sidecars).
     static func decodedImage(from data: Data) -> CGImage? {
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
@@ -1473,7 +1646,7 @@ private enum PNG {
         )
     }
 
-    static func loaded(from data: Data, name: String) throws -> CGImage {
+    static func loadedAsset(from data: Data, name: String) throws -> DecodedAsset {
         guard let provider = CGDataProvider(data: data as CFData) else {
             throw ItemLoadError("UnitAssets '\(name)' has no data provider")
         }
@@ -1485,19 +1658,32 @@ private enum PNG {
         ) else {
             throw ItemLoadError("UnitAssets '\(name)' is not a PNG")
         }
-        if DevFlags.decodedBoneBitmaps {
-            return try decodedBitmap(image, name: name)
+        let origW = image.width
+        let origH = image.height
+        let decodeSample = DevFlags.optimizeGiantBitmaps
+            ? UnitAssets.computePowerOfTwoSampleSize(
+                width: origW,
+                height: origH,
+                maxDimension: UnitAssets.maxBitmapDimension
+            )
+            : 1
+        if decodeSample > 1 || DevFlags.decodedBoneBitmaps {
+            let decoded = try decodedBitmap(image, name: name, decodeSample: decodeSample)
+            return DecodedAsset(image: decoded, origWidth: origW, origHeight: origH, decodeSample: decodeSample)
         }
-        return image
+        return DecodedAsset(image: image, origWidth: origW, origHeight: origH, decodeSample: 1)
     }
 
-    /// Copy PNG pixels into a plain bitmap so later draws do not inflate the file again.
-    static func decodedBitmap(_ source: CGImage, name: String) throws -> CGImage {
-        let width = source.width
-        let height = source.height
-        if width < 1 || height < 1 {
-            throw ItemLoadError("UnitAssets '\(name)' decoded size \(width)x\(height)")
+    /// Copy PNG pixels into a plain bitmap (optionally downsampled by `decodeSample`) so later draws do not inflate the file again.
+    static func decodedBitmap(_ source: CGImage, name: String, decodeSample: Int = 1) throws -> CGImage {
+        let origW = source.width
+        let origH = source.height
+        if origW < 1 || origH < 1 {
+            throw ItemLoadError("UnitAssets '\(name)' decoded size \(origW)x\(origH)")
         }
+        let sample = max(1, decodeSample)
+        let width = max(1, origW / sample)
+        let height = max(1, origH / sample)
         guard let context = CGContext(
             data: nil,
             width: width,
@@ -1508,6 +1694,9 @@ private enum PNG {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
             throw ItemLoadError("UnitAssets '\(name)' could not allocate \(width)x\(height)")
+        }
+        if sample > 1 {
+            context.interpolationQuality = .medium
         }
         context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let image = context.makeImage() else {
@@ -1532,13 +1721,14 @@ enum AssetsXML {
         if fullName.isEmpty {
             throw SceneLoadError(message: "AssetsXML serialize has empty unit name")
         }
-        if rows.isEmpty {
-            throw SceneLoadError(message: "AssetsXML serialize '\(fullName)' has no rows")
-        }
         var xml = XMLWrite.header
         xml += "<unit"
         xml += XMLWrite.attr("name", fullName)
         xml += XMLWrite.attr("version", XMLWrite.versionCode())
+        if rows.isEmpty {
+            xml += " />\n"
+            return try XMLWrite.data(xml)
+        }
         xml += ">\n"
         for row in rows {
             xml += "<edgeAsset"
@@ -1579,8 +1769,8 @@ enum AssetsXML {
             let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
             throw ItemLoadError("UnitAssets assets.xml parse failed: \(detail)")
         }
-        if sink.assets.isEmpty {
-            throw ItemLoadError("UnitAssets assets.xml has no edgeAsset rows")
+        guard let unitName = sink.unitName, !unitName.isEmpty else {
+            throw ItemLoadError("UnitAssets assets.xml missing unit")
         }
         return sink.assets
     }

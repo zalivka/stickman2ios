@@ -305,6 +305,35 @@ struct SceneAudio: Equatable {
         }
         return timed
     }
+
+    /// Merge inputs against the source scene and total generated frame count:
+    /// Android `StageAudio.mergeClips(totalGenFrames)`. Avoids holding the
+    /// generated movie in memory during export.
+    func timedFiles(source: StickmanScene, totalGeneratedFrames: Int) throws -> [TimedAudioFile] {
+        let spanStarts = SceneAudioTimeline.originStartGenIndices(source: source)
+        var timed: [TimedAudioFile] = []
+        for clip in clips {
+            guard let entry = paletteEntry(clip.audioId) else {
+                throw SceneLoadError(message: "SceneAudio clip '\(clip.audioId)' has no palette entry")
+            }
+            let genFrameIndex = (clip.frameIndex >= 0 && clip.frameIndex < spanStarts.count)
+                ? spanStarts[clip.frameIndex]
+                : totalGeneratedFrames
+            let offset = Int64(Float(genFrameIndex) * SceneAudioTimeline.frameMs)
+            let playMs = clip.durationMs == 0
+                ? max(1, Int64(SceneAudioTimeline.frameMs.rounded()))
+                : clip.durationMs
+            timed.append(
+                TimedAudioFile(
+                    file: entry.url,
+                    offsetMs: offset,
+                    volume: clip.volume,
+                    durationMs: playMs
+                )
+            )
+        }
+        return timed
+    }
 }
 
 /// Android `SceneConfig.FPS` and the per-span accounted time used by
@@ -426,5 +455,27 @@ enum SceneAudioTimeline {
             return Int64(Float(index) * frameMs)
         }
         return Int64(Float(movie.frames.count) * frameMs)
+    }
+
+    /// Android `PaletteLipsync.originStartGenIndices`: first generated frame
+    /// index for each source span `0 ..< frames.count - 1`, derived purely
+    /// from the source scene without materialising the generated frames.
+    static func originStartGenIndices(source: StickmanScene) -> [Int] {
+        let spans = source.frames.count - 1
+        if spans <= 0 {
+            return []
+        }
+        let speeds = source.speedModifier.fineSpeedValues(frameCount: source.frames.count)
+        let base = max(generatedFramesPerSpan(scene: source), 1)
+        var starts: [Int] = []
+        starts.reserveCapacity(spans)
+        var genIndex = 0
+        for i in 0..<spans {
+            starts.append(genIndex)
+            let speed = i < speeds.count ? speeds[i] : 1
+            let duration = max(1, Int(Float(base) * speed))
+            genIndex += duration + 1
+        }
+        return starts
     }
 }

@@ -8,8 +8,16 @@ struct SkeletonScreen: View {
         case unit(StickmanUnit)
     }
 
+    enum SaveMode {
+        case saveAs(prefill: String?)
+        case inPlace(systemName: String, displayName: String)
+    }
+
     let title: String
     let source: Source
+    let saveMode: SaveMode
+    let structureLocked: Bool
+    var onSaved: ((String) -> Void)?
     @State private var scene: StickmanScene?
     @State private var assets: UnitAssets?
     /// The archive the item came from. Saving copies non-bone entries; bone PNGs come from live bitmaps.
@@ -37,16 +45,41 @@ struct SkeletonScreen: View {
     init(item: CustomItems.Item) {
         title = item.name
         source = .custom(item)
+        saveMode = .saveAs(prefill: nil)
+        structureLocked = false
+        onSaved = nil
     }
 
     init(template: Item) {
         title = template.humanName
         source = .template(template)
+        saveMode = .saveAs(prefill: nil)
+        structureLocked = false
+        onSaved = nil
     }
 
     init(title: String, unit: StickmanUnit) {
         self.title = title
         source = .unit(unit)
+        saveMode = .saveAs(prefill: nil)
+        structureLocked = false
+        onSaved = nil
+    }
+
+    init(editCustom item: CustomItems.Item, onSaved: ((String) -> Void)? = nil) {
+        title = item.name
+        source = .custom(item)
+        saveMode = .inPlace(systemName: item.systemName, displayName: item.name)
+        structureLocked = true
+        self.onSaved = onSaved
+    }
+
+    init(editPackItem item: Item, onSaved: ((String) -> Void)? = nil) {
+        title = item.humanName
+        source = .template(item)
+        saveMode = .saveAs(prefill: item.systemName + "_copy")
+        structureLocked = false
+        self.onSaved = onSaved
     }
 
     var body: some View {
@@ -63,6 +96,7 @@ struct SkeletonScreen: View {
                     boneSplit: $boneSplit,
                     layerEpoch: layerEpoch,
                     exposeVacantPoints: exposeVacantPoints,
+                    structureLocked: structureLocked,
                     onPrepareUndo: { prepareUndo() },
                     onApplyBoneShift: applyBoneShift
                 )
@@ -95,6 +129,7 @@ struct SkeletonScreen: View {
                     SkeletonSecondaryPanel(
                         accent: SkeletonChrome.bonesAccent,
                         content: .bones(
+                            structureLocked: structureLocked,
                             onBoneHoldStart: {
                                 setBoneSplit(nil)
                                 setHoldMode(true)
@@ -150,6 +185,7 @@ struct SkeletonScreen: View {
                     .ignoresSafeArea()
                     .onTapGesture { showingMenu = false }
                 SkeletonSideMenu(
+                    saveLabel: saveMenuLabel,
                     onSaveAs: saveAs,
                     onPreview: openPreview,
                     onSettings: openSettings
@@ -175,6 +211,7 @@ struct SkeletonScreen: View {
                 BonesGalleryPanel(
                     bones: galleryBones,
                     highlightedBmName: highlightedBmName,
+                    bitmapsOnly: structureLocked,
                     onNewBone: createNewGalleryBone,
                     onAttach: attachBone,
                     onEdit: editGalleryBone
@@ -215,17 +252,18 @@ struct SkeletonScreen: View {
         }
         .sheet(isPresented: $showingSave) {
             SkeletonSaveScreen(
+                prefill: saveSheetPrefill,
                 onClose: { showingSave = false },
                 onSaveNew: { name in
-                    saveItem(name: name) {
+                    saveItem(name: name) { savedName in
                         showingSave = false
-                        showToast("Saved!")
+                        finishSave(systemName: savedName)
                     }
                 },
                 onOverwrite: { item in
-                    saveItem(name: item.systemName) {
+                    saveItemInPlace(systemName: item.systemName, displayName: item.name) { savedName in
                         showingSave = false
-                        showToast("Saved!")
+                        finishSave(systemName: savedName)
                     }
                 }
             )
@@ -235,8 +273,8 @@ struct SkeletonScreen: View {
                 frames: session.frames,
                 initialState: session.initialState,
                 boneLength: session.boneLength,
-                defaultWidth: session.baseAsset.bitmap.width,
-                defaultHeight: session.baseAsset.bitmap.height,
+                defaultWidth: session.baseAsset.bitmapWidth,
+                defaultHeight: session.baseAsset.bitmapHeight,
                 defaultXOffset: session.baseAsset.xOffset,
                 defaultYOffset: session.baseAsset.yOffset,
                 onion: session.onion,
@@ -490,8 +528,8 @@ struct SkeletonScreen: View {
             excludeFrom: from,
             excludeTo: to,
             worldSize: BonePaperScreen.worldSide,
-            pngWidth: activeAsset.bitmap.width,
-            pngHeight: activeAsset.bitmap.height,
+            pngWidth: activeAsset.bitmapWidth,
+            pngHeight: activeAsset.bitmapHeight,
             boneStartPNG: start,
             mirror: mirror
         )
@@ -558,8 +596,8 @@ struct SkeletonScreen: View {
     ) {
         let limit = BonePaperScreen.worldSide
         for item in stateAssets {
-            let width = item.bitmap.width
-            let height = item.bitmap.height
+            let width = item.bitmapWidth
+            let height = item.bitmapHeight
             if width > limit || height > limit {
                 showToast("This picture is too big (\(width)×\(height)). Maximum side is \(limit).")
                 return
@@ -567,10 +605,11 @@ struct SkeletonScreen: View {
         }
         let config = (optionalUnit.flatMap { assets?.drawingConfig(for: $0.name) }) ?? BonePaperDrawingConfig()
         let frameInputs = stateAssets.map { item in
-            BonePaperFrameInput(
+            let sourceImage = assets?.fullResolutionBitmap(for: item) ?? item.bitmap
+            return BonePaperFrameInput(
                 state: item.state,
                 weight: item.weight,
-                source: item.bitmap,
+                source: sourceImage,
                 buffer: validatedBuffer(asset: item),
                 xOffset: item.xOffset,
                 yOffset: item.yOffset,
@@ -596,9 +635,11 @@ struct SkeletonScreen: View {
     /// Nil reopens from the upscaled 1x path, same as before this feature.
     private func validatedBuffer(asset: UnitAssets.EdgeAsset) -> CGImage? {
         let sample = BonePaperDocument.sample
+        let baseW = asset.bitmapWidth
+        let baseH = asset.bitmapHeight
         if let sidecar = asset.sidecarImage,
-           sidecar.width == asset.bitmap.width * sample,
-           sidecar.height == asset.bitmap.height * sample {
+           sidecar.width == baseW * sample,
+           sidecar.height == baseH * sample {
             return sidecar
         }
         guard let data = asset.paintBuffer, !data.isEmpty else { return nil }
@@ -606,9 +647,9 @@ struct SkeletonScreen: View {
             print("SkeletonScreen '\(title)' dropped unreadable paint buffer for '\(asset.bmName)'")
             return nil
         }
-        guard image.width == asset.bitmap.width * sample,
-              image.height == asset.bitmap.height * sample else {
-            print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(asset.bitmap.width * sample)x\(asset.bitmap.height * sample)")
+        guard image.width == baseW * sample,
+              image.height == baseH * sample else {
+            print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(baseW * sample)x\(baseH * sample)")
             return nil
         }
         return image
@@ -692,7 +733,7 @@ struct SkeletonScreen: View {
         if let asset = assets.getDrawable(key, state: unit.assetsState) {
             radius = BoneSplitDraft.clampRadius(
                 BonePictureSplit.defaultRadius(
-                    bitmap: asset.bitmap,
+                    bitmap: assets.fullResolutionBitmap(for: asset),
                     xOffset: asset.xOffset,
                     yOffset: asset.yOffset,
                     splitDistance: splitDist,
@@ -1051,9 +1092,36 @@ struct SkeletonScreen: View {
         )
     }
 
+    private var saveMenuLabel: String {
+        switch saveMode {
+        case .inPlace:
+            return "Save"
+        case .saveAs:
+            return "Save as"
+        }
+    }
+
+    private var saveSheetPrefill: String? {
+        switch saveMode {
+        case .saveAs(let prefill):
+            return prefill
+        case .inPlace:
+            return nil
+        }
+    }
+
+    private func finishSave(systemName: String) {
+        if let onSaved {
+            onSaved(systemName)
+            dismiss()
+        } else {
+            showToast("Saved!")
+        }
+    }
+
     private func saveAs() {
         showingMenu = false
-        guard scene != nil else {
+        guard let scene, let frame = scene.currentFrameOrNil else {
             bail("save before load")
             return
         }
@@ -1061,10 +1129,65 @@ struct SkeletonScreen: View {
             bail("has no assets to save")
             return
         }
-        showingSave = true
+        if frame.units.isEmpty {
+            bail("save with no unit")
+            return
+        }
+        if frame.units[0].points.count < 2 {
+            showToast("Add more points")
+            return
+        }
+        switch saveMode {
+        case .inPlace(let systemName, let displayName):
+            saveItemInPlace(systemName: systemName, displayName: displayName) { savedName in
+                finishSave(systemName: savedName)
+            }
+        case .saveAs:
+            showingSave = true
+        }
     }
 
-    private func saveItem(name: String, then finish: @escaping () -> Void) {
+    private func saveItem(name: String, then finish: @escaping (String) -> Void) {
+        prepareSave { unit, assets, source, images in
+            let url = try ItemSaver.save(
+                unit: unit,
+                assets: assets,
+                source: source,
+                name: name,
+                thumb: images.thumb,
+                poster: images.poster
+            )
+            return url.deletingPathExtension().lastPathComponent
+        } then: { savedName in
+            finish(savedName)
+        }
+    }
+
+    private func saveItemInPlace(
+        systemName: String,
+        displayName: String,
+        then finish: @escaping (String) -> Void
+    ) {
+        prepareSave { unit, assets, source, images in
+            let url = try ItemSaver.saveInPlace(
+                unit: unit,
+                assets: assets,
+                source: source,
+                systemName: systemName,
+                displayName: displayName,
+                thumb: images.thumb,
+                poster: images.poster
+            )
+            return url.deletingPathExtension().lastPathComponent
+        } then: { savedName in
+            finish(savedName)
+        }
+    }
+
+    private func prepareSave(
+        write: @escaping (StickmanUnit, UnitAssets, Data?, (thumb: Data, poster: Data)) throws -> String,
+        then finish: @escaping (String) -> Void
+    ) {
         guard let scene, let frame = scene.currentFrameOrNil else {
             bail("save before load")
             return
@@ -1099,22 +1222,19 @@ struct SkeletonScreen: View {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
+            let savedName: String
             do {
-                _ = try ItemSaver.save(
-                    unit: unit,
-                    assets: assets,
-                    source: source,
-                    name: name,
-                    thumb: images.thumb,
-                    poster: images.poster
-                )
+                savedName = try write(unit, assets, source, images)
             } catch {
                 DispatchQueue.main.async {
                     showingSave = false
                     showToast("Could not save: \(ItemLoadError.text(error))")
                 }
+                return
             }
-            DispatchQueue.main.async(execute: finish)
+            DispatchQueue.main.async {
+                finish(savedName)
+            }
         }
     }
 

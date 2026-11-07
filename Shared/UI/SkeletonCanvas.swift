@@ -142,6 +142,8 @@ struct SkeletonCanvas: View {
     static let boneSlave = Color(red: 1, green: 0x26 / 255, blue: 0)
     static let boneMaster = Color(red: 0x88 / 255, green: 0xe2 / 255, blue: 0x0d / 255)
     static let boneInvisible = Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255)
+    /// Android `EditView.COLOR_UNEDITABLE_SKEL` (`#909090`).
+    static let boneUneditable = Color(red: 0x90 / 255, green: 0x90 / 255, blue: 0x90 / 255)
     /// Android `EditView.COLOR_STRETCHABLE`.
     static let boneStretchable = Color.black
     static let boneNodeRadius: CGFloat = 4
@@ -213,6 +215,7 @@ struct SkeletonCanvas: View {
     #endif
     /// Android `toggleVacantPoints` — green circles over all nodes.
     var exposeVacantPoints: Bool = false
+    var structureLocked: Bool = false
     var onPrepareUndo: (() -> Void)? = nil
     var canMutatePose: Bool = true
     var canMutatePoseFor: ((String) -> Bool)? = nil
@@ -630,7 +633,7 @@ struct SkeletonCanvas: View {
             } else if drawn.point(optionalId: edge.to)?.stretchable == true {
                 edgeColor = Self.boneStretchable
             } else if bones {
-                edgeColor = Self.boneCommon
+                edgeColor = structureLocked ? Self.boneUneditable : Self.boneCommon
             } else {
                 edgeColor = normalColor
             }
@@ -654,7 +657,7 @@ struct SkeletonCanvas: View {
             } else if point.stretchable {
                 color = Self.boneStretchable
             } else if bones {
-                color = Self.boneColor(point)
+                color = structureLocked ? Self.boneUneditable : Self.boneColor(point)
             } else {
                 color = normalColor
             }
@@ -970,7 +973,7 @@ struct SkeletonCanvas: View {
             let mirror = drawn.flipped && !bone.asset.nativeFlipped
             let live = liveShift(for: bone.asset)
             let yOffset = (mirror ? -(bone.asset.yOffset + live.dy) : bone.asset.yOffset + live.dy) * drawn.scale
-            let picture = bone.asset.drawnPicture(ignoreSample: ignoreSample)
+            let picture = bone.asset.drawnPicture(ignoreSample: ignoreSample, unitScale: drawn.scale)
             let bitmapScale = drawn.scale / picture.divisor
             context.drawLayer { ctx in
                 ctx.translateBy(
@@ -1133,7 +1136,11 @@ struct SkeletonCanvas: View {
                 context.fill(Path(rect), with: .color(sceneFill))
                 return
             }
+            let sampleScale = backgrounds.sampleScale(for: name)
             context.concatenate(bgMove.toTransform())
+            if sampleScale != 1 {
+                context.scaleBy(x: sampleScale, y: sampleScale)
+            }
             context.draw(
                 Image(decorative: image, scale: 1),
                 at: .zero,
@@ -1245,11 +1252,11 @@ struct SkeletonCanvas: View {
             handleShift(at: location, layout: current, began: began)
             return
         }
-        if mode == .skeleton, boneCreateHoldFlag {
+        if mode == .skeleton, !structureLocked, boneCreateHoldFlag {
             handleBoneCreate(at: location, layout: current, began: began)
             return
         }
-        if mode == .skeleton, let draft = boneSplit.wrappedValue ?? editSession?.boneSplit {
+        if mode == .skeleton, !structureLocked, let draft = boneSplit.wrappedValue ?? editSession?.boneSplit {
             if handleBoneSplitDrag(at: location, layout: current, began: began, draft: draft) {
                 return
             }
@@ -1330,7 +1337,9 @@ struct SkeletonCanvas: View {
                 dragRef.panning = allowsSceneMovements && dragRef.nodeId == nil
                 if mode == .skeleton {
                     selectedPointId.wrappedValue = dragRef.nodeId
-                    if dragRef.nodeId != nil, !dragRef.undoPushed {
+                    if structureLocked {
+                        dragRef.nodeId = nil
+                    } else if dragRef.nodeId != nil, !dragRef.undoPushed {
                         dragRef.undoPushed = true
                         onPrepareUndo?()
                     }

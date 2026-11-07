@@ -56,20 +56,21 @@ enum SceneLoader {
     }
 
     static func load(zip: Data, resource: String) throws -> (StickmanScene, UnitAssets, BackgroundAssets) {
-        let names: [String]
+        let zipIndex: ZipStore.Index
         do {
-            names = try ZipStore.namesThrowing(in: zip)
+            zipIndex = try ZipStore.indexThrowing(in: zip)
         } catch {
             throw SceneLoadError(message: "SceneLoader '\(resource).ats' is not a scene archive: \(error)")
         }
-        if !names.contains("model.xml") {
+        let names = zipIndex.names
+        if !zipIndex.contains("model.xml") {
             throw SceneLoadError(message: "SceneLoader '\(resource).ats' missing model.xml")
         }
         try StickmanFonts.installSceneFonts(zip: zip, names: names, resource: resource)
-        var scene = try SceneXML.parse(ZipStore.dataThrowing(named: "model.xml", in: zip))
-        scene.unitAnimations = try loadAnimations(zip: zip, names: names, resource: resource)
-        scene.unitTweens = try loadUnitTweens(zip: zip, names: names, scene: scene, resource: resource)
-        scene.cameraTweens = try loadCameraTweens(zip: zip, names: names, scene: scene, resource: resource)
+        var scene = try SceneXML.parse(zipIndex.dataThrowing(named: "model.xml"))
+        scene.unitAnimations = try loadAnimations(zipIndex: zipIndex, resource: resource)
+        scene.unitTweens = try loadUnitTweens(zipIndex: zipIndex, scene: scene, resource: resource)
+        scene.cameraTweens = try loadCameraTweens(zipIndex: zipIndex, scene: scene, resource: resource)
         scene.audio = try SceneAudioArchive.load(
             zip: zip,
             names: names,
@@ -80,11 +81,33 @@ enum SceneLoader {
         // Android does not embed native (no-dot) pack items; those come from the bundled .atp.
         let items = names.filter { $0.hasSuffix(".ati") && !$0.hasSuffix("/") }
         let assets = UnitAssets()
-        for item in items {
-            try assets.loadItemFromArchive(try ZipStore.dataThrowing(named: item, in: zip), entryName: item)
+        if items.count > 1 {
+            var itemZips: [(name: String, data: Data)] = []
+            itemZips.reserveCapacity(items.count)
+            for item in items {
+                itemZips.append((name: item, data: try zipIndex.dataThrowing(named: item)))
+            }
+            var results = [Result<UnitAssets.DecodedArchiveItem, Error>?](repeating: nil, count: itemZips.count)
+            results.withUnsafeMutableBufferPointer { buf in
+                DispatchQueue.concurrentPerform(iterations: itemZips.count) { idx in
+                    let entry = itemZips[idx]
+                    buf[idx] = Result {
+                        try UnitAssets.decodeItemFromArchive(entry.data, entryName: entry.name)
+                    }
+                }
+            }
+            for result in results {
+                guard let result else { continue }
+                let decoded = try result.get()
+                assets.applyDecodedItem(decoded)
+            }
+        } else {
+            for item in items {
+                try assets.loadItemFromArchive(try zipIndex.dataThrowing(named: item), entryName: item)
+            }
         }
         try ensureAssets(scene: scene, assets: assets, resource: resource)
-        let backgrounds = try loadBackgrounds(scene: &scene, zip: zip, names: names, resource: resource)
+        let backgrounds = try loadBackgrounds(scene: &scene, zipIndex: zipIndex, resource: resource)
         return (scene, assets, backgrounds)
     }
 
@@ -97,11 +120,11 @@ enum SceneLoader {
         return PackAlias.resolveUnitName(name)
     }
 
-    private static func loadAnimations(zip: Data, names: [String], resource: String) throws -> [String: FBFAnimation] {
-        if !names.contains("animations_v2.txt") {
+    private static func loadAnimations(zipIndex: ZipStore.Index, resource: String) throws -> [String: FBFAnimation] {
+        if !zipIndex.contains("animations_v2.txt") {
             return [:]
         }
-        let data = try ZipStore.dataThrowing(named: "animations_v2.txt", in: zip)
+        let data = try zipIndex.dataThrowing(named: "animations_v2.txt")
         let parsed: [FBFAnimation]
         do {
             parsed = try JSONDecoder().decode([FBFAnimation].self, from: data)
@@ -128,56 +151,54 @@ enum SceneLoader {
     }
 
     private static func loadUnitTweens(
-        zip: Data,
-        names: [String],
+        zipIndex: ZipStore.Index,
         scene: StickmanScene,
         resource _: String
     ) throws -> UnitTweenStorage {
-        if !names.contains(UnitTweenStorage.archiveName) {
+        if !zipIndex.contains(UnitTweenStorage.archiveName) {
             return UnitTweenStorage()
         }
         var storage = UnitTweenStorage()
-        try storage.importArchive(ZipStore.dataThrowing(named: UnitTweenStorage.archiveName, in: zip), scene: scene)
+        try storage.importArchive(zipIndex.dataThrowing(named: UnitTweenStorage.archiveName), scene: scene)
         return storage
     }
 
     private static func loadCameraTweens(
-        zip: Data,
-        names: [String],
+        zipIndex: ZipStore.Index,
         scene: StickmanScene,
         resource _: String
     ) throws -> CameraTweenStorage {
-        if !names.contains(CameraTweenStorage.archiveName) {
+        if !zipIndex.contains(CameraTweenStorage.archiveName) {
             return CameraTweenStorage()
         }
         var storage = CameraTweenStorage()
-        try storage.importArchive(ZipStore.dataThrowing(named: CameraTweenStorage.archiveName, in: zip), scene: scene)
+        try storage.importArchive(zipIndex.dataThrowing(named: CameraTweenStorage.archiveName), scene: scene)
         return storage
     }
 
     private static func loadBackgrounds(
         scene: inout StickmanScene,
-        zip: Data,
-        names: [String],
+        zipIndex: ZipStore.Index,
         resource: String
     ) throws -> BackgroundAssets {
         let backgrounds = BackgroundAssets()
         // GOTCHA (doc/gotchas.md): old demos (demo_space, demo_fight) put bg.png at zip root
         // and omit bg_name. Android wraps that PNG as usermade and stamps every frame.
-        if names.contains("bg.png") {
+        if zipIndex.contains("bg.png") {
             let png: Data?
             do {
-                png = try ZipStore.dataThrowing(named: "bg.png", in: zip)
+                png = try zipIndex.dataThrowing(named: "bg.png")
             } catch {
                 backgrounds.recordLoadError("\(error)")
                 png = nil
             }
-            if let png, let image = BackgroundAssets.tryDecode(png) {
+            if let png, let decoded = BackgroundAssets.tryDecodeSampled(png) {
                 let own = "\(Int((Date().timeIntervalSince1970 * 1000).rounded(.towardZero)))"
                 let bgName = "usermade:\(own)"
                 backgrounds.install(
                     name: bgName,
-                    image: image,
+                    image: decoded.image,
+                    sampleScale: decoded.sampleScale,
                     archive: try ZipStore.archive([(name: "bg.png", data: png)])
                 )
                 for i in scene.frames.indices {
@@ -192,7 +213,7 @@ enum SceneLoader {
             guard let bgName = frame.bgName, !bgName.hasPrefix("#") else { continue }
             if backgrounds.hasImage(for: bgName) || failed.contains(bgName) { continue }
             do {
-                try installSceneBackground(bgName, zip: zip, names: names, into: backgrounds)
+                try installSceneBackground(bgName, zipIndex: zipIndex, into: backgrounds)
             } catch {
                 failed.insert(bgName)
                 print("SceneLoader '\(resource).ats' background: \(error)")
@@ -213,8 +234,7 @@ enum SceneLoader {
     /// Scene-embedded `_bgs/<own>.zip` first, then the device `bgs` / `bgs_ro` archives.
     private static func installSceneBackground(
         _ bgName: String,
-        zip: Data,
-        names: [String],
+        zipIndex: ZipStore.Index,
         into backgrounds: BackgroundAssets
     ) throws {
         guard bgName.hasPrefix(BackgroundStore.usermadePrefix),
@@ -223,8 +243,8 @@ enum SceneLoader {
             throw BackgroundStore.Failure.unsupported(bgName)
         }
         let entry = "_bgs/\(ownName(bgName)).zip"
-        if names.contains(entry) {
-            try backgrounds.installArchive(name: bgName, archive: ZipStore.dataThrowing(named: entry, in: zip))
+        if zipIndex.contains(entry) {
+            try backgrounds.installArchive(name: bgName, archive: zipIndex.dataThrowing(named: entry))
             return
         }
         try BackgroundResolver.install(bgName, into: backgrounds)
@@ -276,16 +296,14 @@ enum SceneLoader {
 
 enum SceneXML {
     static func parse(_ data: Data) throws -> StickmanScene {
-        let parser = XMLParser(data: data)
-        let sink = Sink()
-        parser.delegate = sink
-        let ok = parser.parse()
-        if let failure = sink.failure {
-            throw SceneLoadError(message: failure)
-        }
-        if !ok {
-            let detail = parser.parserError.map { String(describing: $0) } ?? "unknown"
-            throw SceneLoadError(message: "SceneLoader model.xml parse failed: \(detail)")
+        let sink = try data.withUnsafeBytes { rawBuf -> FastSink in
+            var s = FastSink()
+            if let base = rawBuf.bindMemory(to: UInt8.self).baseAddress, rawBuf.count > 0 {
+                try s.parse(base: base, count: rawBuf.count)
+            } else {
+                throw SceneLoadError(message: "SceneLoader model.xml parse failed: empty data")
+            }
+            return s
         }
         guard let width = sink.width, let height = sink.height else {
             throw SceneLoadError(message: "SceneLoader model.xml missing scene w/h")
@@ -322,7 +340,7 @@ enum SceneXML {
         if scene.width <= 0 || scene.height <= 0 {
             throw SceneLoadError(message: "SceneXML serialize size \(scene.width)x\(scene.height)")
         }
-        if scene.interframes < 1 {
+        if scene.interframes < 0 {
             throw SceneLoadError(message: "SceneXML serialize interframes is \(scene.interframes)")
         }
         var xml = XMLWrite.header
@@ -418,6 +436,9 @@ enum SceneXML {
             }
             xml += XMLWrite.attr("par", "\(parentId)")
         }
+        if point.fixed {
+            xml += XMLWrite.attr("fixed", "true")
+        }
         switch point.attachable {
         case .none:
             break
@@ -429,11 +450,23 @@ enum SceneXML {
                 xml += XMLWrite.attr("attached", "\(name)&\(id)")
             }
         }
+        if let name = point.semanticName {
+            xml += XMLWrite.attr("name", name)
+        }
+        if point.kinematicStart {
+            xml += XMLWrite.attr("kinstart", "true")
+        }
+        if point.kinematicStop {
+            xml += XMLWrite.attr("kinstop", "true")
+        }
+        if point.stretchable {
+            xml += XMLWrite.attr("stretchable", "true")
+        }
         xml += " />\n"
         return xml
     }
 
-    private final class Sink: NSObject, XMLParserDelegate {
+    private struct FastSink {
         var width: CGFloat?
         var height: CGFloat?
         var interframes: Int?
@@ -441,14 +474,6 @@ enum SceneXML {
         var noInterpolationFrames = 0
         var speedModifier = SpeedModifier()
         var frames: [StickmanFrame] = []
-        var failure: String?
-
-        private func fail(_ parser: XMLParser, _ message: String) {
-            if failure == nil {
-                failure = message
-            }
-            parser.abortParsing()
-        }
 
         private var frameId: Int?
         private var frameBgName: String?
@@ -464,255 +489,595 @@ enum SceneXML {
         private var unitType: StickmanUnitType = .unit
         private var unitBubble: BubbleMeta?
         private var unitPoints: [StickmanPoint] = []
+        private var resolvedNameCache: [String: String] = [:]
+        private var linkedEdgesCache: [String: (sig: [(id: Int, parentId: Int?, isBase: Bool)], edges: [StickmanEdge])] = [:]
 
-        func parser(
-            _ parser: XMLParser,
-            didStartElement elementName: String,
-            namespaceURI: String?,
-            qualifiedName qName: String?,
-            attributes: [String: String] = [:]
-        ) {
-            switch elementName {
-            case "scene":
-                guard let wText = attributes["w"], let w = Double(wText) else {
-                    fail(parser, "SceneLoader scene missing w")
-                    return
-                }
-                guard let hText = attributes["h"], let h = Double(hText) else {
-                    fail(parser, "SceneLoader scene missing h")
-                    return
-                }
-                width = CGFloat(w)
-                height = CGFloat(h)
-                guard let text = attributes["interframes"], let value = Int(text) else {
-                    fail(parser, "SceneLoader scene missing interframes")
-                    return
-                }
-                if value < 1 {
-                    fail(parser, "SceneLoader interframes is \(value)")
-                    return
-                }
-                interframes = value
-                if let text = attributes["no_interpolation"] {
-                    switch text.lowercased() {
-                    case "true":
-                        noInterpolation = true
-                    case "false":
-                        noInterpolation = false
-                    default:
-                        fail(parser, "SceneLoader no_interpolation is \(text)")
-                        return
+        mutating func parse(base: UnsafePointer<UInt8>, count: Int) throws {
+            let end = base + count
+            var p = base
+            unitPoints.reserveCapacity(64)
+
+            while p < end {
+                guard let ltRaw = memchr(p, 60, end - p) else { break }
+                p = UnsafePointer(ltRaw.assumingMemoryBound(to: UInt8.self)) + 1
+                if p >= end { break }
+                let c0 = p[0]
+                if c0 == 112 && p + 5 < end && p[1] == 111 && p[2] == 105 && p[3] == 110 && p[4] == 116 && p[5] <= 32 {
+                    // <point
+                    p += 6
+                    guard let gtRaw = memchr(p, 62, end - p) else {
+                        throw SceneLoadError(message: "SceneLoader model.xml parse failed: unclosed point tag")
                     }
-                }
-                if let text = attributes["no_interpolation_frames"] {
-                    guard let frames = Int(text) else {
-                        fail(parser, "SceneLoader no_interpolation_frames is \(text)")
-                        return
+                    let gt = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self))
+                    let pt = try parsePointFast(from: p, to: gt)
+                    unitPoints.append(pt)
+                    p = gt + 1
+                } else if c0 == 117 && p + 4 < end && p[1] == 110 && p[2] == 105 && p[3] == 116 && (p[4] <= 32 || p[4] == 62) {
+                    // <unit
+                    p += 4
+                    guard let gtRaw = memchr(p, 62, end - p) else {
+                        throw SceneLoadError(message: "SceneLoader model.xml parse failed: unclosed unit tag")
                     }
-                    noInterpolationFrames = frames
-                }
-                if let text = attributes["pivot_points"], !text.isEmpty {
-                    do {
-                        speedModifier = try SpeedModifier.decode(text)
-                    } catch {
-                        fail(parser, "\(error)")
-                        return
+                    let gt = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self))
+                    try startUnit(from: p, to: gt)
+                    if gt > p && (gt - 1)[0] == 47 {
+                        try endUnit()
                     }
-                }
-            case "frame":
-                guard let idText = attributes["id"], let id = Int(idText) else {
-                    fail(parser, "SceneLoader frame missing id")
-                    return
-                }
-                // GOTCHA (doc/gotchas.md): older frames omit bg_name; Android Frame
-                // defaults to #ffffff. Root zip bg.png is applied after parse.
-                let bgName: String
-                if let text = attributes["bg_name"], !text.isEmpty {
-                    bgName = text
+                    p = gt + 1
+                } else if c0 == 47 {
+                    // Closing tag </...>
+                    p += 1
+                    guard let gtRaw = memchr(p, 62, end - p) else {
+                        throw SceneLoadError(message: "SceneLoader model.xml parse failed: unclosed end tag")
+                    }
+                    let gt = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self))
+                    let len = gt - p
+                    if len >= 4 && p[0] == 117 && p[1] == 110 && p[2] == 105 && p[3] == 116 && (len == 4 || p[4] <= 32) {
+                        try endUnit()
+                    } else if len >= 5 && p[0] == 102 && p[1] == 114 && p[2] == 97 && p[3] == 109 && p[4] == 101 && (len == 5 || p[5] <= 32) {
+                        try endFrame()
+                    }
+                    p = gt + 1
+                } else if c0 == 102 && p + 5 < end && p[1] == 114 && p[2] == 97 && p[3] == 109 && p[4] == 101 && (p[5] <= 32 || p[5] == 62) {
+                    // <frame
+                    p += 5
+                    guard let gtRaw = memchr(p, 62, end - p) else {
+                        throw SceneLoadError(message: "SceneLoader model.xml parse failed: unclosed frame tag")
+                    }
+                    let gt = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self))
+                    try startFrame(from: p, to: gt)
+                    if gt > p && (gt - 1)[0] == 47 {
+                        try endFrame()
+                    }
+                    p = gt + 1
+                } else if c0 == 115 && p + 5 < end && p[1] == 99 && p[2] == 101 && p[3] == 110 && p[4] == 101 && (p[5] <= 32 || p[5] == 62) {
+                    // <scene
+                    p += 5
+                    guard let gtRaw = memchr(p, 62, end - p) else {
+                        throw SceneLoadError(message: "SceneLoader model.xml parse failed: unclosed scene tag")
+                    }
+                    let gt = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self))
+                    try startScene(from: p, to: gt)
+                    p = gt + 1
+                } else if c0 == 63 {
+                    // <?xml ... ?>
+                    guard let gtRaw = memchr(p, 62, end - p) else { break }
+                    p = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self)) + 1
+                } else if c0 == 33 {
+                    // <!-- ... --> or <!DOCTYPE ...>
+                    guard let gtRaw = memchr(p, 62, end - p) else { break }
+                    p = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self)) + 1
                 } else {
-                    bgName = "#ffffff"
-                }
-                if bgName.hasPrefix("#") {
-                    do {
-                        _ = try HexRGB.parseThrowing(bgName)
-                    } catch {
-                        fail(parser, "\(error)")
-                        return
+                    // Any other tag (e.g. <faces>, <face>)
+                    guard let gtRaw = memchr(p, 62, end - p) else {
+                        throw SceneLoadError(message: "SceneLoader model.xml parse failed: unclosed tag")
                     }
+                    p = UnsafePointer(gtRaw.assumingMemoryBound(to: UInt8.self)) + 1
                 }
-                frameId = id
-                frameBgName = bgName
-                if let bgMoveText = attributes["bg"], !bgMoveText.isEmpty {
-                    do {
-                        frameBgMove = try PictureMove.parse(bgMoveText)
-                    } catch {
-                        fail(parser, "\(error)")
-                        return
+            }
+        }
+
+        private mutating func resolveCached(_ raw: String) throws -> String {
+            if let hit = resolvedNameCache[raw] { return hit }
+            let resolved = try SceneLoader.resolveUnitName(raw)
+            resolvedNameCache[raw] = resolved
+            return resolved
+        }
+
+        private static func parseAttributes(from start: UnsafePointer<UInt8>, to gt: UnsafePointer<UInt8>) -> [String: String] {
+            var attrs: [String: String] = [:]
+            var p = start
+            while p < gt {
+                while p < gt && p[0] <= 32 { p += 1 }
+                if p >= gt || p[0] == 47 { break }
+                let nameStart = p
+                guard let eqRaw = memchr(p, 61, gt - p) else { break }
+                let eq = UnsafePointer(eqRaw.assumingMemoryBound(to: UInt8.self))
+                var nameEnd = eq
+                while nameEnd > nameStart && (nameEnd - 1)[0] <= 32 { nameEnd -= 1 }
+                var valP = eq + 1
+                while valP < gt && valP[0] <= 32 { valP += 1 }
+                if valP >= gt { break }
+                let quote = valP[0]
+                guard quote == 34 || quote == 39 else { break }
+                let valStart = valP + 1
+                guard let qEndRaw = memchr(valStart, Int32(quote), gt - valStart) else { break }
+                let valEnd = UnsafePointer(qEndRaw.assumingMemoryBound(to: UInt8.self))
+                p = valEnd + 1
+                let key = String(decoding: UnsafeBufferPointer(start: nameStart, count: nameEnd - nameStart), as: UTF8.self)
+                attrs[key] = unescapeXML(valStart, valEnd - valStart)
+            }
+            return attrs
+        }
+
+        private static func unescapeXML(_ start: UnsafePointer<UInt8>, _ count: Int) -> String {
+            guard count > 0 else { return "" }
+            guard memchr(start, 38, count) != nil else {
+                return String(decoding: UnsafeBufferPointer(start: start, count: count), as: UTF8.self)
+            }
+            var s = String(decoding: UnsafeBufferPointer(start: start, count: count), as: UTF8.self)
+            s = s.replacingOccurrences(of: "&quot;", with: "\"")
+            s = s.replacingOccurrences(of: "&apos;", with: "'")
+            s = s.replacingOccurrences(of: "&lt;", with: "<")
+            s = s.replacingOccurrences(of: "&gt;", with: ">")
+            s = s.replacingOccurrences(of: "&amp;", with: "&")
+            return s
+        }
+
+        @inline(__always)
+        private static func parseInt(_ s: UnsafePointer<UInt8>, _ e: UnsafePointer<UInt8>) -> Int? {
+            if s >= e { return nil }
+            var cur = s
+            var neg = false
+            if cur[0] == 45 {
+                neg = true
+                cur += 1
+            } else if cur[0] == 43 {
+                cur += 1
+            }
+            if cur >= e { return nil }
+            var val = 0
+            while cur < e {
+                let b = cur[0]
+                guard b >= 48 && b <= 57 else { return nil }
+                val = val &* 10 &+ Int(b &- 48)
+                cur += 1
+            }
+            return neg ? -val : val
+        }
+
+        @inline(__always)
+        private static func parseDouble(_ s: UnsafePointer<UInt8>, _ e: UnsafePointer<UInt8>) -> Double? {
+            if s >= e { return nil }
+            var endPtr: UnsafeMutablePointer<CChar>? = nil
+            let cStart = UnsafePointer<CChar>(OpaquePointer(s))
+            let d = strtod(cStart, &endPtr)
+            guard let ep = endPtr, OpaquePointer(ep) == OpaquePointer(e) else {
+                let text = String(decoding: UnsafeBufferPointer(start: s, count: e - s), as: UTF8.self)
+                return Double(text)
+            }
+            return d
+        }
+
+        private mutating func startScene(from start: UnsafePointer<UInt8>, to gt: UnsafePointer<UInt8>) throws {
+            let attributes = Self.parseAttributes(from: start, to: gt)
+            guard let wText = attributes["w"], let w = Double(wText) else {
+                throw SceneLoadError(message: "SceneLoader scene missing w")
+            }
+            guard let hText = attributes["h"], let h = Double(hText) else {
+                throw SceneLoadError(message: "SceneLoader scene missing h")
+            }
+            width = CGFloat(w)
+            height = CGFloat(h)
+            guard let text = attributes["interframes"], let value = Int(text) else {
+                throw SceneLoadError(message: "SceneLoader scene missing interframes")
+            }
+            if value < 0 {
+                throw SceneLoadError(message: "SceneLoader interframes is \(value)")
+            }
+            interframes = value
+            if let text = attributes["no_interpolation"] {
+                switch text.lowercased() {
+                case "true":
+                    noInterpolation = true
+                case "false":
+                    noInterpolation = false
+                default:
+                    throw SceneLoadError(message: "SceneLoader no_interpolation is \(text)")
+                }
+            }
+            if let text = attributes["no_interpolation_frames"] {
+                guard let count = Int(text) else {
+                    throw SceneLoadError(message: "SceneLoader no_interpolation_frames is \(text)")
+                }
+                noInterpolationFrames = count
+            }
+            if let text = attributes["pivot_points"], !text.isEmpty {
+                speedModifier = try SpeedModifier.decode(text)
+            }
+        }
+
+        private mutating func startFrame(from start: UnsafePointer<UInt8>, to gt: UnsafePointer<UInt8>) throws {
+            let attributes = Self.parseAttributes(from: start, to: gt)
+            guard let idText = attributes["id"], let id = Int(idText) else {
+                throw SceneLoadError(message: "SceneLoader frame missing id")
+            }
+            // GOTCHA (doc/gotchas.md): older frames omit bg_name; Android Frame
+            // defaults to #ffffff. Root zip bg.png is applied after parse.
+            let bgName: String
+            if let text = attributes["bg_name"], !text.isEmpty {
+                bgName = text
+            } else {
+                bgName = "#ffffff"
+            }
+            if bgName.hasPrefix("#") {
+                _ = try HexRGB.parseThrowing(bgName)
+            }
+            frameId = id
+            frameBgName = bgName
+            if let bgMoveText = attributes["bg"], !bgMoveText.isEmpty {
+                frameBgMove = try PictureMove.parse(bgMoveText)
+            } else {
+                frameBgMove = .identity
+            }
+            if let cameraText = attributes["camera"], !cameraText.isEmpty {
+                frameCameraMove = try PictureMove.parse(cameraText)
+            } else {
+                frameCameraMove = .identity
+            }
+            frameUnits.removeAll(keepingCapacity: true)
+        }
+
+        private mutating func startUnit(from start: UnsafePointer<UInt8>, to gt: UnsafePointer<UInt8>) throws {
+            var rawName: String?
+            var scaleVal: Double?
+            var alphaVal: Double?
+            var arrangeVal: Int?
+            var flippedVal = false
+            var stateVal = 0
+            var typeSlice: (UnsafePointer<UInt8>, Int)?
+            var metaStr: String?
+
+            var p = start
+            while p < gt {
+                while p < gt && p[0] <= 32 { p += 1 }
+                if p >= gt || p[0] == 47 { break }
+                let nameStart = p
+                guard let eqRaw = memchr(p, 61, gt - p) else { break }
+                let eq = UnsafePointer(eqRaw.assumingMemoryBound(to: UInt8.self))
+                var nameEnd = eq
+                while nameEnd > nameStart && (nameEnd - 1)[0] <= 32 { nameEnd -= 1 }
+                let nameLen = nameEnd - nameStart
+                var valP = eq + 1
+                while valP < gt && valP[0] <= 32 { valP += 1 }
+                if valP >= gt { break }
+                let quote = valP[0]
+                guard quote == 34 || quote == 39 else { break }
+                let valStart = valP + 1
+                guard let qEndRaw = memchr(valStart, Int32(quote), gt - valStart) else { break }
+                let valEnd = UnsafePointer(qEndRaw.assumingMemoryBound(to: UInt8.self))
+                p = valEnd + 1
+                let valLen = valEnd - valStart
+
+                switch nameLen {
+                case 4:
+                    if nameStart[0] == 110 && nameStart[1] == 97 && nameStart[2] == 109 && nameStart[3] == 101 { // name
+                        rawName = Self.unescapeXML(valStart, valLen)
+                    } else if nameStart[0] == 116 && nameStart[1] == 121 && nameStart[2] == 112 && nameStart[3] == 101 { // type
+                        typeSlice = (valStart, valLen)
+                    } else if nameStart[0] == 109 && nameStart[1] == 101 && nameStart[2] == 116 && nameStart[3] == 97 { // meta
+                        metaStr = Self.unescapeXML(valStart, valLen)
                     }
-                } else {
-                    frameBgMove = .identity
-                }
-                if let cameraText = attributes["camera"], !cameraText.isEmpty {
-                    do {
-                        frameCameraMove = try PictureMove.parse(cameraText)
-                    } catch {
-                        fail(parser, "\(error)")
-                        return
+                case 5:
+                    if nameStart[0] == 115 && nameStart[1] == 99 && nameStart[2] == 97 && nameStart[3] == 108 && nameStart[4] == 101 { // scale
+                        scaleVal = Self.parseDouble(valStart, valEnd)
+                    } else if nameStart[0] == 97 && nameStart[1] == 108 && nameStart[2] == 112 && nameStart[3] == 104 && nameStart[4] == 97 { // alpha
+                        alphaVal = Self.parseDouble(valStart, valEnd)
+                    } else if nameStart[0] == 115 && nameStart[1] == 116 && nameStart[2] == 97 && nameStart[3] == 116 && nameStart[4] == 101 { // state
+                        guard let st = Self.parseInt(valStart, valEnd) else {
+                            let text = Self.unescapeXML(valStart, valLen)
+                            throw SceneLoadError(message: "SceneLoader unit '\(rawName ?? "")' state '\(text)' is not an int")
+                        }
+                        stateVal = st
                     }
-                } else {
-                    frameCameraMove = .identity
-                }
-                frameUnits = []
-            case "unit":
-                guard let name = attributes["name"], !name.isEmpty else {
-                    fail(parser, "SceneLoader unit missing name")
-                    return
-                }
-                guard let scaleText = attributes["scale"], let scale = Double(scaleText) else {
-                    fail(parser, "SceneLoader unit '\(name)' missing scale")
-                    return
-                }
-                if scale <= 0 {
-                    fail(parser, "SceneLoader unit '\(name)' scale is \(scale)")
-                    return
-                }
-                guard let alphaText = attributes["alpha"], let alpha = Double(alphaText) else {
-                    fail(parser, "SceneLoader unit '\(name)' missing alpha")
-                    return
-                }
-                // GOTCHA (doc/gotchas.md): Android stores alpha as-is; 1.08 is opaque.
-                if alpha < 0 {
-                    fail(parser, "SceneLoader unit '\(name)' alpha is \(alpha)")
-                    return
-                }
-                guard let arrangeText = attributes["arrange"], let arrange = Int(arrangeText) else {
-                    fail(parser, "SceneLoader unit '\(name)' missing arrange")
-                    return
-                }
-                do {
-                    unitName = try SceneLoader.resolveUnitName(name)
-                } catch {
-                    fail(parser, "\(error)")
-                    return
-                }
-                unitScale = CGFloat(scale)
-                unitAlpha = CGFloat(alpha)
-                unitArrange = arrange
-                unitFlipped = attributes["flipped"] == "true"
-                if let text = attributes["state"] {
-                    guard let state = Int(text) else {
-                        fail(parser, "SceneLoader unit '\(name)' state '\(text)' is not an int")
-                        return
+                case 7:
+                    if nameStart[0] == 97 && nameStart[1] == 114 && nameStart[2] == 114 && nameStart[3] == 97 && nameStart[4] == 110 && nameStart[5] == 103 && nameStart[6] == 101 { // arrange
+                        arrangeVal = Self.parseInt(valStart, valEnd)
+                    } else if nameStart[0] == 102 && nameStart[1] == 108 && nameStart[2] == 105 && nameStart[3] == 112 && nameStart[4] == 112 && nameStart[5] == 101 && nameStart[6] == 100 { // flipped
+                        flippedVal = (valLen == 4 && valStart[0] == 116 && valStart[1] == 114 && valStart[2] == 117 && valStart[3] == 101)
                     }
-                    unitState = state
-                } else {
-                    unitState = 0
+                default:
+                    break
                 }
-                switch attributes["type"] {
-                case nil, "", "unit":
+            }
+
+            guard let name = rawName, !name.isEmpty else {
+                throw SceneLoadError(message: "SceneLoader unit missing name")
+            }
+            guard let scale = scaleVal else {
+                throw SceneLoadError(message: "SceneLoader unit '\(name)' missing scale")
+            }
+            if scale <= 0 {
+                throw SceneLoadError(message: "SceneLoader unit '\(name)' scale is \(scale)")
+            }
+            guard let alpha = alphaVal else {
+                throw SceneLoadError(message: "SceneLoader unit '\(name)' missing alpha")
+            }
+            if alpha < 0 {
+                throw SceneLoadError(message: "SceneLoader unit '\(name)' alpha is \(alpha)")
+            }
+            guard let arrange = arrangeVal else {
+                throw SceneLoadError(message: "SceneLoader unit '\(name)' missing arrange")
+            }
+            unitName = try resolveCached(name)
+            unitScale = CGFloat(scale)
+            unitAlpha = CGFloat(alpha)
+            unitArrange = arrange
+            unitFlipped = flippedVal
+            unitState = stateVal
+
+            if let (ts, tl) = typeSlice, tl > 0 {
+                if tl == 4 && ts[0] == 117 && ts[1] == 110 && ts[2] == 105 && ts[3] == 116 {
                     unitType = .unit
                     unitBubble = nil
-                case "bubble":
+                } else if tl == 6 && ts[0] == 98 && ts[1] == 117 && ts[2] == 98 && ts[3] == 98 && ts[4] == 108 && ts[5] == 101 {
                     unitType = .bubble
-                    if let meta = attributes["meta"], !meta.isEmpty {
-                        do {
-                            unitBubble = try BubbleMeta.parse(encoded: meta, unitName: name)
-                        } catch {
-                            fail(parser, "\(error)")
-                            return
-                        }
+                    if let meta = metaStr, !meta.isEmpty {
+                        unitBubble = try BubbleMeta.parse(encoded: meta, unitName: name)
                     } else {
                         unitBubble = .defaults
                     }
-                case let other?:
-                    fail(parser, "SceneLoader unit '\(name)' unknown type '\(other)'")
-                    return
+                } else {
+                    let other = Self.unescapeXML(ts, tl)
+                    throw SceneLoadError(message: "SceneLoader unit '\(name)' unknown type '\(other)'")
                 }
-                unitPoints = []
-            case "point":
-                if let point = parsePoint(attributes, parser) {
-                    unitPoints.append(point)
-                }
-            default:
-                break
-            }
-        }
-
-        func parser(
-            _ parser: XMLParser,
-            didEndElement elementName: String,
-            namespaceURI: String?,
-            qualifiedName qName: String?
-        ) {
-            if elementName == "unit" {
-                guard let name = unitName, let scale = unitScale, let alpha = unitAlpha, let arrange = unitArrange else {
-                    fail(parser, "SceneLoader unit ended without name/scale/alpha/arrange")
-                    return
-                }
-                if unitPoints.isEmpty {
-                    fail(parser, "SceneLoader unit '\(name)' has no points")
-                    return
-                }
-                var unit = StickmanUnit(
-                    name: name,
-                    points: uniquePoints(unitPoints, unitName: name, parser: parser),
-                    edges: [],
-                    scale: scale,
-                    alpha: alpha,
-                    arrange: arrange,
-                    flipped: unitFlipped,
-                    assetsState: unitState,
-                    unitType: unitType,
-                    bubble: unitBubble
-                )
-                do {
-                    try unit.link()
-                } catch {
-                    fail(parser, "\(error)")
-                    return
-                }
-                frameUnits.append(unit)
-                unitName = nil
-                unitScale = nil
-                unitAlpha = nil
-                unitArrange = nil
-                unitFlipped = false
-                unitState = 0
+            } else {
                 unitType = .unit
                 unitBubble = nil
-                unitPoints = []
-            } else if elementName == "frame" {
-                guard let id = frameId, let bgName = frameBgName else {
-                    fail(parser, "SceneLoader frame ended without id/bg_name")
-                    return
-                }
-                if frameUnits.isEmpty {
-                    fail(parser, "SceneLoader frame \(id) has no units")
-                    return
-                }
-                var frame = StickmanFrame(
-                    id: id,
-                    units: frameUnits,
-                    bgName: bgName,
-                    bgMove: frameBgMove,
-                    cameraMove: frameCameraMove
-                )
-                do {
-                    try frame.slaves.populate(units: frame.units)
-                } catch {
-                    fail(parser, "\(error)")
-                    return
-                }
-                frames.append(frame)
-                frameId = nil
-                frameBgName = nil
-                frameBgMove = .identity
-                frameCameraMove = .identity
-                frameUnits = []
             }
+            unitPoints.removeAll(keepingCapacity: true)
         }
 
-        private func uniquePoints(_ points: [StickmanPoint], unitName: String, parser: XMLParser) -> [StickmanPoint] {
+        private mutating func parsePointFast(from start: UnsafePointer<UInt8>, to gt: UnsafePointer<UInt8>) throws -> StickmanPoint {
+            var idOpt: Int?
+            var xOpt: Double?
+            var yOpt: Double?
+            var isBase = false
+            var parOpt: Int?
+            var attachable: Attachable = .none
+            var attachedSlice: (UnsafePointer<UInt8>, Int)?
+            var semanticName: String?
+            var fixed = false
+            var stretchable = false
+            var kinStart = false
+            var kinStop = false
+
+            var p = start
+            while p < gt {
+                while p < gt && p[0] <= 32 { p += 1 }
+                if p >= gt || p[0] == 47 { break }
+                let nameStart = p
+                guard let eqRaw = memchr(p, 61, gt - p) else { break }
+                let eq = UnsafePointer(eqRaw.assumingMemoryBound(to: UInt8.self))
+                var nameEnd = eq
+                while nameEnd > nameStart && (nameEnd - 1)[0] <= 32 { nameEnd -= 1 }
+                let nameLen = nameEnd - nameStart
+                var valP = eq + 1
+                while valP < gt && valP[0] <= 32 { valP += 1 }
+                if valP >= gt { break }
+                let quote = valP[0]
+                guard quote == 34 || quote == 39 else { break }
+                let valStart = valP + 1
+                guard let qEndRaw = memchr(valStart, Int32(quote), gt - valStart) else { break }
+                let valEnd = UnsafePointer(qEndRaw.assumingMemoryBound(to: UInt8.self))
+                p = valEnd + 1
+                let valLen = valEnd - valStart
+
+                switch nameLen {
+                case 1:
+                    if nameStart[0] == 120 { // x
+                        xOpt = Self.parseDouble(valStart, valEnd)
+                    } else if nameStart[0] == 121 { // y
+                        yOpt = Self.parseDouble(valStart, valEnd)
+                    }
+                case 2:
+                    if nameStart[0] == 105 && nameStart[1] == 100 { // id
+                        idOpt = Self.parseInt(valStart, valEnd)
+                    }
+                case 3:
+                    if nameStart[0] == 112 && nameStart[1] == 97 && nameStart[2] == 114 { // par
+                        parOpt = Self.parseInt(valStart, valEnd)
+                    }
+                case 4:
+                    if nameStart[0] == 98 && nameStart[1] == 97 && nameStart[2] == 115 && nameStart[3] == 101 { // base
+                        isBase = (valLen == 4 && valStart[0] == 116 && valStart[1] == 114 && valStart[2] == 117 && valStart[3] == 101)
+                    } else if nameStart[0] == 110 && nameStart[1] == 97 && nameStart[2] == 109 && nameStart[3] == 101 { // name
+                        if valLen > 0 {
+                            semanticName = Self.unescapeXML(valStart, valLen)
+                        }
+                    }
+                case 5:
+                    if nameStart[0] == 102 && nameStart[1] == 105 && nameStart[2] == 120 && nameStart[3] == 101 && nameStart[4] == 100 { // fixed
+                        fixed = (valLen == 4 && valStart[0] == 116 && valStart[1] == 114 && valStart[2] == 117 && valStart[3] == 101)
+                    }
+                case 7:
+                    if nameStart[0] == 107 && nameStart[1] == 105 && nameStart[2] == 110 && nameStart[3] == 115 && nameStart[4] == 116 && nameStart[5] == 111 && nameStart[6] == 112 { // kinstop
+                        kinStop = (valLen == 4 && valStart[0] == 116 && valStart[1] == 114 && valStart[2] == 117 && valStart[3] == 101)
+                    }
+                case 8:
+                    if nameStart[0] == 97 && nameStart[1] == 116 && nameStart[2] == 116 && nameStart[3] == 97 && nameStart[4] == 99 && nameStart[5] == 104 && nameStart[6] == 101 && nameStart[7] == 100 { // attached
+                        if valLen > 0 {
+                            attachedSlice = (valStart, valLen)
+                        }
+                    } else if nameStart[0] == 107 && nameStart[1] == 105 && nameStart[2] == 110 && nameStart[3] == 115 && nameStart[4] == 116 && nameStart[5] == 97 && nameStart[6] == 114 && nameStart[7] == 116 { // kinstart
+                        kinStart = (valLen == 4 && valStart[0] == 116 && valStart[1] == 114 && valStart[2] == 117 && valStart[3] == 101)
+                    }
+                case 10:
+                    if nameStart[0] == 97 && nameStart[1] == 116 && nameStart[2] == 116 && nameStart[3] == 97 && nameStart[4] == 99 && nameStart[5] == 104 && nameStart[6] == 97 && nameStart[7] == 98 && nameStart[8] == 108 && nameStart[9] == 101 { // attachable
+                        if valLen == 6 && valStart[0] == 109 && valStart[1] == 97 && valStart[2] == 115 && valStart[3] == 116 && valStart[4] == 101 && valStart[5] == 114 {
+                            attachable = .master
+                        } else if valLen == 5 && valStart[0] == 115 && valStart[1] == 108 && valStart[2] == 97 && valStart[3] == 118 && valStart[4] == 101 {
+                            attachable = .slave
+                        } else {
+                            let other = Self.unescapeXML(valStart, valLen)
+                            throw SceneLoadError(message: "SceneLoader point \(idOpt ?? -1) unknown attachable '\(other)'")
+                        }
+                    }
+                case 11:
+                    if nameStart[0] == 115 && nameStart[1] == 116 && nameStart[2] == 114 && nameStart[3] == 101 && nameStart[4] == 116 && nameStart[5] == 99 && nameStart[6] == 104 && nameStart[7] == 97 && nameStart[8] == 98 && nameStart[9] == 108 && nameStart[10] == 101 { // stretchable
+                        stretchable = (valLen == 4 && valStart[0] == 116 && valStart[1] == 114 && valStart[2] == 117 && valStart[3] == 101)
+                    }
+                default:
+                    break
+                }
+            }
+
+            guard let id = idOpt else {
+                throw SceneLoadError(message: "SceneLoader point missing id")
+            }
+            guard let x = xOpt else {
+                throw SceneLoadError(message: "SceneLoader point \(id) missing x")
+            }
+            guard let y = yOpt else {
+                throw SceneLoadError(message: "SceneLoader point \(id) missing y")
+            }
+            let parentId: Int?
+            if isBase {
+                parentId = nil
+            } else {
+                guard let par = parOpt else {
+                    throw SceneLoadError(message: "SceneLoader point \(id) missing par")
+                }
+                parentId = par
+            }
+            var attachedName: String?
+            var attachedId: Int?
+            if let (attStart, attLen) = attachedSlice {
+                let attached = Self.unescapeXML(attStart, attLen)
+                let parts = attached.split(separator: "&", omittingEmptySubsequences: false).map(String.init)
+                if parts.count != 2 {
+                    throw SceneLoadError(message: "SceneLoader point \(id) attached '\(attached)' is not name&id")
+                }
+                guard let masterId = Int(parts[1]) else {
+                    throw SceneLoadError(message: "SceneLoader point \(id) attached id '\(parts[1])' is not an int")
+                }
+                if masterId != -1 && parts[0] != "null" && !parts[0].isEmpty {
+                    attachedName = try resolveCached(parts[0])
+                    attachedId = masterId
+                }
+            }
+            return StickmanPoint(
+                id: id,
+                x: CGFloat(x),
+                y: CGFloat(y),
+                isBase: isBase,
+                parentId: parentId,
+                attachable: attachable,
+                attachedMasterName: attachedName,
+                attachedMasterPointId: attachedId,
+                semanticName: semanticName,
+                fixed: fixed,
+                stretchable: !isBase && stretchable,
+                kinematicStart: kinStart,
+                kinematicStop: kinStop
+            )
+        }
+
+        private mutating func endUnit() throws {
+            guard let name = unitName, let scale = unitScale, let alpha = unitAlpha, let arrange = unitArrange else {
+                throw SceneLoadError(message: "SceneLoader unit ended without name/scale/alpha/arrange")
+            }
+            if unitPoints.isEmpty {
+                throw SceneLoadError(message: "SceneLoader unit '\(name)' has no points")
+            }
+            let deduped = try uniquePoints(unitPoints, unitName: name)
+            var unit = StickmanUnit(
+                name: name,
+                points: deduped,
+                edges: [],
+                scale: scale,
+                alpha: alpha,
+                arrange: arrange,
+                flipped: unitFlipped,
+                assetsState: unitState,
+                unitType: unitType,
+                bubble: unitBubble
+            )
+            if let cached = linkedEdgesCache[name], cached.sig.count == deduped.count {
+                var matches = true
+                for i in 0..<deduped.count {
+                    let s = cached.sig[i]
+                    let p = deduped[i]
+                    if s.id != p.id || s.parentId != p.parentId || s.isBase != p.isBase {
+                        matches = false
+                        break
+                    }
+                }
+                if matches {
+                    unit.edges = cached.edges
+                } else {
+                    try unit.link()
+                    linkedEdgesCache[name] = (deduped.map { ($0.id, $0.parentId, $0.isBase) }, unit.edges)
+                }
+            } else {
+                try unit.link()
+                linkedEdgesCache[name] = (deduped.map { ($0.id, $0.parentId, $0.isBase) }, unit.edges)
+            }
+            frameUnits.append(unit)
+            unitName = nil
+            unitScale = nil
+            unitAlpha = nil
+            unitArrange = nil
+            unitFlipped = false
+            unitState = 0
+            unitType = .unit
+            unitBubble = nil
+            unitPoints.removeAll(keepingCapacity: true)
+        }
+
+        private mutating func endFrame() throws {
+            guard let id = frameId, let bgName = frameBgName else {
+                throw SceneLoadError(message: "SceneLoader frame ended without id/bg_name")
+            }
+            if frameUnits.isEmpty {
+                throw SceneLoadError(message: "SceneLoader frame \(id) has no units")
+            }
+            var frame = StickmanFrame(
+                id: id,
+                units: frameUnits,
+                bgName: bgName,
+                bgMove: frameBgMove,
+                cameraMove: frameCameraMove
+            )
+            try frame.slaves.populate(units: frame.units)
+            frames.append(frame)
+            frameId = nil
+            frameBgName = nil
+            frameBgMove = .identity
+            frameCameraMove = .identity
+            frameUnits.removeAll(keepingCapacity: true)
+        }
+
+        private func uniquePoints(_ points: [StickmanPoint], unitName: String) throws -> [StickmanPoint] {
+            var mask: UInt64 = 0
+            var allDistinctIn64 = true
+            for point in points {
+                let id = point.id
+                if id >= 0 && id < 64 {
+                    let bit: UInt64 = 1 << UInt64(id)
+                    if (mask & bit) != 0 {
+                        allDistinctIn64 = false
+                        break
+                    }
+                    mask |= bit
+                } else {
+                    allDistinctIn64 = false
+                    break
+                }
+            }
+            if allDistinctIn64 {
+                return points
+            }
             var byId: [Int: StickmanPoint] = [:]
             var order: [Int] = []
             for point in points {
@@ -725,8 +1090,7 @@ enum SceneXML {
                         || existing.attachedMasterName != point.attachedMasterName
                         || existing.attachedMasterPointId != point.attachedMasterPointId
                     {
-                        fail(parser, "SceneLoader unit '\(unitName)' duplicate point \(point.id) disagrees")
-                        return points
+                        throw SceneLoadError(message: "SceneLoader unit '\(unitName)' duplicate point \(point.id) disagrees")
                     }
                     continue
                 }
@@ -734,76 +1098,6 @@ enum SceneXML {
                 order.append(point.id)
             }
             return order.map { byId[$0]! }
-        }
-
-        private func parsePoint(_ attributes: [String: String], _ parser: XMLParser) -> StickmanPoint? {
-            guard let idText = attributes["id"], let id = Int(idText) else {
-                fail(parser, "SceneLoader point missing id")
-                return nil
-            }
-            guard let xText = attributes["x"], let x = Double(xText) else {
-                fail(parser, "SceneLoader point \(id) missing x")
-                return nil
-            }
-            guard let yText = attributes["y"], let y = Double(yText) else {
-                fail(parser, "SceneLoader point \(id) missing y")
-                return nil
-            }
-            let isBase = attributes["base"] == "true"
-            let parentId: Int?
-            if isBase {
-                parentId = nil
-            } else {
-                guard let parText = attributes["par"], let par = Int(parText) else {
-                    fail(parser, "SceneLoader point \(id) missing par")
-                    return nil
-                }
-                parentId = par
-            }
-            let attachable: Attachable
-            switch attributes["attachable"] {
-            case nil:
-                attachable = .none
-            case "master":
-                attachable = .master
-            case "slave":
-                attachable = .slave
-            case let other?:
-                fail(parser, "SceneLoader point \(id) unknown attachable '\(other)'")
-                return nil
-            }
-            var attachedName: String?
-            var attachedId: Int?
-            if let attached = attributes["attached"], !attached.isEmpty {
-                let parts = attached.split(separator: "&", omittingEmptySubsequences: false).map(String.init)
-                if parts.count != 2 {
-                    fail(parser, "SceneLoader point \(id) attached '\(attached)' is not name&id")
-                    return nil
-                }
-                guard let masterId = Int(parts[1]) else {
-                    fail(parser, "SceneLoader point \(id) attached id '\(parts[1])' is not an int")
-                    return nil
-                }
-                if masterId != -1 && parts[0] != "null" && !parts[0].isEmpty {
-                    do {
-                        attachedName = try SceneLoader.resolveUnitName(parts[0])
-                    } catch {
-                        fail(parser, "\(error)")
-                        return nil
-                    }
-                    attachedId = masterId
-                }
-            }
-            return StickmanPoint(
-                id: id,
-                x: CGFloat(x),
-                y: CGFloat(y),
-                isBase: isBase,
-                parentId: parentId,
-                attachable: attachable,
-                attachedMasterName: attachedName,
-                attachedMasterPointId: attachedId
-            )
         }
     }
 }

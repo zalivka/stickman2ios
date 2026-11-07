@@ -263,7 +263,7 @@ struct BgAnimatorScreen: View {
             )
             return
         }
-        guard let image = backgrounds.image(for: bgName) else {
+        guard let image = backgrounds.fullResolutionImage(for: bgName) else {
             showToast("Cannot process the background \(bgName)")
             return
         }
@@ -663,6 +663,7 @@ struct BgAnimatorScreen: View {
             }
             move = BackgroundResolver.fittedMove(
                 image: image,
+                sampleScale: backgrounds.sampleScale(for: bgName),
                 sceneWidth: scene.width,
                 sceneHeight: scene.height
             )

@@ -29,31 +29,28 @@ struct SlavesRegistry {
     }
 
     mutating func populate(units: [StickmanUnit]) throws {
-        children = [:]
-        var pending: [StickmanUnit] = []
+        children.removeAll(keepingCapacity: true)
+        var pending: [(slaveName: String, masterName: String)] = []
         for unit in units {
-            if Self.attachment(of: unit) == nil {
-                children[unit.name] = []
+            if let attachment = Self.attachment(of: unit) {
+                pending.append((unit.name, attachment.masterName))
             } else {
-                pending.append(unit)
+                children[unit.name] = []
             }
         }
         while !pending.isEmpty {
             var stuck = true
-            pending.removeAll { slave in
-                guard let attachment = Self.attachment(of: slave) else {
-                    return true
-                }
-                if children[attachment.masterName] != nil {
-                    children[attachment.masterName, default: []].append(slave.name)
-                    children[slave.name] = []
+            pending.removeAll { item in
+                if children[item.masterName] != nil {
+                    children[item.masterName, default: []].append(item.slaveName)
+                    children[item.slaveName] = []
                     stuck = false
                     return true
                 }
                 return false
             }
             if stuck {
-                throw SceneLoadError(message: "SlavesRegistry stuck: \(pending.map(\.name))")
+                throw SceneLoadError(message: "SlavesRegistry stuck: \(pending.map(\.slaveName))")
             }
         }
     }

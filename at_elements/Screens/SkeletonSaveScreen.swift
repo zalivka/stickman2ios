@@ -6,11 +6,24 @@ struct SkeletonSaveScreen: View {
     var onSaveNew: (String) -> Void
     var onOverwrite: (CustomItems.Item) -> Void
 
-    @State private var name = ItemSaver.freeName()
+    @State private var name: String
     @State private var nameError = ""
     @State private var items: [CustomItems.Item] = []
     @State private var pending: CustomItems.Item?
     @State private var saving = false
+
+    init(
+        prefill: String? = nil,
+        onClose: @escaping () -> Void,
+        onSaveNew: @escaping (String) -> Void,
+        onOverwrite: @escaping (CustomItems.Item) -> Void
+    ) {
+        self.onClose = onClose
+        self.onSaveNew = onSaveNew
+        self.onOverwrite = onOverwrite
+        let trimmed = prefill?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        _name = State(initialValue: trimmed.isEmpty ? ItemSaver.freeName() : trimmed)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
