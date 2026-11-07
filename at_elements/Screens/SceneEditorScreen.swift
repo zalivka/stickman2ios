@@ -266,7 +266,7 @@ struct SceneEditorScreen: View {
                             onSelectState: setSelectedUnitState,
                             onOpenAnimation: { showingFBF = true },
                             onCopy: copySelectedUnit,
-                            onEditItem: selectedUnit.unitType != .bubble && editableItem != nil ? openItemEditor : nil,
+                            onEditItem: selectedUnit.unitType != .bubble && editableItem != nil ? { openItemEditor() } : nil,
                             onSetText: selectedUnit.unitType == .bubble ? { openSetText() } : nil,
                             poseLocked: scene.isPoseLocked(
                                 unitName: selectedUnit.name,
@@ -980,7 +980,7 @@ struct SceneEditorScreen: View {
         let pure = UnitAssets.removeNumber(unitName)
         Task {
             do {
-                let zip = try await Manifest.shared.schedule {
+                let zip = try await Manifest.shared.scheduleThrowing {
                     _ = Manifest.shared.reloadCustomPack()
                     return try Manifest.shared.itemZip(fullname: pure)
                 }
