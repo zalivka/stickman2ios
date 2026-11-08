@@ -56,6 +56,7 @@ public struct BonePaperScreen: View {
         /// Full-resolution paint buffer for `source`, `sample` times its size. Copied in without
         /// scaling so reopening loses no quality. A size mismatch falls back to the upscaled source.
         buffer: CGImage? = nil,
+        mask: CGImage? = nil,
         initialDrawingConfig: BonePaperDrawingConfig? = nil,
         onSettings: (() -> Void)? = nil,
         onApply: ((BonePaperExport) -> Void)?,
@@ -82,6 +83,7 @@ public struct BonePaperScreen: View {
                     weight: 1,
                     source: source,
                     buffer: buffer,
+                    mask: mask,
                     xOffset: xOff,
                     yOffset: yOff,
                     drawingConfig: config
@@ -98,12 +100,23 @@ public struct BonePaperScreen: View {
            buffer.width == source.width * BonePaperDocument.sample,
            buffer.height == source.height * BonePaperDocument.sample {
             _document = StateObject(
-                wrappedValue: BonePaperDocument(width: width, height: height, source: source, buffer: buffer)
+                wrappedValue: BonePaperDocument(width: width, height: height, source: source, buffer: buffer, mask: mask)
             )
         } else {
-            _document = StateObject(
-                wrappedValue: BonePaperDocument(width: width, height: height, source: source)
-            )
+            let doc = BonePaperDocument(width: width, height: height, source: source)
+            if let maskAlpha = session.activeSnapshot.maskAlpha {
+                doc.loadFrameBuffer(
+                    session.activeSnapshot.buffer,
+                    maskAlpha: maskAlpha,
+                    width: width,
+                    height: height,
+                    originX: session.activeSnapshot.originX,
+                    originY: session.activeSnapshot.originY,
+                    extraLeft: 0,
+                    extraTop: 0
+                )
+            }
+            _document = StateObject(wrappedValue: doc)
         }
         _drawingConfig = State(initialValue: config)
         _chromeOpacity = State(initialValue: placement == nil ? 1 : 0)
@@ -159,6 +172,7 @@ public struct BonePaperScreen: View {
         let doc = BonePaperDocument(width: active.width, height: active.height, source: nil)
         doc.loadFrameBuffer(
             active.buffer,
+            maskAlpha: active.maskAlpha,
             width: active.width,
             height: active.height,
             originX: active.originX,

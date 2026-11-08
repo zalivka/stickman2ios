@@ -8,6 +8,7 @@ public struct BonePaperFrameInput {
     public let weight: Int
     public let source: CGImage?
     public let buffer: CGImage?
+    public let mask: CGImage?
     public let xOffset: CGFloat
     public let yOffset: CGFloat
     public let drawingConfig: BonePaperDrawingConfig
@@ -17,6 +18,7 @@ public struct BonePaperFrameInput {
         weight: Int = 1,
         source: CGImage?,
         buffer: CGImage? = nil,
+        mask: CGImage? = nil,
         xOffset: CGFloat = 0,
         yOffset: CGFloat = 0,
         drawingConfig: BonePaperDrawingConfig = BonePaperDrawingConfig()
@@ -25,6 +27,7 @@ public struct BonePaperFrameInput {
         self.weight = max(1, weight)
         self.source = source
         self.buffer = buffer
+        self.mask = mask
         self.xOffset = xOffset
         self.yOffset = yOffset
         self.drawingConfig = drawingConfig
@@ -36,6 +39,7 @@ public struct BonePaperFrameSnapshot: Identifiable {
     public var state: Int
     public var weight: Int
     public var buffer: CGImage
+    public var maskAlpha: [UInt8]?
     public var width: Int
     public var height: Int
     public var originX: Int
@@ -124,11 +128,16 @@ public final class BonePaperFramesSession: ObservableObject {
                 source: item.source,
                 buffer: item.buffer
             )
+            let sample = BonePaperDocument.sample
+            let maskAlpha = item.mask.flatMap {
+                BonePaperDocument.extractMaskAlpha(from: $0, width: w * sample, height: h * sample)
+            }
             built.append(
                 BonePaperFrameSnapshot(
                     state: idx,
                     weight: max(1, item.weight),
                     buffer: buf,
+                    maskAlpha: maskAlpha,
                     width: w,
                     height: h,
                     originX: ox,
@@ -155,6 +164,7 @@ public final class BonePaperFramesSession: ObservableObject {
         guard frames.indices.contains(selectedState) else { return }
         let committed = document.snapshotBuffer()
         frames[selectedState].buffer = committed
+        frames[selectedState].maskAlpha = document.snapshotMaskAlpha()
         frames[selectedState].width = document.width
         frames[selectedState].height = document.height
         frames[selectedState].originX = document.originX
@@ -186,6 +196,7 @@ public final class BonePaperFramesSession: ObservableObject {
         let target = frames[state]
         document.loadFrameBuffer(
             target.buffer,
+            maskAlpha: target.maskAlpha,
             width: target.width,
             height: target.height,
             originX: target.originX,
@@ -212,6 +223,7 @@ public final class BonePaperFramesSession: ObservableObject {
             state: newState,
             weight: 1,
             buffer: blank,
+            maskAlpha: nil,
             width: w,
             height: h,
             originX: ox,
@@ -228,6 +240,7 @@ public final class BonePaperFramesSession: ObservableObject {
         updatePreviousFrameOnion()
         document.loadFrameBuffer(
             snapshot.buffer,
+            maskAlpha: snapshot.maskAlpha,
             width: snapshot.width,
             height: snapshot.height,
             originX: snapshot.originX,
@@ -253,6 +266,7 @@ public final class BonePaperFramesSession: ObservableObject {
             state: newState,
             weight: source.weight,
             buffer: copiedBuffer,
+            maskAlpha: source.maskAlpha,
             width: source.width,
             height: source.height,
             originX: source.originX,
@@ -269,6 +283,7 @@ public final class BonePaperFramesSession: ObservableObject {
         updatePreviousFrameOnion()
         document.loadFrameBuffer(
             snapshot.buffer,
+            maskAlpha: snapshot.maskAlpha,
             width: snapshot.width,
             height: snapshot.height,
             originX: snapshot.originX,
@@ -302,6 +317,7 @@ public final class BonePaperFramesSession: ObservableObject {
         if deletingActive {
             document.loadFrameBuffer(
                 target.buffer,
+                maskAlpha: target.maskAlpha,
                 width: target.width,
                 height: target.height,
                 originX: target.originX,
@@ -346,6 +362,7 @@ public final class BonePaperFramesSession: ObservableObject {
         return frames.map { frame in
             let exported = BonePaperDocument.exportCommittedBuffer(
                 buffer: frame.buffer,
+                maskAlpha: frame.maskAlpha,
                 width: frame.width,
                 height: frame.height,
                 extraLeft: frame.extraLeft,

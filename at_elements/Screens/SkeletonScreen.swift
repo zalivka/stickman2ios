@@ -611,6 +611,7 @@ struct SkeletonScreen: View {
                 weight: item.weight,
                 source: sourceImage,
                 buffer: validatedBuffer(asset: item),
+                mask: validatedMask(asset: item),
                 xOffset: item.xOffset,
                 yOffset: item.yOffset,
                 drawingConfig: config
@@ -650,6 +651,29 @@ struct SkeletonScreen: View {
         guard image.width == baseW * sample,
               image.height == baseH * sample else {
             print("SkeletonScreen '\(title)' dropped paint buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(baseW * sample)x\(baseH * sample)")
+            return nil
+        }
+        return image
+    }
+
+    /// Decoded mask sidecar for `asset`, or nil when none was saved or dimensions do not match `bitmap * sample`.
+    private func validatedMask(asset: UnitAssets.EdgeAsset) -> CGImage? {
+        let sample = BonePaperDocument.sample
+        let baseW = asset.bitmapWidth
+        let baseH = asset.bitmapHeight
+        if let mask = asset.maskImage,
+           mask.width == baseW * sample,
+           mask.height == baseH * sample {
+            return mask
+        }
+        guard let data = asset.maskBuffer, !data.isEmpty else { return nil }
+        guard let image = UnitAssets.pngImage(from: data) else {
+            print("SkeletonScreen '\(title)' dropped unreadable mask buffer for '\(asset.bmName)'")
+            return nil
+        }
+        guard image.width == baseW * sample,
+              image.height == baseH * sample else {
+            print("SkeletonScreen '\(title)' dropped mask buffer for '\(asset.bmName)': \(image.width)x\(image.height) != \(baseW * sample)x\(baseH * sample)")
             return nil
         }
         return image

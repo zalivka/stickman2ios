@@ -103,7 +103,7 @@ enum ItemSaver {
                     continue
                 }
                 // Sidecars are written from live buffers above; stale ones never carry forward.
-                if entry.hasSuffix(".x2.png") || entry == UnitAssets.sidecarManifest {
+                if entry.hasSuffix(".x2.png") || entry.hasSuffix(".mask.png") || entry == UnitAssets.sidecarManifest {
                     continue
                 }
                 if entry.hasSuffix(".name") || entry.hasSuffix("/") {

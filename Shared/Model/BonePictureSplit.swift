@@ -9,6 +9,7 @@ enum BonePictureSplit {
     struct Half {
         var image: CGImage
         var paintBuffer: Data?
+        var maskBuffer: Data?
         var xOffset: CGFloat
         var yOffset: CGFloat
     }
@@ -21,6 +22,7 @@ enum BonePictureSplit {
     static func split(
         bitmap: CGImage,
         paintBuffer: Data?,
+        maskBuffer: Data? = nil,
         xOffset: CGFloat,
         yOffset: CGFloat,
         splitDistance: CGFloat,
@@ -116,15 +118,56 @@ enum BonePictureSplit {
             }
         }
 
+        var proxMask: Data?
+        var distMask: Data?
+        if let data = maskBuffer,
+           let maskImage = UnitAssets.pngImage(from: data),
+           maskImage.width == width * bufferSample,
+           maskImage.height == height * bufferSample {
+            let s = CGFloat(bufferSample)
+            if let proxMaskImg = try? renderHalf(
+                source: maskImage,
+                cropMinX: proxMinX * bufferSample,
+                cropMaxX: proxMaxX * bufferSample,
+                height: height * bufferSample,
+                xSplit: xSplit * s,
+                ySplit: ySplit * s,
+                radius: radius * s,
+                shape: shape,
+                isProximal: true,
+                name: name
+            ), proxMaskImg.width == proxImage.width * bufferSample,
+               proxMaskImg.height == proxImage.height * bufferSample {
+                proxMask = try? UnitAssets.pngData(from: proxMaskImg, name: name)
+            }
+            if let distMaskImg = try? renderHalf(
+                source: maskImage,
+                cropMinX: distMinX * bufferSample,
+                cropMaxX: distMaxX * bufferSample,
+                height: height * bufferSample,
+                xSplit: xSplit * s,
+                ySplit: ySplit * s,
+                radius: radius * s,
+                shape: shape,
+                isProximal: false,
+                name: name
+            ), distMaskImg.width == distImage.width * bufferSample,
+               distMaskImg.height == distImage.height * bufferSample {
+                distMask = try? UnitAssets.pngData(from: distMaskImg, name: name)
+            }
+        }
+
         let proximal = Half(
             image: proxImage,
             paintBuffer: proxBuffer,
+            maskBuffer: proxMask,
             xOffset: xOffset + CGFloat(proxMinX),
             yOffset: yOffset
         )
         let distal = Half(
             image: distImage,
             paintBuffer: distBuffer,
+            maskBuffer: distMask,
             xOffset: CGFloat(distMinX) - xSplit,
             yOffset: yOffset
         )

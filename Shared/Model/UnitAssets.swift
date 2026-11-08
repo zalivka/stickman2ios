@@ -71,6 +71,11 @@ final class UnitAssets {
         /// Decoded `paintBuffer`, kept so drawing does not decode every frame. Nil unless `sample > 1`
         /// and the buffer is exactly `bitmap` times `sample`.
         var sidecarImage: CGImage?
+        /// Compressed PNG of the mask sidecar (`BonePaperDocument.sample` times `bitmap` on each side).
+        /// Nil when no mask was saved for this frame. Touch only through `adoptMaskSidecar`.
+        var maskBuffer: Data?
+        /// Decoded `maskBuffer` for reopening in Paper Draw.
+        var maskImage: CGImage?
         var svgName: String?
         var commandScale: String?
 
@@ -122,6 +127,32 @@ final class UnitAssets {
                     }
                 }
             }
+        }
+
+        /// Stores the mask sidecar when its dimensions are `bitmap * BonePaperDocument.sample`.
+        mutating func adoptMaskSidecar(_ data: Data?, name: String, predecoded: CGImage? = nil) {
+            maskBuffer = nil
+            maskImage = nil
+            guard let data, !data.isEmpty else { return }
+            let raw: CGImage
+            if let predecoded {
+                raw = predecoded
+            } else if let decoded = UnitAssets.pngImage(from: data) {
+                raw = decoded
+            } else {
+                print("UnitAssets '\(name)' mask sidecar is not a PNG")
+                return
+            }
+            let factor = BonePaperDocument.sample
+            let baseW = bitmapWidth
+            let baseH = bitmapHeight
+            guard raw.width == baseW * factor,
+                  raw.height == baseH * factor else {
+                print("UnitAssets '\(name)' mask sidecar \(raw.width)x\(raw.height) != \(baseW * factor)x\(baseH * factor)")
+                return
+            }
+            maskBuffer = data
+            maskImage = raw
         }
 
         private func canUseSidecar(ignoreSample: Bool, unitScale: CGFloat) -> Bool {
@@ -631,6 +662,8 @@ final class UnitAssets {
             var image: CGImage
             var bufferData: Data
             var predecoded: CGImage?
+            var maskData: Data?
+            var predecodedMask: CGImage?
             var xOffset: CGFloat
             var yOffset: CGFloat
         }
@@ -647,6 +680,16 @@ final class UnitAssets {
             }
             let bufData = try Self.pngData(from: bufImg, name: bm)
             let predecoded = Self.predecodedSidecar(bufData, bitmap: img, name: bm)
+            let maskData: Data?
+            let predecodedMask: CGImage?
+            if let maskImg = item.export.mask {
+                let encodedMask = try Self.pngData(from: maskImg, name: bm)
+                maskData = encodedMask
+                predecodedMask = maskImg
+            } else {
+                maskData = nil
+                predecodedMask = nil
+            }
             prepared.append(
                 PreparedFrame(
                     state: item.state,
@@ -654,6 +697,8 @@ final class UnitAssets {
                     image: img,
                     bufferData: bufData,
                     predecoded: predecoded,
+                    maskData: maskData,
+                    predecodedMask: predecodedMask,
                     xOffset: item.baseXOffset - item.export.extraLeft,
                     yOffset: item.baseYOffset - item.export.extraTop
                 )
@@ -700,10 +745,13 @@ final class UnitAssets {
                         sample: BonePaperDocument.sample,
                         paintBuffer: nil,
                         sidecarImage: nil,
+                        maskBuffer: nil,
+                        maskImage: nil,
                         svgName: nil,
                         commandScale: nil
                     )
                     updated.adoptSidecar(frame.bufferData, name: frame.bmName, predecoded: frame.predecoded)
+                    updated.adoptMaskSidecar(frame.maskData, name: frame.bmName, predecoded: frame.predecodedMask)
                     newStates[frame.state] = updated
                 }
                 edgeAssets[key] = newStates
@@ -737,10 +785,13 @@ final class UnitAssets {
                 sample: BonePaperDocument.sample,
                 paintBuffer: nil,
                 sidecarImage: nil,
+                maskBuffer: nil,
+                maskImage: nil,
                 svgName: nil,
                 commandScale: nil
             )
             updated.adoptSidecar(frame.bufferData, name: frame.bmName, predecoded: frame.predecoded)
+            updated.adoptMaskSidecar(frame.maskData, name: frame.bmName, predecoded: frame.predecodedMask)
             looseBones[frame.bmName] = updated
         }
     }
@@ -926,6 +977,7 @@ final class UnitAssets {
                     let pair = try BonePictureSplit.split(
                         bitmap: sourceBitmap,
                         paintBuffer: asset.paintBuffer,
+                        maskBuffer: asset.maskBuffer,
                         xOffset: asset.xOffset,
                         yOffset: asset.yOffset,
                         splitDistance: splitDistance,
@@ -958,10 +1010,13 @@ final class UnitAssets {
                     sample: asset.sample,
                     paintBuffer: nil,
                     sidecarImage: nil,
+                    maskBuffer: nil,
+                    maskImage: nil,
                     svgName: nil,
                     commandScale: nil
                 )
                 proxAsset.adoptSidecar(cached.pair.proximal.paintBuffer, name: cached.proxBm)
+                proxAsset.adoptMaskSidecar(cached.pair.proximal.maskBuffer, name: cached.proxBm)
                 var distAsset = EdgeAsset(
                     unitName: name,
                     start: mid,
@@ -979,10 +1034,13 @@ final class UnitAssets {
                     sample: asset.sample,
                     paintBuffer: nil,
                     sidecarImage: nil,
+                    maskBuffer: nil,
+                    maskImage: nil,
                     svgName: nil,
                     commandScale: nil
                 )
                 distAsset.adoptSidecar(cached.pair.distal.paintBuffer, name: cached.distBm)
+                distAsset.adoptMaskSidecar(cached.pair.distal.maskBuffer, name: cached.distBm)
                 proxStates[state] = proxAsset
                 distStates[state] = distAsset
             }
@@ -1039,6 +1097,7 @@ final class UnitAssets {
         bmName: String,
         image: CGImage,
         buffer: Data? = nil,
+        mask: Data? = nil,
         sample: Int = 1,
         extraLeft: CGFloat = 0,
         extraTop: CGFloat = 0
@@ -1053,6 +1112,7 @@ final class UnitAssets {
             throw SceneLoadError(message: "UnitAssets replaceBitmap '\(bmName)' sample \(sample)")
         }
         let predecoded = Self.predecodedSidecar(buffer, bitmap: image, name: bmName)
+        let predecodedMask = Self.predecodedSidecar(mask, bitmap: image, name: bmName)
         var found = false
         for (key, states) in edgeAssets {
             var next = states
@@ -1069,6 +1129,7 @@ final class UnitAssets {
                 updated.svgName = nil
                 updated.commandScale = nil
                 updated.adoptSidecar(buffer, name: bmName, predecoded: predecoded)
+                updated.adoptMaskSidecar(mask, name: bmName, predecoded: predecodedMask)
                 next[state] = updated
                 changed = true
                 found = true
@@ -1088,6 +1149,7 @@ final class UnitAssets {
             loose.svgName = nil
             loose.commandScale = nil
             loose.adoptSidecar(buffer, name: bmName, predecoded: predecoded)
+            loose.adoptMaskSidecar(mask, name: bmName, predecoded: predecodedMask)
             looseBones[bmName] = loose
             found = true
         }
@@ -1407,28 +1469,47 @@ final class UnitAssets {
         bmName + ".x2.png"
     }
 
-    /// Sidecar entries for save: one `<bm>.x2.png` per buffered picture plus the manifest.
+    /// Mask sidecar entry for `bmName`: `bone_1_2.png` keeps `bone_1_2.png.mask.png`.
+    static func maskSidecarEntry(for bmName: String) -> String {
+        bmName + ".mask.png"
+    }
+
+    /// Sidecar entries for save: one `<bm>.x2.png` per buffered picture, optional `<bm>.mask.png` per masked picture, plus the manifest.
     /// `pngs` must be the exact 1x bytes being saved (from `pngFiles`), keyed by bmName; the manifest
-    /// hashes those so load detects a picture replaced without its buffer. Empty when no buffers and no drawingConfig.
+    /// hashes those so load detects a picture replaced without its buffer. Empty when no buffers, no masks, and no drawingConfig.
     func sidecarFiles(unitName: String, pngs: [String: Data]) throws -> [(name: String, data: Data)] {
         let name = Self.removeNumber(unitName)
         var seen = Set<String>()
         var files: [(name: String, data: Data)] = []
         let cleanConfig = drawingConfigs[name]?.sanitized()
         let savedConfig = (cleanConfig?.isEmpty == false) ? cleanConfig : nil
-        var manifest = BonePaperManifest(version: 1, buffers: [:], drawingConfig: savedConfig)
+        var manifest = BonePaperManifest(version: 1, buffers: [:], masks: nil, drawingConfig: savedConfig)
+        var masksMap: [String: BonePaperManifest.Entry] = [:]
         for (key, states) in edgeAssets where key.unitName == name {
             for asset in states.values {
                 if seen.contains(asset.bmName) { continue }
                 seen.insert(asset.bmName)
-                guard let buffer = asset.paintBuffer else { continue }
+                let hasBuffer = asset.paintBuffer != nil
+                let hasMask = asset.maskBuffer != nil
+                guard hasBuffer || hasMask else { continue }
                 guard let png = pngs[asset.bmName] else {
                     throw SceneLoadError(message: "UnitAssets sidecar '\(asset.bmName)' has no live PNG")
                 }
-                let entry = Self.sidecarEntry(for: asset.bmName)
-                files.append((name: entry, data: buffer))
-                manifest.buffers[asset.bmName] = BonePaperManifest.Entry(entry: entry, sha256: Self.sha256Hex(png))
+                let sha = Self.sha256Hex(png)
+                if let buffer = asset.paintBuffer {
+                    let entry = Self.sidecarEntry(for: asset.bmName)
+                    files.append((name: entry, data: buffer))
+                    manifest.buffers[asset.bmName] = BonePaperManifest.Entry(entry: entry, sha256: sha)
+                }
+                if let mask = asset.maskBuffer {
+                    let maskEntry = Self.maskSidecarEntry(for: asset.bmName)
+                    files.append((name: maskEntry, data: mask))
+                    masksMap[asset.bmName] = BonePaperManifest.Entry(entry: maskEntry, sha256: sha)
+                }
             }
+        }
+        if !masksMap.isEmpty {
+            manifest.masks = masksMap
         }
         guard !files.isEmpty || savedConfig != nil else { return [] }
         files.append((name: Self.sidecarManifest, data: try manifest.encode()))
@@ -1461,6 +1542,7 @@ final class UnitAssets {
             cleanConfig = nil
         }
         var sidecarCache: [String: (data: Data, image: CGImage)?] = [:]
+        var maskCache: [String: (data: Data, image: CGImage)?] = [:]
         for (key, states) in localEdges {
             var next = states
             var changed = false
@@ -1468,25 +1550,50 @@ final class UnitAssets {
                 if DevFlags.optimizeGiantBitmaps && asset.decodeSample > 1 {
                     continue
                 }
-                guard let record = manifest.buffers[asset.bmName] else { continue }
-                let cached: (data: Data, image: CGImage)?
-                if let seen = sidecarCache[asset.bmName] {
-                    cached = seen
-                } else {
-                    let loaded = Self.validatedSidecar(
-                        record: record,
-                        asset: asset,
-                        zipIndex: zipIndex,
-                        pngBytes: pngBytes
-                    )
-                    sidecarCache[asset.bmName] = loaded
-                    cached = loaded
-                }
-                guard let cached else { continue }
                 var updated = asset
-                updated.adoptSidecar(cached.data, name: asset.bmName, predecoded: cached.image)
-                next[state] = updated
-                changed = true
+                var assetChanged = false
+                if let record = manifest.buffers[asset.bmName] {
+                    let cached: (data: Data, image: CGImage)?
+                    if let seen = sidecarCache[asset.bmName] {
+                        cached = seen
+                    } else {
+                        let loaded = Self.validatedSidecar(
+                            record: record,
+                            asset: asset,
+                            zipIndex: zipIndex,
+                            pngBytes: pngBytes
+                        )
+                        sidecarCache[asset.bmName] = loaded
+                        cached = loaded
+                    }
+                    if let cached {
+                        updated.adoptSidecar(cached.data, name: asset.bmName, predecoded: cached.image)
+                        assetChanged = true
+                    }
+                }
+                if let maskRecord = manifest.masks?[asset.bmName] {
+                    let cachedMask: (data: Data, image: CGImage)?
+                    if let seen = maskCache[asset.bmName] {
+                        cachedMask = seen
+                    } else {
+                        let loaded = Self.validatedSidecar(
+                            record: maskRecord,
+                            asset: asset,
+                            zipIndex: zipIndex,
+                            pngBytes: pngBytes
+                        )
+                        maskCache[asset.bmName] = loaded
+                        cachedMask = loaded
+                    }
+                    if let cachedMask {
+                        updated.adoptMaskSidecar(cachedMask.data, name: asset.bmName, predecoded: cachedMask.image)
+                        assetChanged = true
+                    }
+                }
+                if assetChanged {
+                    next[state] = updated
+                    changed = true
+                }
             }
             if changed {
                 localEdges[key] = next
@@ -1607,7 +1714,7 @@ nonisolated struct EdgeAssetRow {
     var sample: Int = 1
 }
 
-/// Which `.x2.png` buffer belongs to which picture, plus the SHA-256 of the 1x bytes it was saved with.
+/// Which `.x2.png` buffer and optional `.mask.png` mask sidecar belong to which picture, plus the SHA-256 of the 1x bytes it was saved with.
 struct BonePaperManifest: Codable {
     struct Entry: Codable {
         var entry: String
@@ -1616,6 +1723,7 @@ struct BonePaperManifest: Codable {
 
     var version: Int
     var buffers: [String: Entry]
+    var masks: [String: Entry]?
     var drawingConfig: BonePaperDrawingConfig?
 
     func encode() throws -> Data {

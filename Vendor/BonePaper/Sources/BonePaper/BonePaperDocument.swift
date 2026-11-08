@@ -19,6 +19,8 @@ public struct BonePaperExport {
     /// Full-resolution (`sample` times document) paint buffer for lossless reopen, when the session started from one.
     /// Nil for sheet exports, where `image` already is the buffer.
     public let buffer: CGImage?
+    /// Full-resolution (`sample` times document) RGBA mask sidecar image when a mask is active and the frame has visible pixels.
+    public let mask: CGImage?
     public let extraLeft: CGFloat
     public let extraTop: CGFloat
     public var drawingConfig: BonePaperDrawingConfig
@@ -145,7 +147,7 @@ public final class BonePaperDocument: ObservableObject {
     /// Reopens a bone drawing from its saved picture plus the full-resolution paint buffer.
     /// `buffer` must already be `source` times `sample`; it is copied in without scaling, so no
     /// upscale blur. The source is not drawn (the buffer holds the same pixels at full resolution).
-    convenience init(width: Int, height: Int, source: CGImage, buffer: CGImage) {
+    convenience init(width: Int, height: Int, source: CGImage, buffer: CGImage, mask: CGImage? = nil) {
         if source.width != width || source.height != height {
             fatalError("BonePaperDocument source \(source.width)x\(source.height) != \(width)x\(height)")
         }
@@ -154,6 +156,11 @@ public final class BonePaperDocument: ObservableObject {
         }
         self.init(width: width, height: height, source: nil, fixed: false)
         copyBuffer(buffer)
+        if let mask, let alpha = Self.extractMaskAlpha(from: mask, width: pixelWidth, height: pixelHeight) {
+            maskAlpha = alpha
+            maskImage = Self.makeMaskImage(alpha: alpha, width: pixelWidth, height: pixelHeight)
+            maskOverlay = Self.makeMaskOverlay(alpha: alpha, width: pixelWidth, height: pixelHeight)
+        }
     }
 
     /// Copies `buffer` into the paint buffer unscaled and refreshes the preview. Size must be checked first.
@@ -606,8 +613,13 @@ public final class BonePaperDocument: ObservableObject {
         return image
     }
 
+    func snapshotMaskAlpha() -> [UInt8]? {
+        maskAlpha
+    }
+
     func loadFrameBuffer(
         _ image: CGImage,
+        maskAlpha: [UInt8]? = nil,
         width: Int,
         height: Int,
         originX: Int,
@@ -629,15 +641,21 @@ public final class BonePaperDocument: ObservableObject {
         fillStreak = 0
         undoStack.removeAll()
         redoStack.removeAll()
-        maskAlpha = nil
-        maskImage = nil
-        maskOverlay = nil
         self.width = width
         self.height = height
         self.originX = originX
         self.originY = originY
         self.extraLeft = extraLeft
         self.extraTop = extraTop
+        if let maskAlpha, maskAlpha.count == pixelWidth * pixelHeight {
+            self.maskAlpha = maskAlpha
+            self.maskImage = Self.makeMaskImage(alpha: maskAlpha, width: pixelWidth, height: pixelHeight)
+            self.maskOverlay = Self.makeMaskOverlay(alpha: maskAlpha, width: pixelWidth, height: pixelHeight)
+        } else {
+            self.maskAlpha = nil
+            self.maskImage = nil
+            self.maskOverlay = nil
+        }
         context = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
         stroke = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
         composite = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
@@ -665,6 +683,7 @@ public final class BonePaperDocument: ObservableObject {
 
     static func exportCommittedBuffer(
         buffer: CGImage,
+        maskAlpha: [UInt8]? = nil,
         width: Int,
         height: Int,
         extraLeft: Int,
@@ -685,9 +704,20 @@ public final class BonePaperDocument: ObservableObject {
         guard let exported = image.cgImage else {
             fatalError("BonePaperDocument export PNG image failed")
         }
+        let pW = width * sample
+        let pH = height * sample
+        let exportedMask: CGImage?
+        if let maskAlpha,
+           maskAlpha.count == pW * pH,
+           bufferHasVisiblePixels(buffer) {
+            exportedMask = makeMaskSidecarImage(alpha: maskAlpha, width: pW, height: pH)
+        } else {
+            exportedMask = nil
+        }
         return BonePaperExport(
             image: exported,
             buffer: buffer,
+            mask: exportedMask,
             extraLeft: CGFloat(extraLeft),
             extraTop: CGFloat(extraTop),
             drawingConfig: drawingConfig
@@ -706,6 +736,7 @@ public final class BonePaperDocument: ObservableObject {
         }
         return Self.exportCommittedBuffer(
             buffer: committed,
+            maskAlpha: maskAlpha,
             width: width,
             height: height,
             extraLeft: extraLeft,
@@ -731,6 +762,7 @@ public final class BonePaperDocument: ObservableObject {
         return BonePaperExport(
             image: image,
             buffer: nil,
+            mask: nil,
             extraLeft: CGFloat(extraLeft),
             extraTop: CGFloat(extraTop),
             drawingConfig: BonePaperDrawingConfig()
@@ -1298,6 +1330,95 @@ public final class BonePaperDocument: ObservableObject {
             fatalError("BonePaperDocument makeMaskOverlay makeImage failed")
         }
         return image
+    }
+
+    /// Extracts the 8-bit alpha channel from a mask sidecar image at `width × height`.
+    /// Returns `nil` when dimensions do not match or no pixel has `alpha > 0`.
+    static func extractMaskAlpha(from image: CGImage, width: Int, height: Int) -> [UInt8]? {
+        guard image.width == width, image.height == height, width > 0, height > 0 else {
+            return nil
+        }
+        let ctx = makeBuffer(width: width, height: height)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = ctx.data else { return nil }
+        let stride = ctx.bytesPerRow
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        var hasOpaque = false
+        for y in 0..<height {
+            let row = y * stride
+            let base = y * width
+            for x in 0..<width {
+                let a = pixels[row + x * 4 + 3]
+                if a > 0 {
+                    alpha[base + x] = a
+                    hasOpaque = true
+                }
+            }
+        }
+        return hasOpaque ? alpha : nil
+    }
+
+    /// Builds an RGBA sidecar `CGImage` whose alpha channel stores `alpha` for lossless PNG encoding.
+    static func makeMaskSidecarImage(alpha: [UInt8], width: Int, height: Int) -> CGImage {
+        let ctx = makeBuffer(width: width, height: height)
+        guard let data = ctx.data else {
+            fatalError("BonePaperDocument makeMaskSidecarImage has no pixel data")
+        }
+        let stride = ctx.bytesPerRow
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        for y in 0..<height {
+            let row = y * stride
+            let base = y * width
+            for x in 0..<width {
+                let a = alpha[base + x]
+                if a > 0 {
+                    pixels[row + x * 4 + 3] = a
+                }
+            }
+        }
+        guard let image = ctx.makeImage() else {
+            fatalError("BonePaperDocument makeMaskSidecarImage makeImage failed")
+        }
+        return image
+    }
+
+    /// True when `buffer` contains at least one pixel with `alpha > 0`.
+    static func bufferHasVisiblePixels(_ buffer: CGImage) -> Bool {
+        let w = buffer.width
+        let h = buffer.height
+        guard w > 0, h > 0 else { return false }
+        if (buffer.alphaInfo == .premultipliedLast || buffer.alphaInfo == .last),
+           buffer.bitsPerPixel == 32,
+           let data = buffer.dataProvider?.data,
+           let bytes = CFDataGetBytePtr(data) {
+            let stride = buffer.bytesPerRow
+            let total = CFDataGetLength(data)
+            for y in 0..<h {
+                let row = y * stride
+                if row + w * 4 > total { break }
+                for x in 0..<w {
+                    if bytes[row + x * 4 + 3] > 0 {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        let ctx = makeBuffer(width: w, height: h)
+        ctx.draw(buffer, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let data = ctx.data else { return false }
+        let stride = ctx.bytesPerRow
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        for y in 0..<h {
+            let row = y * stride
+            for x in 0..<w {
+                if pixels[row + x * 4 + 3] > 0 {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     /// Streak 0 is the first tap. Each later same-colour tap widens neighbour ×(1 + step) and skip/ink additively.
