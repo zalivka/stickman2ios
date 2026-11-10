@@ -94,6 +94,7 @@ public final class BonePaperDocument: ObservableObject {
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
     @Published private(set) var filling = false
+    @Published private(set) var fillRejectedCount = 0
 
     private var context: CGContext
     private var stroke: CGContext
@@ -464,7 +465,7 @@ public final class BonePaperDocument: ObservableObject {
     }
 
     /// Paint-bucket tap. The same operation in a row loosens skip/neighbour/ink; a different operation, stroke, undo or redo resets.
-    func fillWorld(at world: CGPoint, fill: BonePaperFill) {
+    func fillWorld(at world: CGPoint, fill: BonePaperFill, onCommitted: (() -> Void)? = nil) {
         if filling { return }
         if strokeLive || brushfillLive {
             endStroke()
@@ -497,18 +498,20 @@ public final class BonePaperDocument: ObservableObject {
         if operation == .clear, !seedPainted {
             return
         }
-        fillStreak = lastFillOperation == operation ? fillStreak + 1 : 0
-        lastFillOperation = operation
-        recorder.fill(at: world, fill: fill)
-        let limits = FillLimits(streak: fillStreak)
+        let rejectBorderEscape = !fixed && activeMask == nil && operation != .clear && !seedPainted
         let width = pixelWidth
         let height = pixelHeight
-        pushUndo()
-        redoStack.removeAll()
-        publishStacks()
+        if rejectBorderEscape, px == 0 || py == 0 || px == width - 1 || py == height - 1 {
+            fillRejectedCount += 1
+            return
+        }
+        let sameOp = lastFillOperation == operation
+        let nextStreak = sameOp ? fillStreak + 1 : 0
+        let limits = FillLimits(streak: nextStreak)
+        let beforeSnapshot = capture()
         filling = true
         fillQueue.async {
-            var mask = Self.fillRegion(
+            guard var mask = Self.fillRegion(
                 pixels: pixels,
                 clipMask: activeMask,
                 width: width,
@@ -517,8 +520,15 @@ public final class BonePaperDocument: ObservableObject {
                 seedX: px,
                 seedY: py,
                 recolor: seedPainted,
-                limits: limits
-            )
+                limits: limits,
+                rejectBorderEscape: rejectBorderEscape
+            ) else {
+                DispatchQueue.main.async {
+                    self.filling = false
+                    self.fillRejectedCount += 1
+                }
+                return
+            }
             switch operation {
             case .clear:
                 BonePaperRecolor.clear(
@@ -546,9 +556,18 @@ public final class BonePaperDocument: ObservableObject {
                 Self.paintBehind(pixels: pixels, clipMask: activeMask, mask: mask, width: width, stride: stride, paint: paint)
             }
             DispatchQueue.main.async {
+                self.fillStreak = nextStreak
+                self.lastFillOperation = operation
+                self.recorder.fill(at: world, fill: fill)
+                self.undoStack.append(beforeSnapshot)
+                if self.undoStack.count > Self.undoCap {
+                    self.undoStack.removeFirst()
+                }
+                self.redoStack.removeAll()
                 self.publishPreview()
                 self.publishStacks()
                 self.filling = false
+                onCommitted?()
             }
         }
     }
@@ -1083,13 +1102,14 @@ public final class BonePaperDocument: ObservableObject {
         seedX: Int,
         seedY: Int,
         recolor: Bool,
-        limits: FillLimits
-    ) -> [UInt8] {
+        limits: FillLimits,
+        rejectBorderEscape: Bool
+    ) -> [UInt8]? {
         if stride % 4 != 0 {
             fatalError("BonePaperDocument fill stride \(stride) is not a multiple of 4")
         }
         if !BonePaperFlags.antialiasing {
-            return fillExact(pixels: pixels, clipMask: clipMask, width: width, height: height, stride: stride, seedX: seedX, seedY: seedY)
+            return fillExact(pixels: pixels, clipMask: clipMask, width: width, height: height, stride: stride, seedX: seedX, seedY: seedY, rejectBorderEscape: rejectBorderEscape)
         }
         func rgba(_ offset: Int) -> UInt32 {
             UnsafeRawPointer(pixels).load(fromByteOffset: offset, as: UInt32.self)
@@ -1107,6 +1127,9 @@ public final class BonePaperDocument: ObservableObject {
             let m = Int(top)
             let x = m % width
             let y = m / width
+            if rejectBorderEscape, x == 0 || y == 0 || x + 1 == width || y + 1 == height {
+                return nil
+            }
             let currentOffset = y * stride + x * 4
             let currentBytes = rgba(currentOffset)
             var currentLab: FillLab?
@@ -1147,8 +1170,9 @@ public final class BonePaperDocument: ObservableObject {
         height: Int,
         stride: Int,
         seedX: Int,
-        seedY: Int
-    ) -> [UInt8] {
+        seedY: Int,
+        rejectBorderEscape: Bool
+    ) -> [UInt8]? {
         func rgba(_ offset: Int) -> UInt32 {
             UnsafeRawPointer(pixels).load(fromByteOffset: offset, as: UInt32.self)
         }
@@ -1160,6 +1184,9 @@ public final class BonePaperDocument: ObservableObject {
             let m = Int(top)
             let x = m % width
             let y = m / width
+            if rejectBorderEscape, x == 0 || y == 0 || x + 1 == width || y + 1 == height {
+                return nil
+            }
             for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
                 if nx < 0 || ny < 0 || nx >= width || ny >= height { continue }
                 let n = ny * width + nx

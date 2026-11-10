@@ -387,6 +387,7 @@ struct SkeletonCanvas: View {
                         cameraMove: cameraMove,
                         layoutScale: resolvedLayout(size: proxy.size).scale,
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
+                        allowsRotation: true,
                         canMutate: canMutateCamera,
                         onLocked: { onLockedEdit?() },
                         onPrepareUndo: onPrepareUndo,
@@ -398,6 +399,7 @@ struct SkeletonCanvas: View {
                         cameraMove: bgMove,
                         layoutScale: resolvedLayout(size: proxy.size).scale,
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
+                        allowsRotation: false,
                         canMutate: true,
                         onLocked: {},
                         onPrepareUndo: onPrepareUndo,
@@ -1235,7 +1237,10 @@ struct SkeletonCanvas: View {
         if drawnUnits.isEmpty {
             return []
         }
-        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale) else {
+        guard let assets else {
+            return []
+        }
+        guard let centers = try? liveUnit.handlerCenters(sceneScale: layout.scale, assets: assets) else {
             return []
         }
         return [
@@ -1768,6 +1773,7 @@ private struct CameraTouchOverlay: UIViewRepresentable {
     var cameraMove: PictureMove
     var layoutScale: CGFloat
     var windowCenter: CGPoint
+    var allowsRotation: Bool
     var canMutate: Bool
     var onLocked: () -> Void
     var onPrepareUndo: (() -> Void)?
@@ -1781,12 +1787,13 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         let view = UIView()
         view.backgroundColor = .clear
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
-        pan.maximumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 2
         pan.delegate = context.coordinator
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
         pinch.delegate = context.coordinator
         let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate))
         rotate.delegate = context.coordinator
+        rotate.isEnabled = allowsRotation
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(pinch)
         view.addGestureRecognizer(rotate)
@@ -1802,21 +1809,25 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         coordinator.cameraMove = cameraMove
         coordinator.layoutScale = layoutScale
         coordinator.windowCenter = windowCenter
+        coordinator.allowsRotation = allowsRotation
         coordinator.canMutate = canMutate
         coordinator.onLocked = onLocked
         coordinator.onPrepareUndo = onPrepareUndo
         coordinator.onChange = onChange
+        uiView.gestureRecognizers?
+            .compactMap { $0 as? UIRotationGestureRecognizer }
+            .forEach { $0.isEnabled = allowsRotation }
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         static let minScale: CGFloat = 0.2
         static let maxScale: CGFloat = 4.4
-        static let rotationSnap: CGFloat = 5
 
         var currentIndex = 0
         var cameraMove = PictureMove.identity
         var layoutScale: CGFloat = 1
         var windowCenter = CGPoint.zero
+        var allowsRotation = true
         var canMutate = true
         var onLocked: () -> Void = {}
         var onPrepareUndo: (() -> Void)?
@@ -1827,8 +1838,7 @@ private struct CameraTouchOverlay: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
-            (gestureRecognizer is UIPinchGestureRecognizer && other is UIRotationGestureRecognizer)
-                || (gestureRecognizer is UIRotationGestureRecognizer && other is UIPinchGestureRecognizer)
+            true
         }
 
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -1897,6 +1907,10 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         }
 
         @objc func handleRotate(_ gesture: UIRotationGestureRecognizer) {
+            guard allowsRotation else {
+                gesture.state = .cancelled
+                return
+            }
             switch gesture.state {
             case .began:
                 if !beginSession() {
@@ -1910,7 +1924,16 @@ private struct CameraTouchOverlay: UIViewRepresentable {
                 let degrees = gesture.rotation * 180 / .pi
                 gesture.rotation = 0
                 mutate { move in
-                    move.rotate = Self.wrapDegrees(move.rotate + degrees)
+                    if degrees != 0 {
+                        let dx = move.x - windowCenter.x
+                        let dy = move.y - windowCenter.y
+                        let rad = degrees * .pi / 180
+                        let c = cos(rad)
+                        let s = sin(rad)
+                        move.x = windowCenter.x + dx * c - dy * s
+                        move.y = windowCenter.y + dx * s + dy * c
+                        move.rotate = Self.wrapDegrees(move.rotate + degrees)
+                    }
                 }
                 publish()
                 if gesture.state != .changed {
@@ -1952,7 +1975,7 @@ private struct CameraTouchOverlay: UIViewRepresentable {
             onChange(
                 PictureMove(
                     scale: move.scale,
-                    rotate: Self.snapRotation(move.rotate),
+                    rotate: move.rotate,
                     x: move.x,
                     y: move.y
                 )
@@ -1980,17 +2003,6 @@ private struct CameraTouchOverlay: UIViewRepresentable {
                 return degrees + 360
             }
             return degrees
-        }
-
-        static func snapRotation(_ degrees: CGFloat) -> CGFloat {
-            var snapped = (degrees / Self.rotationSnap).rounded() * Self.rotationSnap
-            if snapped > 180 {
-                snapped -= 360
-            }
-            if snapped < -180 {
-                snapped += 360
-            }
-            return snapped
         }
     }
 }

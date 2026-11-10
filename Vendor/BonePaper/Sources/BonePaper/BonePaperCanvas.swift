@@ -791,8 +791,7 @@ final class BonePaperDrawView: UIView {
                 let fill: BonePaperFill = color.cgColor.alpha == 0
                     ? .clear
                     : .color(color, opacity: opacity)
-                document?.fillWorld(at: point, fill: fill)
-                onCommitStroke?()
+                document?.fillWorld(at: point, fill: fill, onCommitted: onCommitStroke)
             }
         } else if stroking {
             if BonePaperFlags.autoCloseStroke,

@@ -12,6 +12,7 @@ struct BoneShiftPreview: Equatable {
     }
 
     /// Project a scene-space drag onto the bone and its perpendicular, in item pixels.
+    /// Android `EditView.processShiftTouch` — bone-space (dx, dy) -> bitmap xOffset/yOffset.
     mutating func addDrag(move: CGPoint, edgeFrom: CGPoint, edgeTo: CGPoint, unitScale: CGFloat) {
         guard unitScale > 0, unitScale.isFinite else {
             assertionFailure("BoneShiftPreview unit scale \(unitScale)")
@@ -23,16 +24,17 @@ struct BoneShiftPreview: Equatable {
             return
         }
         let ortho = CGPoint(x: edgeVec.y, y: -edgeVec.x)
-        let onX = Self.project(move, onto: edgeVec)
-        let onY = Self.project(move, onto: ortho)
-        var stepX = hypot(onX.x, onX.y) * Self.signum(onX.x)
-        var stepY = hypot(onY.x, onY.y) * Self.signum(onY.x)
-        if edgeVec.x < 0 {
-            stepX *= -1
-            stepY *= -1
-        }
-        dx += stepX / unitScale
-        dy += stepY / unitScale
+        // Android: dx = len(projX) * sign(projX.x), dy = len(projY) * sign(projY.y).
+        // signum on x collapses to 0 for a vertical bone, so only one axis ever moves.
+        // Keep the sign in the drag direction instead of the component:
+        // step = dot(move, axis) / |axis| — full 2D movement along the bone.
+        // iOS y is inverted vs Android bitmap space, so dy is negated.
+        let len = hypot(edgeVec.x, edgeVec.y)
+        let stepX = (move.x * edgeVec.x + move.y * edgeVec.y) / len
+        let stepY = (move.x * ortho.x + move.y * ortho.y) / len
+        let sign: CGFloat = edgeVec.x < 0 ? -1 : 1
+        dx += stepX * sign / unitScale
+        dy -= stepY * sign / unitScale
     }
 
     func live(
@@ -48,20 +50,5 @@ struct BoneShiftPreview: Equatable {
         let same = (assetStart == edgeFrom && assetEnd == edgeTo)
             || (assetStart == edgeTo && assetEnd == edgeFrom)
         return same ? (dx, dy) : (0, 0)
-    }
-
-    private static func project(_ vector: CGPoint, onto axis: CGPoint) -> CGPoint {
-        let mag2 = axis.x * axis.x + axis.y * axis.y
-        if mag2 == 0 {
-            return .zero
-        }
-        let k = (vector.x * axis.x + vector.y * axis.y) / mag2
-        return CGPoint(x: axis.x * k, y: axis.y * k)
-    }
-
-    private static func signum(_ value: CGFloat) -> CGFloat {
-        if value > 0 { return 1 }
-        if value < 0 { return -1 }
-        return 0
     }
 }

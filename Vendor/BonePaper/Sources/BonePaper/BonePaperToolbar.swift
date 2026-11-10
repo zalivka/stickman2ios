@@ -217,7 +217,29 @@ enum BonePaperToolStore {
     private static let opacityKey = "bonepaper.opacity"
     private static let colorKey = "bonepaper.color"
     private static let fallbackConfigKey = "bonepaper.fallback_drawing_config"
+    private static let brushOffsetKey = "paperDrawBrushOffset"
     private static let clearToken = "CLEAR"
+
+    static let maxBrushOffset: Int = 70
+    static let brushOffsetStep: Int = 10
+
+    static func clampBrushOffset(_ raw: Int) -> Int {
+        let clamped = min(max(raw, 0), maxBrushOffset)
+        let rounded = Int((Double(clamped) / Double(brushOffsetStep)).rounded()) * brushOffsetStep
+        return min(max(rounded, 0), maxBrushOffset)
+    }
+
+    static var brushOffset: Int {
+        get {
+            guard UserDefaults.standard.object(forKey: brushOffsetKey) != nil else { return 0 }
+            return clampBrushOffset(UserDefaults.standard.integer(forKey: brushOffsetKey))
+        }
+        set {
+            let clamped = clampBrushOffset(newValue)
+            UserDefaults.standard.set(clamped, forKey: brushOffsetKey)
+            BonePaperFlags.brushOffset = CGFloat(clamped)
+        }
+    }
 
     static var brushSize: CGFloat {
         get {
@@ -310,29 +332,6 @@ enum BonePaperChrome {
 
     static var railIconInset: CGFloat { (leftRail - tool) / 2 }
 
-    /// Fill took the move chip's slot; pinch still pans.
-    static let showsMoveTool = false
-
-    /// iPhone 12 mini (`iPhone13,1`) and 13 mini (`iPhone14,4`): no room for the top chip.
-    static var hidesTopChip: Bool {
-        let id = machineIdentifier
-        return id == "iPhone13,1" || id == "iPhone14,4"
-    }
-
-    private static var machineIdentifier: String {
-        if let sim = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"], !sim.isEmpty {
-            return sim
-        }
-        var info = utsname()
-        uname(&info)
-        return withUnsafeBytes(of: info.machine) { raw in
-            guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else {
-                fatalError("BonePaper machine identifier missing")
-            }
-            return String(cString: base)
-        }
-    }
-
     static func fitInsets(safe: EdgeInsets, topClearance: CGFloat) -> UIEdgeInsets {
         UIEdgeInsets(
             top: topClearance + pad,
@@ -377,13 +376,15 @@ struct BonePaperMenuButton: View {
 
 struct BonePaperSideMenu: View {
     static let width: CGFloat = 200
+    private static let dividerColor = Color(red: 0x38 / 255, green: 0x3A / 255, blue: 0x4A / 255)
+    private static let summaryColor = Color(red: 0x9B / 255, green: 0xA0 / 255, blue: 0xB0 / 255)
 
     var showsFramesToggle: Bool
     var showFrames: Bool
     var hasMask: Bool
+    @Binding var brushOffset: Double
     var onToggleShowFrames: () -> Void
     var onMask: () -> Void
-    var onSettings: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -409,34 +410,17 @@ struct BonePaperSideMenu: View {
                 .buttonStyle(.plain)
             }
 
-            Button(action: onMask) {
-                HStack(spacing: 10) {
-                    Image(systemName: "circle.lefthalf.filled")
-                        .font(.system(size: 16))
-                        .frame(width: 22)
-                    Text(hasMask ? "Clear mask" : "Mask")
-                        .font(.system(size: 15))
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(hasMask ? BonePaperChrome.selected : Color(white: 0.85))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if let onSettings {
-                Button(action: onSettings) {
+            if BonePaperFlags.showsMaskButton {
+                Button(action: onMask) {
                     HStack(spacing: 10) {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "circle.lefthalf.filled")
                             .font(.system(size: 16))
                             .frame(width: 22)
-                        Text("Settings")
+                        Text(hasMask ? "Clear mask" : "Mask")
                             .font(.system(size: 15))
                         Spacer(minLength: 0)
                     }
-                    .foregroundStyle(Color(white: 0.85))
+                    .foregroundStyle(hasMask ? BonePaperChrome.selected : Color(white: 0.85))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -444,6 +428,31 @@ struct BonePaperSideMenu: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            if showsFramesToggle || BonePaperFlags.showsMaskButton {
+                Self.dividerColor
+                    .frame(height: 1)
+                    .padding(.horizontal, 12)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Brush offset")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white)
+                Text("Some space between finger and drawing")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Self.summaryColor)
+                Slider(
+                    value: $brushOffset,
+                    in: 0...Double(BonePaperToolStore.maxBrushOffset),
+                    step: Double(BonePaperToolStore.brushOffsetStep)
+                )
+                .tint(BonePaperChrome.selected)
+                .padding(.top, 2)
+                .accessibilityLabel("Brush offset")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
 
             Spacer(minLength: 0)
         }
@@ -477,6 +486,7 @@ struct BonePaperBackButton: View {
 
 struct BonePaperUndoButton: View {
     var canUndo: Bool
+    var showsCaption: Bool = true
     var onUndo: () -> Void
 
     var body: some View {
@@ -487,9 +497,11 @@ struct BonePaperUndoButton: View {
                     .scaledToFit()
                     .frame(width: 36, height: 36)
                     .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
-                Text("undo")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.white)
+                if showsCaption {
+                    Text("undo")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.white)
+                }
             }
             .opacity(canUndo ? 1 : 0.35)
             .contentShape(Rectangle())
@@ -502,6 +514,7 @@ struct BonePaperUndoButton: View {
 
 struct BonePaperRedoButton: View {
     var canRedo: Bool
+    var showsCaption: Bool = true
     var onRedo: () -> Void
 
     private static let purple = Color(red: 1, green: 0.35, blue: 0.72)
@@ -516,9 +529,11 @@ struct BonePaperRedoButton: View {
                     .foregroundStyle(Self.purple)
                     .scaleEffect(x: -1, y: 1)
                     .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
-                Text("redo")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.white)
+                if showsCaption {
+                    Text("redo")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.white)
+                }
             }
             .opacity(canRedo ? 1 : 0.35)
             .contentShape(Rectangle())
@@ -578,6 +593,8 @@ struct BonePaperStrokeControls: View {
     var brushMarks: [CGFloat]
     var opacityMarks: [CGFloat]
     var eraserMarks: [CGFloat]
+    var showingMenu: Bool
+    var onToggleMenu: () -> Void
     var canUndo: Bool
     var onUndo: () -> Void
     var canRedo: Bool
@@ -586,169 +603,165 @@ struct BonePaperStrokeControls: View {
     var onToggleFillMode: () -> Void
     var onSeeking: (Bool) -> Void
     var onFlashPreview: () -> Void
+    var bottomInset: CGFloat = 0
+
+    private var isPad: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
 
     private var brushAndOpacityEnabled: Bool {
         UIColor(color).cgColor.alpha > 0
     }
 
+    private var railWidth: CGFloat {
+        activeSetting != nil
+            ? BonePaperChrome.leftRail + 8 + 352
+            : BonePaperChrome.leftRail
+    }
+
     var body: some View {
+        let itemSpacing: CGFloat = isPad ? 3 : 2
+        let bottomPad: CGFloat = isPad ? bottomInset + BonePaperChrome.pad : max(bottomInset, 8)
         GeometryReader { geo in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if BonePaperChrome.showsMoveTool, !BonePaperChrome.hidesTopChip {
-                        BonePaperPanChip(selected: tool == .pan) {
-                            var transaction = Transaction()
-                            transaction.disablesAnimations = true
-                            withTransaction(transaction) {
-                                tool = .pan
-                            }
-                        }
+            VStack(alignment: .leading, spacing: 0) {
+                BonePaperMenuButton(activated: showingMenu, onTap: onToggleMenu)
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: itemSpacing) {
+                    if isPad {
+                        bucketSingleChip
+                        brushfillSingleChip
+                    } else {
+                        fillToggleChip
                     }
-                    if !BonePaperChrome.showsMoveTool, !BonePaperChrome.hidesTopChip {
-                        if UIDevice.current.userInterfaceIdiom == .pad {
-                            BonePaperSingleFillChip(
-                                mode: .bucket,
-                                selected: tool == .bucket
-                            ) {
-                                var transaction = Transaction()
-                                transaction.disablesAnimations = true
-                                withTransaction(transaction) {
-                                    fillMode = .bucket
-                                    tool = .bucket
-                                }
-                            }
-                            BonePaperSingleFillChip(
-                                mode: .brushfill,
-                                selected: tool == .brushfill
-                            ) {
-                                var transaction = Transaction()
-                                transaction.disablesAnimations = true
-                                withTransaction(transaction) {
-                                    if UIColor(color).cgColor.alpha == 0 {
-                                        onToggleFillMode()
-                                    } else {
-                                        fillMode = .brushfill
-                                        tool = .brushfill
-                                    }
-                                }
-                            }
-                        } else {
-                            BonePaperFillChip(
-                                selected: tool == .bucket || tool == .brushfill,
-                                fillMode: fillMode,
-                                onSelect: {
-                                    var transaction = Transaction()
-                                    transaction.disablesAnimations = true
-                                    withTransaction(transaction) {
-                                        if UIColor(color).cgColor.alpha == 0 {
-                                            fillMode = .bucket
-                                        }
-                                        tool = fillMode
-                                    }
-                                },
-                                onToggleMode: {
-                                    var transaction = Transaction()
-                                    transaction.disablesAnimations = true
-                                    withTransaction(transaction) {
-                                        onToggleFillMode()
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    BonePaperRedoButton(canRedo: canRedo, onRedo: onRedo)
-                    BonePaperUndoButton(canUndo: canUndo, onUndo: onUndo)
-                    BonePaperDragControl(
-                        setting: .size,
-                        value: $brushSize,
-                        range: BonePaperBrush.sizeRange,
-                        marks: brushMarks,
-                        color: color,
-                        selected: tool == .pen,
-                        enabled: brushAndOpacityEnabled,
-                        activeSetting: $activeSetting,
-                        onActivate: { tool = .pen },
-                        onSeeking: onSeeking,
-                        onFlashPreview: onFlashPreview
-                    )
-                    BonePaperDragControl(
-                        setting: .opacity,
-                        value: $opacity,
-                        range: BonePaperBrush.opacityRange,
-                        marks: opacityMarks,
-                        color: color,
-                        selected: false,
-                        enabled: brushAndOpacityEnabled,
-                        activeSetting: $activeSetting,
-                        onActivate: {
-                            if tool != .bucket, tool != .brushfill {
-                                tool = .pen
-                            }
-                        },
-                        onSeeking: onSeeking,
-                        onFlashPreview: onFlashPreview
-                    )
-                    BonePaperDragControl(
-                        setting: .eraser,
-                        value: $eraserSize,
-                        range: BonePaperBrush.sizeRange,
-                        marks: eraserMarks,
-                        color: color,
-                        selected: tool == .eraser,
-                        enabled: true,
-                        activeSetting: $activeSetting,
-                        onActivate: { tool = .eraser },
-                        onSeeking: onSeeking,
-                        onFlashPreview: onFlashPreview
-                    )
+                    brushControl
+                    opacityControl
+                    eraserControl
                 }
-                .animation(nil, value: tool)
                 .padding(.leading, BonePaperChrome.railIconInset)
-                .padding(.bottom, BonePaperChrome.pad)
-                .frame(minHeight: geo.size.height, alignment: .bottom)
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: itemSpacing) {
+                    BonePaperRedoButton(canRedo: canRedo, showsCaption: isPad, onRedo: onRedo)
+                    BonePaperUndoButton(canUndo: canUndo, showsCaption: isPad, onUndo: onUndo)
+                }
+                .padding(.leading, BonePaperChrome.railIconInset)
+                .padding(.bottom, bottomPad)
             }
-            .scrollIndicators(.hidden)
-            .scrollClipDisabled()
-            .frame(
-                width: activeSetting != nil
-                    ? BonePaperChrome.leftRail + 8 + 352
-                    : BonePaperChrome.leftRail,
-                alignment: .leading
-            )
+            .animation(nil, value: tool)
+            .frame(width: railWidth, height: geo.size.height, alignment: .leading)
         }
-        .frame(
-            width: activeSetting != nil
-                ? BonePaperChrome.leftRail + 8 + 352
-                : BonePaperChrome.leftRail
+        .frame(width: railWidth)
+    }
+
+    private var bucketSingleChip: some View {
+        BonePaperSingleFillChip(
+            mode: .bucket,
+            selected: tool == .bucket
+        ) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                fillMode = .bucket
+                tool = .bucket
+            }
+        }
+    }
+
+    private var brushfillSingleChip: some View {
+        BonePaperSingleFillChip(
+            mode: .brushfill,
+            selected: tool == .brushfill
+        ) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if UIColor(color).cgColor.alpha == 0 {
+                    onToggleFillMode()
+                } else {
+                    fillMode = .brushfill
+                    tool = .brushfill
+                }
+            }
+        }
+    }
+
+    private var fillToggleChip: some View {
+        BonePaperFillChip(
+            selected: tool == .bucket || tool == .brushfill,
+            fillMode: fillMode,
+            showsCaption: isPad,
+            onSelect: {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    if UIColor(color).cgColor.alpha == 0 {
+                        fillMode = .bucket
+                    }
+                    tool = fillMode
+                }
+            },
+            onToggleMode: {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    onToggleFillMode()
+                }
+            }
         )
     }
-}
 
-private struct BonePaperPanChip: View {
-    var selected: Bool
-    var onSelect: () -> Void
+    private var brushControl: some View {
+        BonePaperDragControl(
+            setting: .size,
+            value: $brushSize,
+            range: BonePaperBrush.sizeRange,
+            marks: brushMarks,
+            color: color,
+            selected: tool == .pen,
+            enabled: brushAndOpacityEnabled,
+            showsCaption: isPad,
+            activeSetting: $activeSetting,
+            onActivate: { tool = .pen },
+            onSeeking: onSeeking,
+            onFlashPreview: onFlashPreview
+        )
+    }
 
-    var body: some View {
-        VStack(spacing: 1) {
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
-                .background {
-                    if selected {
-                        BonePaperChrome.selected
-                            .transition(.identity)
-                    }
+    private var opacityControl: some View {
+        BonePaperDragControl(
+            setting: .opacity,
+            value: $opacity,
+            range: BonePaperBrush.opacityRange,
+            marks: opacityMarks,
+            color: color,
+            selected: false,
+            enabled: brushAndOpacityEnabled,
+            showsCaption: isPad,
+            activeSetting: $activeSetting,
+            onActivate: {
+                if tool != .bucket, tool != .brushfill {
+                    tool = .pen
                 }
-            Text("move")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(selected ? BonePaperChrome.selected : Color.white)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .transaction { $0.animation = nil }
-        .accessibilityLabel("Move")
-        .accessibilityAddTraits(.isButton)
+            },
+            onSeeking: onSeeking,
+            onFlashPreview: onFlashPreview
+        )
+    }
+
+    private var eraserControl: some View {
+        BonePaperDragControl(
+            setting: .eraser,
+            value: $eraserSize,
+            range: BonePaperBrush.sizeRange,
+            marks: eraserMarks,
+            color: color,
+            selected: tool == .eraser,
+            enabled: true,
+            showsCaption: isPad,
+            activeSetting: $activeSetting,
+            onActivate: { tool = .eraser },
+            onSeeking: onSeeking,
+            onFlashPreview: onFlashPreview
+        )
     }
 }
 
@@ -817,6 +830,7 @@ private struct BonePaperSingleFillChip: View {
 private struct BonePaperFillChip: View {
     var selected: Bool
     var fillMode: BonePaperTool
+    var showsCaption: Bool = true
     var onSelect: () -> Void
     var onToggleMode: () -> Void
 
@@ -847,12 +861,14 @@ private struct BonePaperFillChip: View {
                 SubtoolCornerTriangle()
                     .fill(Color.white)
             }
-            Text(isBrushfill ? "brushfill" : "bucket")
-                .font(.system(size: 12, weight: .regular))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(selected ? activeColor : Color.white)
-                .frame(width: BonePaperChrome.tool)
+            if showsCaption {
+                Text(isBrushfill ? "brushfill" : "bucket")
+                    .font(.system(size: 12, weight: .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .foregroundStyle(selected ? activeColor : Color.white)
+                    .frame(width: BonePaperChrome.tool)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -905,6 +921,7 @@ private struct BonePaperDragControl: View {
     var color: Color
     var selected: Bool
     var enabled: Bool
+    var showsCaption: Bool = true
     @Binding var activeSetting: BonePaperStrokeSetting?
     var onActivate: () -> Void
     var onSeeking: (Bool) -> Void
@@ -990,10 +1007,12 @@ private struct BonePaperDragControl: View {
                     }
                 }
             }
-            Text(setting.label)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(selected || isActive ? BonePaperChrome.selected : Color.white)
-                .frame(width: Self.side)
+            if showsCaption {
+                Text(setting.label)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(selected || isActive ? BonePaperChrome.selected : Color.white)
+                    .frame(width: Self.side)
+            }
         }
         .animation(.easeOut(duration: 0.12), value: isActive)
         .animation(.easeOut(duration: 0.12), value: enabled)

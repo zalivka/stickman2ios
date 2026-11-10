@@ -32,7 +32,6 @@ struct SkeletonScreen: View {
     @State private var exposeVacantPoints = false
     @State private var previewTicket: PreviewTicket?
     @State private var showingSettings = false
-    @State private var showingBonePaperSettings = false
     @State private var showingSave = false
     @State private var bonePaperEdit: BonePaperEdit?
     @State private var editSession = SkeletonEditSession()
@@ -279,9 +278,6 @@ struct SkeletonScreen: View {
                 defaultYOffset: session.baseAsset.yOffset,
                 onion: session.onion,
                 placement: session.placement,
-                onSettings: {
-                    showingBonePaperSettings = true
-                },
                 onApplyFrames: { exportedFrames, selectedState in
                     applyBonePaper(
                         baseAsset: session.baseAsset,
@@ -298,9 +294,6 @@ struct SkeletonScreen: View {
                 }
             )
             .presentationBackground(.clear)
-            .sheet(isPresented: $showingBonePaperSettings) {
-                AppSettingsSheet()
-            }
         }
         .sheet(item: $pointProps) { draft in
             EditPointDialog(

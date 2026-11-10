@@ -4,8 +4,6 @@ import UIKit
 /// App settings. Chrome matches `EditPointDialog` (`doc/good_dialog.md`).
 struct AppSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var antialiasing: Bool
-    @State private var brushOffset: Double
     @State private var showOnionSkeleton: Bool
     @State private var skeletonColorRGB: Int
     @State private var showingSkeletonColorPicker = false
@@ -17,8 +15,6 @@ struct AppSettingsSheet: View {
     let onTutorial: (() -> Void)?
 
     init(onTutorial: (() -> Void)? = nil) {
-        _antialiasing = State(initialValue: AppSettings.paperDrawAntialiasing)
-        _brushOffset = State(initialValue: Double(AppSettings.brushOffset))
         _showOnionSkeleton = State(initialValue: AppSettings.showOnionSkeleton)
         _skeletonColorRGB = State(initialValue: AppSettings.skeletonColorRGB)
         #if DEBUG
@@ -81,8 +77,6 @@ struct AppSettingsSheet: View {
 
     private var applyButton: some View {
         Button {
-            AppSettings.paperDrawAntialiasing = antialiasing
-            AppSettings.brushOffset = Int(brushOffset.rounded())
             AppSettings.showOnionSkeleton = showOnionSkeleton
             AppSettings.skeletonColorRGB = skeletonColorRGB
             #if DEBUG
@@ -121,16 +115,6 @@ struct AppSettingsSheet: View {
                     .textCase(.uppercase)
                 onionSkeletonCard
                 skeletonColorCard
-                Text("Paper draw")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(SkeletonChrome.toolLabel)
-                    .textCase(.uppercase)
-                antialiasingCard
-                Text("Drawing tools")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(SkeletonChrome.toolLabel)
-                    .textCase(.uppercase)
-                brushOffsetCard
                 privacyCard
             }
             .padding(.horizontal, 16)
@@ -234,78 +218,6 @@ struct AppSettingsSheet: View {
         }
     }
 
-    private var antialiasingCard: some View {
-        Button {
-            antialiasing.toggle()
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                Circle()
-                    .fill(Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255))
-                    .frame(width: 18, height: 18)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Antialiasing")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text("Smooth brush and eraser edges")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.white.opacity(0.55))
-                }
-                Spacer(minLength: 8)
-                Image(systemName: antialiasing ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(.white)
-            }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(antialiasing ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Antialiasing")
-        .accessibilityAddTraits(antialiasing ? [.isSelected] : [])
-    }
-
-    private var brushOffsetCard: some View {
-        let currentOffset = AppSettings.clampBrushOffset(Int(brushOffset.rounded()))
-        let isActive = currentOffset > 0
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                Circle()
-                    .fill(isActive ? SkeletonChrome.bonesAccent : Color(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255))
-                    .frame(width: 18, height: 18)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Brush offset")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text("Shift drawing point above finger")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.white.opacity(0.55))
-                }
-                Spacer(minLength: 8)
-                Text("\(currentOffset) / \(AppSettings.maxBrushOffset)")
-                    .font(.system(size: 15, weight: .bold).monospacedDigit())
-                    .foregroundStyle(.white)
-            }
-            Slider(
-                value: $brushOffset,
-                in: 0...Double(AppSettings.maxBrushOffset),
-                step: Double(AppSettings.brushOffsetStep)
-            )
-            .tint(SkeletonChrome.bonesAccent)
-            .accessibilityLabel("Brush offset")
-            .accessibilityValue("\(currentOffset) points")
-        }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isActive ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
-        )
-    }
-
     private var privacyCard: some View {
         Button {
             UIApplication.shared.open(Self.privacyPolicyURL)
@@ -373,8 +285,6 @@ struct AppSettingsSheet: View {
     /// Visible only when the presenter supplies `onTutorial` (scene editor).
     private var tutorialCard: some View {
         Button {
-            AppSettings.paperDrawAntialiasing = antialiasing
-            AppSettings.brushOffset = Int(brushOffset.rounded())
             AppSettings.showOnionSkeleton = showOnionSkeleton
             AppSettings.skeletonColorRGB = skeletonColorRGB
             AppSettings.ignoreBmSample = ignoreBmSample

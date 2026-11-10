@@ -438,7 +438,11 @@ struct StickmanUnit {
         return bases.count == 1 ? bases[0] : nil
     }
 
-    func axisBounds() throws -> (minX: CGFloat, minY: CGFloat, maxX: CGFloat, maxY: CGFloat) {
+    /// Android `AssetsOpsImpl.doUpdateBoundingBoxFor` — skeleton points PLUS every
+    /// edge bitmap's four mapped corners, expanded to the 60-unit minimum.
+    /// `FrameRasterizer.unitBoundingBox` and `UnitAssets.assetCornerPoints` are the
+    /// same walk; the handler box must match the one the touch code already uses.
+    func axisBounds(assets: UnitAssets) throws -> (minX: CGFloat, minY: CGFloat, maxX: CGFloat, maxY: CGFloat) {
         if points.isEmpty {
             throw SceneLoadError(message: "StickmanUnit '\(name)' has no points")
         }
@@ -446,6 +450,12 @@ struct StickmanUnit {
         var maxX = points.map(\.x).max()!
         var minY = points.map(\.y).min()!
         var maxY = points.map(\.y).max()!
+        for corner in assets.assetCornerPoints(for: self, state: assetsState) {
+            minX = min(minX, corner.x)
+            maxX = max(maxX, corner.x)
+            minY = min(minY, corner.y)
+            maxY = max(maxY, corner.y)
+        }
         if maxX - minX < 60 {
             minX -= 30
             maxX += 30
@@ -457,12 +467,12 @@ struct StickmanUnit {
         return (minX, minY, maxX, maxY)
     }
 
-    func handlerCenters(sceneScale: CGFloat) throws -> (move: CGPoint, rotate: CGPoint, scale: CGPoint) {
+    func handlerCenters(sceneScale: CGFloat, assets: UnitAssets) throws -> (move: CGPoint, rotate: CGPoint, scale: CGPoint) {
         if sceneScale <= 0 {
             throw SceneLoadError(message: "StickmanUnit '\(name)' handler sceneScale is \(sceneScale)")
         }
-        let bb = try axisBounds()
-        let offset = 80 / sceneScale
+        let bb = try axisBounds(assets: assets)
+        let offset = 30 / sceneScale
         let corner = offset / 1.5
         return (
             move: CGPoint(x: (bb.minX + bb.maxX) / 2, y: bb.maxY + offset),

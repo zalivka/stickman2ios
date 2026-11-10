@@ -31,7 +31,6 @@ struct SideMenu: View {
                 row(.editScene, "Edit scene", "slider.horizontal.3")
                 row(.background, "Background", "photo")
                 row(.camera, "Camera view", "camera")
-                row(.audio, "Sound", "speaker.wave.2")
                 #if DEBUG
                 row(.debug, "Debug", "ladybug")
                 #endif

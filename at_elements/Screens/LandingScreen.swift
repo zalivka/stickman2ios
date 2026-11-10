@@ -97,7 +97,6 @@ private struct MakePane: View {
     @State private var openRoad = false
     @State private var openShip = false
     @State private var openDraw = false
-    @State private var showingDrawSettings = false
     #endif
 
     var body: some View {
@@ -227,12 +226,8 @@ private struct MakePane: View {
             }
             .navigationDestination(isPresented: $openDraw) {
                 BonePaperScreen(
-                    sheet: BonePaperSheet(width: 640, height: 480, paper: .white),
-                    onSettings: { showingDrawSettings = true }
+                    sheet: BonePaperSheet(width: 640, height: 480, paper: .white)
                 )
-                .sheet(isPresented: $showingDrawSettings) {
-                    AppSettingsSheet()
-                }
             }
             #endif
         }

@@ -8,4 +8,5 @@ public enum BonePaperFlags {
     public static var autoCloseStroke = true
     /// Upward screen-space offset (in points) applied to finger/touch input on the canvas.
     public static var brushOffset: CGFloat = 0
+    public static let showsMaskButton = false
 }
