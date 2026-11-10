@@ -1065,9 +1065,6 @@ struct SkeletonCanvas: View {
         if let name = bgName, name.hasPrefix("usermade:") {
             let origin = layout.screenPoint(x: 0, y: 0)
             context.drawLayer { layer in
-                if mode != .background {
-                    layer.clip(to: Path(rect))
-                }
                 layer.translateBy(x: origin.x, y: origin.y)
                 layer.scaleBy(x: layout.scale, y: layout.scale)
                 drawSceneContent(context: &layer)

@@ -191,7 +191,7 @@ struct SceneEditorScreen: View {
                 SkeletonCanvas(
                     unit: frame.units.isEmpty ? nil : unitBinding,
                     frameUnits: frame.units,
-                    previousFrameUnits: scene.currentIndex > 0 ? scene.frames[scene.currentIndex - 1].units : [],
+                    previousFrameUnits: tutorialStep == nil && scene.currentIndex > 0 ? scene.frames[scene.currentIndex - 1].units : [],
                     assets: assets,
                     backgrounds: backgrounds,
                     bgName: frame.bgName,
