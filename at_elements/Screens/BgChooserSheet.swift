@@ -18,6 +18,7 @@ struct BgChooserSheet: View {
     @State private var folders: [BackgroundCatalog.Folder]?
     @State private var selected: String?
     @State private var showingColor = false
+    @State private var showingImageLibrary = false
     @State private var toast = ""
 
     private static let thumbSize: CGFloat = 110
@@ -67,6 +68,15 @@ struct BgChooserSheet: View {
                 }
             }
         }
+        .sheet(isPresented: $showingImageLibrary) {
+            AssetsLibrarySheet(
+                mode: .pickImage { entry in
+                    showingImageLibrary = false
+                    pickLibraryImage(entry)
+                },
+                onCancel: { showingImageLibrary = false }
+            )
+        }
     }
 
     @ViewBuilder
@@ -96,6 +106,9 @@ struct BgChooserSheet: View {
         ScrollView {
             VStack(spacing: 8) {
                 actionRow("Draw", fill: Self.drawFill, ink: Self.drawInk, symbol: "paintbrush.pointed")
+                actionRow("Image", fill: Self.imageFill, ink: Self.imageInk, symbol: "photo.on.rectangle") {
+                    showingImageLibrary = true
+                }
                 actionRow("Color", fill: Self.colorFill, ink: Self.colorInk, symbol: "paintpalette") {
                     showingColor = true
                 }
@@ -121,9 +134,11 @@ struct BgChooserSheet: View {
         .frame(width: 180)
     }
 
-    /// Android chooser action color: Draw `#F59E0B`.
+    /// Android chooser action color: Draw `#F59E0B`, Pick Image `#38BDF8`.
     private static let drawFill = Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
     private static let drawInk = Color(red: 0x38 / 255, green: 0x21 / 255, blue: 0)
+    private static let imageFill = Color(red: 0x38 / 255, green: 0xBD / 255, blue: 0xF8 / 255)
+    private static let imageInk = Color(red: 0x07 / 255, green: 0x23 / 255, blue: 0x3A / 255)
     private static let colorFill = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue: 0xFD / 255)
     private static let colorInk = Color(red: 0x2E / 255, green: 0x10 / 255, blue: 0x65 / 255)
 
@@ -240,6 +255,17 @@ struct BgChooserSheet: View {
         } catch {
             print("BgChooserSheet \(entry.id): \(error)")
             showToast("Cannot process the background \(entry.id)")
+        }
+    }
+
+    private func pickLibraryImage(_ entry: ImageLibrary.Entry) {
+        do {
+            let saved = try BackgroundStore.savePickedImage(entry.mainURL)
+            try backgrounds.installArchive(name: saved.bgName, archive: saved.archive)
+            onPick(saved.bgName)
+        } catch {
+            print("BgChooserSheet library image \(entry.id): \(error)")
+            showToast("Cannot open selected image")
         }
     }
 

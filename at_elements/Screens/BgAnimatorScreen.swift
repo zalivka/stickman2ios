@@ -138,6 +138,20 @@ struct BgAnimatorScreen: View {
             )
             .offsetLeadingIsland()
         }
+        #if DEBUG
+        .overlay(alignment: .top) {
+            if let info = debugBackgroundInfo {
+                Text(info)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.black.opacity(0.72), in: Capsule())
+                    .padding(.top, 8)
+                    .allowsHitTesting(false)
+            }
+        }
+        #endif
         .overlay {
             if let bgName = pendingRangeBg {
                 RangePicker(
@@ -491,6 +505,32 @@ struct BgAnimatorScreen: View {
             bail(error)
         }
     }
+
+    #if DEBUG
+    private var debugBackgroundInfo: String? {
+        _ = backgroundRevision
+        guard let frame = scene.currentFrameOrNil,
+              let bgName = frame.bgName,
+              !bgName.hasPrefix("#"),
+              let img = backgrounds.image(for: bgName) else {
+            return nil
+        }
+        let sampleScale = backgrounds.sampleScale(for: bgName)
+        let realW = Int((CGFloat(img.width) * sampleScale).rounded())
+        let realH = Int((CGFloat(img.height) * sampleScale).rounded())
+        let scale = frame.bgMove.scale
+        let zoomText: String
+        if scale > 0 && scale < 1 {
+            zoomText = String(format: "%.2fx (÷%.2f, %.0f%%)", scale, 1.0 / scale, scale * 100)
+        } else {
+            zoomText = String(format: "%.2fx (%.0f%%)", scale, scale * 100)
+        }
+        if sampleScale > 1 {
+            return "\(realW)×\(realH) px (tex \(img.width)×\(img.height)) · zoom \(zoomText)"
+        }
+        return "\(realW)×\(realH) px · zoom \(zoomText)"
+    }
+    #endif
 
     private var workArea: some View {
         let frame = scene.currentFrameOrNil

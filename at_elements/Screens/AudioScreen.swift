@@ -21,6 +21,7 @@ struct AudioScreen: View {
     @State private var showingPreview = false
     /// Android `audio_palette_column` starts `gone`.
     @State private var showingPalette = false
+    @State private var showingSoundLibrary = false
     @State private var previewing: SceneAudioClip?
     @State private var previewingPaletteId: String?
     @State private var editingClip: SceneAudioClip?
@@ -120,6 +121,15 @@ struct AudioScreen: View {
         }
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
+        }
+        .sheet(isPresented: $showingSoundLibrary) {
+            AssetsLibrarySheet(
+                mode: .pickSound { entry in
+                    showingSoundLibrary = false
+                    addPickedSoundToPalette(entry)
+                },
+                onCancel: { showingSoundLibrary = false }
+            )
         }
         .sheet(item: $editingClip) { clip in
             AudioVolumeSheet(
@@ -243,7 +253,8 @@ struct AudioScreen: View {
     private var palettePanel: some View {
         VStack(spacing: 0) {
             Button {
-                // Android opens the sound picker here; iOS has no importer yet.
+                onStopPreview()
+                showingSoundLibrary = true
             } label: {
                 Image(decorative: Self.plusIcon, scale: UIScreen.main.scale)
                     .resizable()
@@ -493,22 +504,22 @@ struct AudioScreen: View {
     private func seedLibraryIfNeeded() {
         do {
             try AudioFiles.seedLibrary()
-            try seedTestPalette()
         } catch {
             bail(error)
         }
     }
 
-    /// Test sounds from `files/` stay in the palette so there is something to
-    /// drag onto frames without the (not ported) sound importer.
-    private func seedTestPalette() throws {
-        for entry in try AudioFiles.testPaletteEntries() where !scene.audio.contains(entry.audioId) {
-            scene.audio.addPalette(
-                audioId: entry.audioId,
-                durationMs: entry.durationMs,
-                url: entry.url
-            )
+    private func addPickedSoundToPalette(_ entry: AudioFiles.LibraryEntry) {
+        if scene.audio.contains(entry.audioId) {
+            showToast("Already in palette")
+            return
         }
+        commitUndo()
+        scene.audio.addPalette(
+            audioId: entry.audioId,
+            durationMs: entry.durationMs,
+            url: entry.url
+        )
     }
 
     /// Android `attachFromPalette`: a tap on the palette square places a clip;

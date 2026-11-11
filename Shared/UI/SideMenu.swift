@@ -9,6 +9,7 @@ enum SideMenuAction: String {
     case camera
     case audio
     case speedEffects
+    case assets
     case debug
     case settings
 }
@@ -31,7 +32,9 @@ struct SideMenu: View {
                 row(.editScene, "Edit scene", "slider.horizontal.3")
                 row(.background, "Background", "photo")
                 row(.camera, "Camera view", "camera")
+                row(.speedEffects, "Speed effects", "speedometer")
                 #if DEBUG
+                row(.assets, "Assets", "photo.on.rectangle.angled")
                 row(.debug, "Debug", "ladybug")
                 #endif
                 divider

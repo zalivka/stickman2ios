@@ -57,6 +57,7 @@ struct SceneEditorScreen: View {
     @State private var showingEditFrame = false
     @State private var showingMenu = false
     @State private var showingSettings = false
+    @State private var showingAssetsLibrary = false
     @State private var showingCreateItems = false
     @State private var editableItem: Item?
     @State private var itemEditor: ItemEditTicket?
@@ -496,6 +497,12 @@ struct SceneEditorScreen: View {
         }
         .sheet(isPresented: $showingSettings) {
             AppSettingsSheet(onTutorial: relaunchTutorial)
+        }
+        .sheet(isPresented: $showingAssetsLibrary) {
+            AssetsLibrarySheet(
+                mode: .browse,
+                onCancel: { showingAssetsLibrary = false }
+            )
         }
         .sheet(isPresented: $showingSave) {
             SaveProjectSheet(
@@ -1591,6 +1598,9 @@ struct SceneEditorScreen: View {
                 return
             }
             showingSpeedEffects = true
+        }
+        if action == .assets {
+            showingAssetsLibrary = true
         }
         if action == .debug || action == .settings {
             showingSettings = true

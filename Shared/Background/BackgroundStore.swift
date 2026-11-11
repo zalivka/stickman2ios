@@ -7,6 +7,7 @@ enum BackgroundStore {
     static let usermadePrefix = "usermade:"
     static let ext = "zip"
     static let thumbSide = 100
+    static let pickedBgMaxDimension = 2048
 
     enum Failure: Error, CustomStringConvertible {
         case unsupported(String)
@@ -67,6 +68,24 @@ enum BackgroundStore {
             throw Failure.writeFailed(bgName, error)
         }
         return (bgName, archive)
+    }
+
+    /// Caps image within `pickedBgMaxDimension` (`2048`) by powers of 2,
+    /// writes `bgs/<millis>.zip` (`bg.png` + `thumb.png`), and returns `(bgName, archive)`.
+    static func savePickedImage(_ imageURL: URL) throws -> (bgName: String, archive: Data) {
+        let label = imageURL.lastPathComponent
+        guard let data = try? Data(contentsOf: imageURL), let decoded = UIImage(data: data) else {
+            throw Failure.notAnImage(label)
+        }
+        let reasonable = ImageLibrary.reasonableImage(
+            decoded,
+            minDesiredWidth: pickedBgMaxDimension,
+            minDesiredHeight: pickedBgMaxDimension
+        )
+        guard let cg = reasonable.cgImage else {
+            throw Failure.notAnImage(label)
+        }
+        return try saveDrawn(cg)
     }
 
     /// Overwrites `bgs/<own>.zip` for an existing `usermade:` name. The scene keeps that name.

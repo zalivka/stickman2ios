@@ -3,10 +3,39 @@ import Foundation
 import ffmpegkit
 import os
 
-/// Android `AudioUtils` for the iOS sound library: durations, the size cap and
-/// where placed sounds are copied to.
+/// Android `AudioUtils` + `SoundEffectsRepository` for the iOS sound library:
+/// durations, the size cap, and where sounds are stored, imported, and deleted.
 enum AudioFiles {
     static let supportedExtensions = SceneAudioArchive.supportedExtensions
+    static let maxSoundFileBytes = 20 * 1024 * 1024
+
+    enum Failure: Error, CustomStringConvertible, LocalizedError {
+        case invalidIdentifier(String)
+        case unsupportedFormat(String)
+        case emptyFile(String)
+        case fileTooLarge(String, Int)
+        case unreadableAudio(String)
+        case ioFailed(String, Error)
+
+        var description: String {
+            switch self {
+            case .invalidIdentifier(let id):
+                return "Invalid sound id '\(id)'"
+            case .unsupportedFormat(let ext):
+                return "Unsupported sound format '.\(ext)' (use wav, mp3, m4a, or ogg)"
+            case .emptyFile(let name):
+                return "Sound file '\(name)' is empty"
+            case .fileTooLarge(let name, _):
+                return "Sound file '\(name)' exceeds 20 MB limit"
+            case .unreadableAudio(let name):
+                return "Could not read audio duration for '\(name)'"
+            case .ioFailed(let label, let error):
+                return "Audio library error (\(label)): \(error.localizedDescription)"
+            }
+        }
+
+        var errorDescription: String? { description }
+    }
 
     /// `StageAudio.registerClipPoint` probes the source when no duration is known.
     /// `MediaMetadataRetriever` has no exact AVFoundation twin, so ffprobe stays
@@ -68,18 +97,13 @@ enum AudioFiles {
         return dir
     }
 
-    /// Bundled sounds, copied into the library once so the palette has content
-    /// without the (out of scope) importer.
+    /// Bundled sounds, copied into the library once so the sound library has initial content.
     static let seedNames: [(name: String, ext: String)] = [
         ("notif", "wav"),
         ("mac", "mp3"),
         ("rec", "mp3"),
         ("say_wifi", "wav"),
     ]
-
-    /// Test sounds that must always show in the palette; Android has a library
-    /// screen that finds them, iOS has no importer yet.
-    static let alwaysInPalette = ["rec", "say_wifi"]
 
     static func seedLibrary() throws {
         let dir = try libraryDirectory()
@@ -106,14 +130,104 @@ enum AudioFiles {
         }
     }
 
-    /// Library entries for `alwaysInPalette`; fails loudly when a seed is missing.
-    static func testPaletteEntries() throws -> [LibraryEntry] {
-        let all = library()
-        return try alwaysInPalette.map { audioId in
-            guard let entry = all.first(where: { $0.audioId == audioId }) else {
-                throw SceneLoadError(message: "AudioFiles test sound '\(audioId)' was not seeded")
+    /// Android `SoundEffectsRepository.ingestAudio`: copies a sound file into the library,
+    /// probes its duration, writes `<id>.name`, and invalidates the cache.
+    static func ingest(url: URL, in directory: URL? = nil) throws -> LibraryEntry {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
             }
-            return entry
+        }
+        let filename = url.lastPathComponent
+        let ext = extensionOf(filename)
+        guard supportedExtensions.contains(ext) else {
+            throw Failure.unsupportedFormat(ext.isEmpty ? filename : ext)
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw Failure.ioFailed(filename, error)
+        }
+        if data.isEmpty {
+            throw Failure.emptyFile(filename)
+        }
+        if data.count > maxSoundFileBytes {
+            throw Failure.fileTooLarge(filename, data.count)
+        }
+
+        let dir = try resolveDirectory(directory)
+        let audioId = allocateId(in: dir)
+        let dest = dir.appendingPathComponent("\(audioId).\(ext)", isDirectory: false)
+        do {
+            try data.write(to: dest, options: .atomic)
+        } catch {
+            throw Failure.ioFailed(audioId, error)
+        }
+
+        let duration: Int64
+        do {
+            duration = try durationMs(url: dest)
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            throw Failure.unreadableAudio(filename)
+        }
+        if duration <= 0 {
+            try? FileManager.default.removeItem(at: dest)
+            throw Failure.unreadableAudio(filename)
+        }
+
+        let rawStem = url.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = rawStem.isEmpty ? audioId : rawStem
+        let nameFile = dir.appendingPathComponent("\(audioId).name", isDirectory: false)
+        do {
+            try Data(displayName.utf8).write(to: nameFile, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            try? FileManager.default.removeItem(at: nameFile)
+            throw Failure.ioFailed("\(audioId).name", error)
+        }
+
+        if directory == nil {
+            invalidateLibrary()
+        }
+        return LibraryEntry(
+            audioId: audioId,
+            displayName: displayName,
+            url: dest,
+            durationMs: duration
+        )
+    }
+
+    /// Android `SoundEffectsRepository.delete`: removes `<audioId>.<ext>` and `<audioId>.name`.
+    static func delete(audioId: String, in directory: URL? = nil) throws {
+        if audioId.isEmpty || audioId.contains("/") {
+            throw Failure.invalidIdentifier(audioId)
+        }
+        let dir = try resolveDirectory(directory)
+        let fm = FileManager.default
+        for ext in supportedExtensions {
+            let file = dir.appendingPathComponent("\(audioId).\(ext)", isDirectory: false)
+            if fm.fileExists(atPath: file.path) {
+                do {
+                    try fm.removeItem(at: file)
+                } catch {
+                    throw Failure.ioFailed(file.lastPathComponent, error)
+                }
+            }
+        }
+        let nameFile = dir.appendingPathComponent("\(audioId).name", isDirectory: false)
+        if fm.fileExists(atPath: nameFile.path) {
+            do {
+                try fm.removeItem(at: nameFile)
+            } catch {
+                throw Failure.ioFailed(nameFile.lastPathComponent, error)
+            }
+        }
+        if directory == nil {
+            invalidateLibrary()
         }
     }
 
@@ -130,25 +244,28 @@ enum AudioFiles {
     private static var cachedLibrary: [LibraryEntry]?
 
     /// Every playable file in the library, newest id first like Android.
-    static func library() -> [LibraryEntry] {
+    static func library(in directory: URL? = nil) -> [LibraryEntry] {
+        if let directory {
+            return readLibrary(in: directory)
+        }
         if let cachedLibrary {
             return cachedLibrary
         }
-        let entries = readLibrary()
+        let entries = readLibrary(in: nil)
         cachedLibrary = entries
         return entries
     }
 
-    /// Drops the probe cache; `seedLibrary` copies files, so the next `library()`
+    /// Drops the probe cache; `seedLibrary` and `ingest` write files, so the next `library()`
     /// must see them.
     static func invalidateLibrary() {
         cachedLibrary = nil
     }
 
-    private static func readLibrary() -> [LibraryEntry] {
+    private static func readLibrary(in customDirectory: URL?) -> [LibraryEntry] {
         let dir: URL
         do {
-            dir = try libraryDirectory()
+            dir = try resolveDirectory(customDirectory)
         } catch {
             print("AudioFiles library: \(error)")
             return []
@@ -187,11 +304,47 @@ enum AudioFiles {
                 durationMs: duration
             )
         }
-        .sorted { $0.durationMs > $1.durationMs }
+        .sorted { $0.audioId > $1.audioId }
     }
 
     static func libraryEntry(audioId: String) -> LibraryEntry? {
         library().first { $0.audioId == audioId }
+    }
+
+    // MARK: - Private
+
+    private static func resolveDirectory(_ custom: URL?) throws -> URL {
+        if let custom {
+            if !FileManager.default.fileExists(atPath: custom.path) {
+                do {
+                    try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+                } catch {
+                    throw Failure.ioFailed(custom.path, error)
+                }
+            }
+            return custom
+        }
+        return try libraryDirectory()
+    }
+
+    private static func allocateId(in directory: URL) -> String {
+        let fm = FileManager.default
+        var ts = Int64((Date().timeIntervalSince1970 * 1000).rounded(.towardZero))
+        while hasAnyFile(audioId: String(ts), in: directory, fm: fm) {
+            ts += 1
+        }
+        return String(ts)
+    }
+
+    private static func hasAnyFile(audioId: String, in directory: URL, fm: FileManager) -> Bool {
+        for ext in supportedExtensions {
+            let url = directory.appendingPathComponent("\(audioId).\(ext)", isDirectory: false)
+            if fm.fileExists(atPath: url.path) {
+                return true
+            }
+        }
+        let nameURL = directory.appendingPathComponent("\(audioId).name", isDirectory: false)
+        return fm.fileExists(atPath: nameURL.path)
     }
 }
 
