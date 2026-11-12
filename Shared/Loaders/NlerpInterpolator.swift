@@ -60,11 +60,18 @@ enum NlerpInterpolator {
                 let cameraT = CGFloat(step + 1) / CGFloat(duration + 1)
                 cameraMove = frame1.cameraMove.lerp(frame2.cameraMove, t: cameraT)
             }
+            let bgMove: PictureMove
+            if frame1.bgName == frame2.bgName {
+                let bgT = CGFloat(step + 1) / CGFloat(duration + 1)
+                bgMove = frame1.bgMove.lerp(frame2.bgMove, t: bgT)
+            } else {
+                bgMove = frame1.bgMove
+            }
             var generated = StickmanFrame(
                 id: -1,
                 units: units,
                 bgName: frame1.bgName,
-                bgMove: frame1.bgMove,
+                bgMove: bgMove,
                 cameraMove: cameraMove
             )
             try adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)

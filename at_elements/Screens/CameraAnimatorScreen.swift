@@ -13,6 +13,7 @@ struct CameraAnimatorScreen: View {
     @State private var tweenDraftRange: ClosedRange<Int> = 0...0
     @State private var tweenApplyRange: ClosedRange<Int>?
     @State private var toast = ""
+    @State private var cameraHold = CameraHold()
     @StateObject private var undo = SceneUndo()
 
     init(scene: Binding<StickmanScene>, assets: UnitAssets, backgrounds: BackgroundAssets) {
@@ -61,10 +62,11 @@ struct CameraAnimatorScreen: View {
                     currentIndex: scene.currentIndex,
                     mode: .camera,
                     showSkeleton: false,
-                    onPrepareUndo: commitTimeline,
+                    onPrepareUndo: prepareCameraUndo,
                     onLockedEdit: { showToast("Locked") },
                     onCameraChange: applyCamera,
-                    canMutateCamera: canMutateCamera
+                    canMutateCamera: canMutateCamera,
+                    onCameraTouchCount: noteCameraFingers
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
@@ -399,6 +401,22 @@ struct CameraAnimatorScreen: View {
         }
     }
 
+    /// One snapshot for the whole hold: the drag and every frame it lands on.
+    private func prepareCameraUndo() {
+        if cameraHold.undoArmed {
+            return
+        }
+        commitTimeline()
+        cameraHold.undoArmed = true
+    }
+
+    private func noteCameraFingers(_ count: Int) {
+        cameraHold.fingers = count
+        if count == 0 {
+            cameraHold.undoArmed = false
+        }
+    }
+
     private var currentIndexBinding: Binding<Int> {
         Binding(
             get: { scene.currentIndex },
@@ -406,6 +424,18 @@ struct CameraAnimatorScreen: View {
                 if newIndex < 0 || newIndex >= scene.frames.count {
                     assertionFailure("CameraAnimatorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
                     return
+                }
+                let source = scene.currentIndex
+                if cameraHold.fingers > 0, newIndex != source {
+                    if source < 0 || source >= scene.frames.count {
+                        assertionFailure("CameraAnimatorScreen hold-copy source \(source) out of \(scene.frames.count)")
+                    } else if scene.isCameraPoseLocked(frameIndex: newIndex) {
+                        showToast("Locked")
+                    } else {
+                        prepareCameraUndo()
+                        scene.frames[newIndex].cameraMove = scene.frames[source].cameraMove
+                        scene.retweenCameraEndpoints(frames: [newIndex])
+                    }
                 }
                 scene.currentIndex = newIndex
             }
@@ -426,4 +456,10 @@ struct CameraAnimatorScreen: View {
             }
         )
     }
+}
+
+/// Finger count for the camera hold. A class so a touch does not rebuild the canvas.
+private final class CameraHold {
+    var fingers = 0
+    var undoArmed = false
 }

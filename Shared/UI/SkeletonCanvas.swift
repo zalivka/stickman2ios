@@ -234,7 +234,11 @@ struct SkeletonCanvas: View {
     var onEditError: ((Error) -> Void)? = nil
     var onCameraChange: ((PictureMove) -> Void)? = nil
     var canMutateCamera: Bool = true
+    /// Finger count on the camera overlay. The screen copies the held move when this is non-zero.
+    var onCameraTouchCount: ((Int) -> Void)? = nil
     var onBackgroundChange: ((PictureMove) -> Void)? = nil
+    /// Finger count on the background. The screen copies the held move when this is non-zero.
+    var onBackgroundTouchCount: ((Int) -> Void)? = nil
     @State private var layout: SkeletonLayout?
     @State private var layoutSize: CGSize = .zero
     @State private var fitScale: CGFloat = 1
@@ -389,6 +393,7 @@ struct SkeletonCanvas: View {
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
                         allowsRotation: true,
                         canMutate: canMutateCamera,
+                        onTouchCount: { onCameraTouchCount?($0) },
                         onLocked: { onLockedEdit?() },
                         onPrepareUndo: onPrepareUndo,
                         onChange: cameraChangeHandler
@@ -401,6 +406,7 @@ struct SkeletonCanvas: View {
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
                         allowsRotation: false,
                         canMutate: true,
+                        onTouchCount: { onBackgroundTouchCount?($0) },
                         onLocked: {},
                         onPrepareUndo: onPrepareUndo,
                         onChange: backgroundChangeHandler
@@ -1765,6 +1771,55 @@ struct SkeletonCanvas: View {
     }
 }
 
+/// Counts fingers on the background so a frame change can copy the held move
+/// before the pan recognizer has moved far enough to begin.
+private final class FingerCountView: UIView {
+    var onChange: (Int) -> Void = { _ in }
+    private var active: Set<ObjectIdentifier> = []
+    private var last = -1
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isMultipleTouchEnabled = true
+        backgroundColor = .clear
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("FingerCountView is not decoded")
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            active.insert(ObjectIdentifier(touch))
+        }
+        report()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            active.remove(ObjectIdentifier(touch))
+        }
+        report()
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            active.remove(ObjectIdentifier(touch))
+        }
+        report()
+    }
+
+    /// Only fingers that hit this view. `event.allTouches` also contains the hand on the frame bar.
+    private func report() {
+        let count = active.count
+        if count == last {
+            return
+        }
+        last = count
+        onChange(count)
+    }
+}
+
 private struct CameraTouchOverlay: UIViewRepresentable {
     var currentIndex: Int
     var cameraMove: PictureMove
@@ -1772,6 +1827,7 @@ private struct CameraTouchOverlay: UIViewRepresentable {
     var windowCenter: CGPoint
     var allowsRotation: Bool
     var canMutate: Bool
+    var onTouchCount: (Int) -> Void = { _ in }
     var onLocked: () -> Void
     var onPrepareUndo: (() -> Void)?
     var onChange: (PictureMove) -> Void
@@ -1780,9 +1836,11 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
+    func makeUIView(context: Context) -> FingerCountView {
+        let view = FingerCountView()
+        view.onChange = { [weak coordinator = context.coordinator] count in
+            coordinator?.setFingerCount(count)
+        }
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
         pan.maximumNumberOfTouches = 2
         pan.delegate = context.coordinator
@@ -1791,16 +1849,42 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate))
         rotate.delegate = context.coordinator
         rotate.isEnabled = allowsRotation
+        // A recognized pan would cancel the view's touches and drop the finger count mid-hold.
+        for gesture in [pan, pinch, rotate] as [UIGestureRecognizer] {
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+        }
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(pinch)
         view.addGestureRecognizer(rotate)
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: FingerCountView, context: Context) {
         let coordinator = context.coordinator
+        coordinator.onTouchCount = onTouchCount
+        coordinator.onLocked = onLocked
+        coordinator.onPrepareUndo = onPrepareUndo
+        coordinator.onChange = onChange
         if coordinator.currentIndex != currentIndex {
-            coordinator.working = nil
+            // An in-progress hold must not adopt the frame we just landed on
+            // when that frame is editable — its stored move was just overwritten.
+            if canMutate, coordinator.working != nil {
+                uiView.gestureRecognizers?.forEach { gesture in
+                    switch gesture {
+                    case let pan as UIPanGestureRecognizer:
+                        pan.setTranslation(.zero, in: uiView)
+                    case let pinch as UIPinchGestureRecognizer:
+                        pinch.scale = 1
+                    case let rotation as UIRotationGestureRecognizer:
+                        rotation.rotation = 0
+                    default:
+                        break
+                    }
+                }
+            } else {
+                coordinator.working = nil
+            }
             coordinator.currentIndex = currentIndex
         }
         coordinator.cameraMove = cameraMove
@@ -1808,12 +1892,13 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         coordinator.windowCenter = windowCenter
         coordinator.allowsRotation = allowsRotation
         coordinator.canMutate = canMutate
-        coordinator.onLocked = onLocked
-        coordinator.onPrepareUndo = onPrepareUndo
-        coordinator.onChange = onChange
         uiView.gestureRecognizers?
             .compactMap { $0 as? UIRotationGestureRecognizer }
             .forEach { $0.isEnabled = allowsRotation }
+    }
+
+    static func dismantleUIView(_ uiView: FingerCountView, coordinator: Coordinator) {
+        coordinator.setFingerCount(0)
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
@@ -1826,10 +1911,20 @@ private struct CameraTouchOverlay: UIViewRepresentable {
         var windowCenter = CGPoint.zero
         var allowsRotation = true
         var canMutate = true
+        var onTouchCount: (Int) -> Void = { _ in }
         var onLocked: () -> Void = {}
         var onPrepareUndo: (() -> Void)?
         var onChange: (PictureMove) -> Void = { _ in }
         var working: PictureMove?
+        private var reportedFingers = 0
+
+        func setFingerCount(_ count: Int) {
+            if count == reportedFingers {
+                return
+            }
+            reportedFingers = count
+            onTouchCount(count)
+        }
 
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,

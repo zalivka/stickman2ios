@@ -70,6 +70,7 @@ struct BgAnimatorScreen: View {
     @State private var drawSession: DrawSession?
     @State private var toast = ""
     @State private var backgroundRevision = 0
+    @State private var bgHold = BgHold()
     @StateObject private var undo = SceneUndo()
 
     init(scene: Binding<StickmanScene>, assets: UnitAssets, backgrounds: BackgroundAssets) {
@@ -506,6 +507,22 @@ struct BgAnimatorScreen: View {
         }
     }
 
+    /// One snapshot for the whole hold: the drag and every frame it lands on.
+    private func prepareBgUndo() {
+        if bgHold.undoArmed {
+            return
+        }
+        commitTimeline()
+        bgHold.undoArmed = true
+    }
+
+    private func noteBgFingers(_ count: Int) {
+        bgHold.fingers = count
+        if count == 0 {
+            bgHold.undoArmed = false
+        }
+    }
+
     #if DEBUG
     private var debugBackgroundInfo: String? {
         _ = backgroundRevision
@@ -548,8 +565,9 @@ struct BgAnimatorScreen: View {
                 currentIndex: scene.currentIndex,
                 mode: .background,
                 showSkeleton: false,
-                onPrepareUndo: commitTimeline,
-                onBackgroundChange: applyBgMove
+                onPrepareUndo: prepareBgUndo,
+                onBackgroundChange: applyBgMove,
+                onBackgroundTouchCount: noteBgFingers
             )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SkeletonCanvas.pane)
@@ -757,6 +775,15 @@ struct BgAnimatorScreen: View {
                     assertionFailure("BgAnimatorScreen currentIndex \(newIndex) out of \(scene.frames.count)")
                     return
                 }
+                let source = scene.currentIndex
+                if bgHold.fingers > 0, newIndex != source {
+                    if source < 0 || source >= scene.frames.count {
+                        assertionFailure("BgAnimatorScreen hold-copy source \(source) out of \(scene.frames.count)")
+                    } else {
+                        prepareBgUndo()
+                        scene.frames[newIndex].bgMove = scene.frames[source].bgMove
+                    }
+                }
                 scene.currentIndex = newIndex
             }
         )
@@ -776,6 +803,12 @@ struct BgAnimatorScreen: View {
             }
         )
     }
+}
+
+/// Finger count for the background hold. A class so a touch does not rebuild the canvas.
+private final class BgHold {
+    var fingers = 0
+    var undoArmed = false
 }
 
 private struct UsedBackgroundEditMenu: ViewModifier {
