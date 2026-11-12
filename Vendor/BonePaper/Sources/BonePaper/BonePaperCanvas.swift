@@ -23,9 +23,243 @@ public struct BonePaperPlacement {
     }
 }
 
+/// Floating image state and 1-finger move/scale/rotate gesture handler for `BonePaperStageView`.
+/// Center coordinates are stored in world space so page growth does not shift the image.
+final class BonePaperImagePlacement {
+    static let boxColor = UIColor(red: 0x45 / 255.0, green: 0x96 / 255.0, blue: 0xFF / 255.0, alpha: 1)
+    static let rotateColor = UIColor(red: 1.0, green: 0x91 / 255.0, blue: 0, alpha: 1)
+    static let initialMaxPageFraction: CGFloat = 0.7
+    static let minSidePagePx: CGFloat = 8
+    static let rotateStemPt: CGFloat = 28
+    static let cornerHandleRadiusPt: CGFloat = 8
+    static let rotateHandleRadiusPt: CGFloat = 10
+    static let handleHitRadiusPt: CGFloat = 24
+
+    private enum GestureMode {
+        case none
+        case move
+        case scale
+        case rotate
+    }
+
+    let image: CGImage
+    private(set) var centerWorld: CGPoint
+    private(set) var scale: CGFloat
+    private(set) var angleRadians: CGFloat
+
+    private var gestureMode: GestureMode = .none
+    private var downCenterWorld: CGPoint = .zero
+    private var downScale: CGFloat = 1
+    private var downAngleRadians: CGFloat = 0
+    private var downTouchWorld: CGPoint = .zero
+    private var downCenterScreen: CGPoint = .zero
+    private var downDistScreen: CGFloat = 1
+    private var downAngleScreenRad: CGFloat = 0
+
+    private var screenCorners: [CGPoint] = Array(repeating: .zero, count: 4)
+    private var screenTopMid: CGPoint = .zero
+    private var screenCenter: CGPoint = .zero
+    private var screenRotateHandle: CGPoint = .zero
+
+    private init(
+        image: CGImage,
+        centerWorld: CGPoint,
+        scale: CGFloat,
+        angleRadians: CGFloat
+    ) {
+        self.image = image
+        self.centerWorld = centerWorld
+        self.scale = scale
+        self.angleRadians = angleRadians
+    }
+
+    static func create(
+        image: CGImage,
+        document: BonePaperDocument,
+        boneStart: CGPoint?,
+        boneTip: CGPoint?,
+        stageAngle: CGFloat,
+        stageMirror: Bool
+    ) -> BonePaperImagePlacement {
+        if image.width < 1 || image.height < 1 {
+            fatalError("BonePaperImagePlacement invalid image size \(image.width)x\(image.height)")
+        }
+        let centerWorld: CGPoint
+        if let start = boneStart, let tip = boneTip {
+            centerWorld = CGPoint(
+                x: CGFloat(document.originX + document.extraLeft) + (start.x + tip.x) * 0.5,
+                y: CGFloat(document.originY + document.extraTop) + (start.y + tip.y) * 0.5
+            )
+        } else {
+            centerWorld = CGPoint(
+                x: CGFloat(document.originX) + CGFloat(document.width) * 0.5,
+                y: CGFloat(document.originY) + CGFloat(document.height) * 0.5
+            )
+        }
+        let maxW = CGFloat(document.width) * initialMaxPageFraction
+        let maxH = CGFloat(document.height) * initialMaxPageFraction
+        let fitScale = min(1, min(maxW / CGFloat(image.width), maxH / CGFloat(image.height)))
+        let initialScale = clampScale(for: image, candidate: fitScale)
+        let initialAngle = stageMirror ? stageAngle : -stageAngle
+
+        return BonePaperImagePlacement(
+            image: image,
+            centerWorld: centerWorld,
+            scale: initialScale,
+            angleRadians: initialAngle
+        )
+    }
+
+    func worldTransform() -> CGAffineTransform {
+        CGAffineTransform(translationX: centerWorld.x, y: centerWorld.y)
+            .rotated(by: angleRadians)
+            .scaledBy(x: scale, y: scale)
+            .translatedBy(x: -CGFloat(image.width) * 0.5, y: -CGFloat(image.height) * 0.5)
+    }
+
+    func computeScreenGeometry(worldToScreen: (CGPoint) -> CGPoint) -> (
+        corners: [CGPoint],
+        topMid: CGPoint,
+        rotateHandle: CGPoint
+    ) {
+        let w = CGFloat(image.width)
+        let h = CGFloat(image.height)
+        let m = worldTransform()
+        let localCorners = [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: w, y: 0),
+            CGPoint(x: w, y: h),
+            CGPoint(x: 0, y: h)
+        ]
+        for i in 0..<4 {
+            screenCorners[i] = worldToScreen(localCorners[i].applying(m))
+        }
+        screenTopMid = worldToScreen(CGPoint(x: w * 0.5, y: 0).applying(m))
+        screenCenter = worldToScreen(CGPoint(x: w * 0.5, y: h * 0.5).applying(m))
+
+        let dirX = screenTopMid.x - screenCenter.x
+        let dirY = screenTopMid.y - screenCenter.y
+        let len = hypot(dirX, dirY)
+        if len > 1e-3 {
+            screenRotateHandle = CGPoint(
+                x: screenTopMid.x + (dirX / len) * Self.rotateStemPt,
+                y: screenTopMid.y + (dirY / len) * Self.rotateStemPt
+            )
+        } else {
+            screenRotateHandle = CGPoint(
+                x: screenTopMid.x,
+                y: screenTopMid.y - Self.rotateStemPt
+            )
+        }
+        return (screenCorners, screenTopMid, screenRotateHandle)
+    }
+
+    func onDown(
+        screenPoint: CGPoint,
+        worldToScreen: (CGPoint) -> CGPoint,
+        screenToWorld: (CGPoint) -> CGPoint
+    ) {
+        _ = computeScreenGeometry(worldToScreen: worldToScreen)
+        downCenterWorld = centerWorld
+        downScale = scale
+        downAngleRadians = angleRadians
+        downCenterScreen = screenCenter
+
+        if hypot(screenPoint.x - screenRotateHandle.x, screenPoint.y - screenRotateHandle.y) <= Self.handleHitRadiusPt {
+            gestureMode = .rotate
+            downAngleScreenRad = atan2(
+                screenPoint.y - downCenterScreen.y,
+                screenPoint.x - downCenterScreen.x
+            )
+            return
+        }
+
+        for corner in screenCorners {
+            if hypot(screenPoint.x - corner.x, screenPoint.y - corner.y) <= Self.handleHitRadiusPt {
+                gestureMode = .scale
+                downDistScreen = max(
+                    1,
+                    hypot(screenPoint.x - downCenterScreen.x, screenPoint.y - downCenterScreen.y)
+                )
+                return
+            }
+        }
+
+        gestureMode = .move
+        downTouchWorld = screenToWorld(screenPoint)
+    }
+
+    func onMove(
+        screenPoint: CGPoint,
+        stageMirror: Bool,
+        screenToWorld: (CGPoint) -> CGPoint
+    ) {
+        switch gestureMode {
+        case .none:
+            return
+        case .rotate:
+            let angleRad = atan2(
+                screenPoint.y - downCenterScreen.y,
+                screenPoint.x - downCenterScreen.x
+            )
+            let delta = angleRad - downAngleScreenRad
+            angleRadians = downAngleRadians + (stageMirror ? -delta : delta)
+        case .scale:
+            let dist = max(
+                1,
+                hypot(screenPoint.x - downCenterScreen.x, screenPoint.y - downCenterScreen.y)
+            )
+            scale = Self.clampScale(for: image, candidate: downScale * (dist / downDistScreen))
+        case .move:
+            let touchWorld = screenToWorld(screenPoint)
+            centerWorld = CGPoint(
+                x: downCenterWorld.x + (touchWorld.x - downTouchWorld.x),
+                y: downCenterWorld.y + (touchWorld.y - downTouchWorld.y)
+            )
+        }
+    }
+
+    func endGesture() {
+        gestureMode = .none
+    }
+
+    func cancelGesture() {
+        if gestureMode != .none {
+            centerWorld = downCenterWorld
+            scale = downScale
+            angleRadians = downAngleRadians
+            gestureMode = .none
+        }
+    }
+
+    private static func clampScale(for image: CGImage, candidate: CGFloat) -> CGFloat {
+        let minSide = CGFloat(max(1, min(image.width, image.height)))
+        let maxSide = CGFloat(max(1, max(image.width, image.height)))
+        let minScale = minSidePagePx / minSide
+        let maxScale = (CGFloat(BonePaperDocument.maxSide) * 2) / maxSide
+        return max(minScale, min(maxScale, candidate))
+    }
+}
+
 /// Lets the screen run the exit zoom on the UIKit stage.
 final class BonePaperStage {
     weak var view: BonePaperStageView?
+
+    var hasImagePlacement: Bool {
+        view?.hasImagePlacement ?? false
+    }
+
+    func startImagePlacement(_ image: CGImage) {
+        view?.startImagePlacement(image)
+    }
+
+    func commitImagePlacement() -> Bool {
+        view?.commitImagePlacement() ?? false
+    }
+
+    func cancelImagePlacement() {
+        view?.cancelImagePlacement()
+    }
 
     func zoomBack(duration: TimeInterval, completion: @escaping () -> Void) {
         guard let view else {
@@ -62,6 +296,7 @@ struct BonePaperCanvas: UIViewRepresentable {
     var zoom: Binding<CGFloat>
     var fitInsets: UIEdgeInsets
     var onCommitStroke: () -> Void
+    var onImagePlacementChanged: ((Bool) -> Void)? = nil
 
     func makeUIView(context: Context) -> BonePaperStageView {
         let view = BonePaperStageView(placement: placement)
@@ -86,10 +321,12 @@ struct BonePaperCanvas: UIViewRepresentable {
         view.paper.paperColor = paper
         view.paper.onCommitStroke = onCommitStroke
         view.onZoom = { zoom.wrappedValue = $0 }
+        view.onImagePlacementChanged = onImagePlacementChanged
         view.setPanMode(tool == .pan)
         view.fitInsets = fitInsets
         view.layoutPaper(side: CGFloat(document.worldSize))
         view.paper.show(document)
+        view.syncImagePlacement()
     }
 }
 
@@ -102,6 +339,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
 
     let paper = BonePaperDrawView()
     var onZoom: ((CGFloat) -> Void)?
+    var onImagePlacementChanged: ((Bool) -> Void)?
     var fitInsets: UIEdgeInsets = .zero {
         didSet {
             if oldValue == fitInsets {
@@ -114,6 +352,10 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
 
     private let placement: BonePaperPlacement?
     private let backdrop = UIView()
+    private let placementBoxHaloLayer = CAShapeLayer()
+    private let placementBoxStrokeLayer = CAShapeLayer()
+    private let placementCornerHandlesLayer = CAShapeLayer()
+    private let placementRotateHandleLayer = CAShapeLayer()
     private let cursorHaloLayer = CAShapeLayer()
     private let cursorStrokeLayer = CAShapeLayer()
     private let pan = UIPanGestureRecognizer()
@@ -129,6 +371,12 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
     private var needsFit = true
     private var entryScreen: CGPoint = .zero
     private var entryZoom: CGFloat = 1
+    private var panModeRequested = false
+    private(set) var imagePlacement: BonePaperImagePlacement?
+
+    var hasImagePlacement: Bool {
+        imagePlacement != nil
+    }
 
     init(placement: BonePaperPlacement?) {
         self.placement = placement
@@ -142,6 +390,34 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         addSubview(backdrop)
         addSubview(paper)
         paper.stageView = self
+
+        placementBoxHaloLayer.fillColor = nil
+        placementBoxHaloLayer.strokeColor = UIColor.white.withAlphaComponent(220.0 / 255.0).cgColor
+        placementBoxHaloLayer.lineWidth = 3
+        placementBoxHaloLayer.lineCap = .round
+        placementBoxHaloLayer.lineJoin = .round
+        placementBoxHaloLayer.isHidden = true
+        layer.addSublayer(placementBoxHaloLayer)
+
+        placementBoxStrokeLayer.fillColor = nil
+        placementBoxStrokeLayer.strokeColor = BonePaperImagePlacement.boxColor.cgColor
+        placementBoxStrokeLayer.lineWidth = 1.5
+        placementBoxStrokeLayer.lineCap = .round
+        placementBoxStrokeLayer.lineJoin = .round
+        placementBoxStrokeLayer.isHidden = true
+        layer.addSublayer(placementBoxStrokeLayer)
+
+        placementCornerHandlesLayer.fillColor = UIColor.white.cgColor
+        placementCornerHandlesLayer.strokeColor = BonePaperImagePlacement.boxColor.cgColor
+        placementCornerHandlesLayer.lineWidth = 2
+        placementCornerHandlesLayer.isHidden = true
+        layer.addSublayer(placementCornerHandlesLayer)
+
+        placementRotateHandleLayer.fillColor = BonePaperImagePlacement.rotateColor.cgColor
+        placementRotateHandleLayer.strokeColor = UIColor.white.cgColor
+        placementRotateHandleLayer.lineWidth = 2
+        placementRotateHandleLayer.isHidden = true
+        layer.addSublayer(placementRotateHandleLayer)
 
         cursorHaloLayer.fillColor = nil
         cursorHaloLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
@@ -177,8 +453,145 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
     }
 
     func setPanMode(_ on: Bool) {
-        paper.isUserInteractionEnabled = !on
-        pan.minimumNumberOfTouches = on ? 1 : 2
+        panModeRequested = on
+        let effectivePan = on && imagePlacement == nil
+        paper.isUserInteractionEnabled = !effectivePan
+        pan.minimumNumberOfTouches = effectivePan ? 1 : 2
+    }
+
+    func startImagePlacement(_ image: CGImage) {
+        guard let document = paper.document else { return }
+        if document.filling { return }
+        paper.abortStroke()
+        imagePlacement = BonePaperImagePlacement.create(
+            image: image,
+            document: document,
+            boneStart: paper.boneStart,
+            boneTip: paper.boneTip,
+            stageAngle: angle,
+            stageMirror: mirror
+        )
+        setPanMode(panModeRequested)
+        syncImagePlacement()
+        onImagePlacementChanged?(true)
+    }
+
+    @discardableResult
+    func commitImagePlacement() -> Bool {
+        guard let currentPlacement = imagePlacement, let document = paper.document else {
+            return false
+        }
+        if document.filling {
+            return false
+        }
+        currentPlacement.cancelGesture()
+        document.stampBitmapWorld(
+            currentPlacement.image,
+            centerWorld: currentPlacement.centerWorld,
+            scale: currentPlacement.scale,
+            angleRadians: currentPlacement.angleRadians
+        )
+        imagePlacement = nil
+        setPanMode(panModeRequested)
+        paper.show(document)
+        syncImagePlacement()
+        onImagePlacementChanged?(false)
+        return true
+    }
+
+    func cancelImagePlacement() {
+        guard let currentPlacement = imagePlacement else { return }
+        currentPlacement.cancelGesture()
+        imagePlacement = nil
+        setPanMode(panModeRequested)
+        syncImagePlacement()
+        onImagePlacementChanged?(false)
+    }
+
+    func syncImagePlacement() {
+        paper.updatePlacementLayer(imagePlacement)
+        updatePlacementOverlay()
+    }
+
+    func updatePlacementOverlay() {
+        guard let currentPlacement = imagePlacement else {
+            if !placementBoxHaloLayer.isHidden {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                placementBoxHaloLayer.isHidden = true
+                placementBoxStrokeLayer.isHidden = true
+                placementCornerHandlesLayer.isHidden = true
+                placementRotateHandleLayer.isHidden = true
+                CATransaction.commit()
+            }
+            return
+        }
+        let geom = currentPlacement.computeScreenGeometry { world in
+            screenPoint(world)
+        }
+        let boxPath = CGMutablePath()
+        if geom.corners.count == 4 {
+            boxPath.move(to: geom.corners[0])
+            boxPath.addLine(to: geom.corners[1])
+            boxPath.addLine(to: geom.corners[2])
+            boxPath.addLine(to: geom.corners[3])
+            boxPath.closeSubpath()
+        }
+        boxPath.move(to: geom.topMid)
+        boxPath.addLine(to: geom.rotateHandle)
+
+        let cornersPath = CGMutablePath()
+        let cr = BonePaperImagePlacement.cornerHandleRadiusPt
+        for corner in geom.corners {
+            cornersPath.addEllipse(in: CGRect(x: corner.x - cr, y: corner.y - cr, width: cr * 2, height: cr * 2))
+        }
+
+        let rr = BonePaperImagePlacement.rotateHandleRadiusPt
+        let rotatePath = CGPath(
+            ellipseIn: CGRect(
+                x: geom.rotateHandle.x - rr,
+                y: geom.rotateHandle.y - rr,
+                width: rr * 2,
+                height: rr * 2
+            ),
+            transform: nil
+        )
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        placementBoxHaloLayer.path = boxPath
+        placementBoxStrokeLayer.path = boxPath
+        placementCornerHandlesLayer.path = cornersPath
+        placementRotateHandleLayer.path = rotatePath
+        placementBoxHaloLayer.isHidden = false
+        placementBoxStrokeLayer.isHidden = false
+        placementCornerHandlesLayer.isHidden = false
+        placementRotateHandleLayer.isHidden = false
+        CATransaction.commit()
+    }
+
+    func worldPoint(fromStage stagePt: CGPoint) -> CGPoint {
+        guard let document = paper.document else {
+            return .zero
+        }
+        let side = paper.bounds.width
+        if side <= 0 {
+            return .zero
+        }
+        let local = paper.convert(stagePt, from: self)
+        let world = CGFloat(document.worldSize)
+        return CGPoint(
+            x: local.x / side * world,
+            y: local.y / side * world
+        )
+    }
+
+    func stagePoint(fromWorld worldPt: CGPoint) -> CGPoint {
+        screenPoint(worldPt)
+    }
+
+    var isStageMirrored: Bool {
+        mirror
     }
 
     func layoutPaper(side: CGFloat) {
@@ -226,6 +639,9 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began || gesture.state == .changed {
+            paper.abortStroke()
+        }
         let delta = gesture.translation(in: self)
         gesture.setTranslation(.zero, in: self)
         anchorScreen.x += delta.x
@@ -508,6 +924,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         let fromCenter = CGPoint(x: anchorWorld.x - half, y: anchorWorld.y - half).applying(t)
         paper.transform = t
         paper.center = CGPoint(x: anchorScreen.x - fromCenter.x, y: anchorScreen.y - fromCenter.y)
+        updatePlacementOverlay()
     }
 }
 
@@ -530,6 +947,9 @@ final class BonePaperDrawView: UIView {
     private let onionView = UIImageView()
     private weak var displayedOnion: CGImage?
     private let bitmap = UIImageView()
+    private let placementClipView = UIView()
+    private let placementImageView = UIImageView()
+    private weak var displayedPlacementImage: CGImage?
     /// Displays `document.maskOverlay` above the drawing to dim the area outside the active mask.
     /// Named `maskOverlayView` to avoid colliding with `UIView.mask`.
     private let maskOverlayView = UIImageView()
@@ -562,6 +982,14 @@ final class BonePaperDrawView: UIView {
         bitmap.isUserInteractionEnabled = false
         bitmap.contentMode = .scaleToFill
         bitmap.backgroundColor = .clear
+        placementClipView.isUserInteractionEnabled = false
+        placementClipView.clipsToBounds = true
+        placementClipView.backgroundColor = .clear
+        placementClipView.isHidden = true
+        placementImageView.isUserInteractionEnabled = false
+        placementImageView.contentMode = .scaleToFill
+        placementImageView.backgroundColor = .clear
+        placementClipView.addSubview(placementImageView)
         maskOverlayView.isUserInteractionEnabled = false
         maskOverlayView.contentMode = .scaleToFill
         maskOverlayView.backgroundColor = .clear
@@ -576,6 +1004,7 @@ final class BonePaperDrawView: UIView {
         addSubview(paperView)
         addSubview(onionView)
         addSubview(bitmap)
+        addSubview(placementClipView)
         addSubview(maskOverlayView)
         layer.addSublayer(frameLayer)
         layer.addSublayer(boneLayer)
@@ -650,6 +1079,39 @@ final class BonePaperDrawView: UIView {
         paperView.backgroundColor = paperColor
         paperView.isHidden = paperColor == nil
         layoutMarks(document)
+        updatePlacementLayer(stageView?.imagePlacement)
+    }
+
+    func updatePlacementLayer(_ placement: BonePaperImagePlacement?) {
+        guard let placement, let document else {
+            placementClipView.isHidden = true
+            placementImageView.image = nil
+            displayedPlacementImage = nil
+            return
+        }
+        let clipRect = (boneStart != nil && boneTip != nil) ? bounds : bitmapRect(document)
+        placementClipView.frame = clipRect
+        placementClipView.isHidden = false
+        if displayedPlacementImage !== placement.image {
+            displayedPlacementImage = placement.image
+            placementImageView.image = UIImage(cgImage: placement.image)
+            placementImageView.bounds = CGRect(
+                x: 0,
+                y: 0,
+                width: CGFloat(placement.image.width),
+                height: CGFloat(placement.image.height)
+            )
+        }
+        let side = CGFloat(document.worldSize)
+        let scaleFactor = bounds.width > 0 ? bounds.width / side : 1
+        placementImageView.transform = CGAffineTransform(
+            scaleX: placement.scale * scaleFactor,
+            y: placement.scale * scaleFactor
+        ).rotated(by: placement.angleRadians)
+        placementImageView.center = CGPoint(
+            x: placement.centerWorld.x * scaleFactor - clipRect.minX,
+            y: placement.centerWorld.y * scaleFactor - clipRect.minY
+        )
     }
 
     private func layoutMarks(_ document: BonePaperDocument) {
@@ -672,6 +1134,22 @@ final class BonePaperDrawView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if document?.filling == true { return }
+        if let stageView, let placement = stageView.imagePlacement {
+            if event?.allTouches?.count != 1 {
+                placement.cancelGesture()
+                stageView.syncImagePlacement()
+                return
+            }
+            guard let touch = touches.first else { return }
+            let screenPt = touch.location(in: stageView)
+            placement.onDown(
+                screenPoint: screenPt,
+                worldToScreen: { stageView.stagePoint(fromWorld: $0) },
+                screenToWorld: { stageView.worldPoint(fromStage: $0) }
+            )
+            stageView.syncImagePlacement()
+            return
+        }
         if tool == .pan { return }
         if event?.allTouches?.count != 1 {
             abortStroke()
@@ -692,6 +1170,22 @@ final class BonePaperDrawView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if document?.filling == true { return }
+        if let stageView, let placement = stageView.imagePlacement {
+            if event?.allTouches?.count != 1 {
+                placement.cancelGesture()
+                stageView.syncImagePlacement()
+                return
+            }
+            guard let touch = touches.first else { return }
+            let screenPt = touch.location(in: stageView)
+            placement.onMove(
+                screenPoint: screenPt,
+                stageMirror: stageView.isStageMirrored,
+                screenToWorld: { stageView.worldPoint(fromStage: $0) }
+            )
+            stageView.syncImagePlacement()
+            return
+        }
         if event?.allTouches?.count != 1 {
             abortStroke()
             return
@@ -751,6 +1245,11 @@ final class BonePaperDrawView: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let stageView, let placement = stageView.imagePlacement {
+            placement.endGesture()
+            stageView.syncImagePlacement()
+            return
+        }
         if let touch = touches.first {
             document?.recorder.touchMoved(samples(touch, event))
         }
@@ -765,6 +1264,10 @@ final class BonePaperDrawView: UIView {
     // Second finger or pinch: discard, do not endStroke() which would keep the speck.
     func abortStroke() {
         stageView?.hideOffsetCursor()
+        if let stageView, let placement = stageView.imagePlacement {
+            placement.cancelGesture()
+            stageView.syncImagePlacement()
+        }
         if stroking {
             document?.cancelStroke()
         }
@@ -811,6 +1314,24 @@ final class BonePaperDrawView: UIView {
         leftCloseZone = false
         pendingView = nil
         stroking = false
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if let stageView, let placement = stageView.imagePlacement {
+            let screenPt = convert(point, to: stageView)
+            let geom = placement.computeScreenGeometry { stageView.stagePoint(fromWorld: $0) }
+            let r = BonePaperImagePlacement.handleHitRadiusPt
+            if hypot(screenPt.x - geom.rotateHandle.x, screenPt.y - geom.rotateHandle.y) <= r {
+                return true
+            }
+            for corner in geom.corners {
+                if hypot(screenPt.x - corner.x, screenPt.y - corner.y) <= r {
+                    return true
+                }
+            }
+            return true
+        }
+        return super.point(inside: point, with: event)
     }
 
     /// Every coalesced sample of `touch` in this event (up to 240 Hz), in world coordinates with touch timestamps.

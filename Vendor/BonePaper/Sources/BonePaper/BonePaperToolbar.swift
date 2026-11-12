@@ -374,6 +374,38 @@ struct BonePaperMenuButton: View {
     }
 }
 
+private struct SkeletonSplitCloseShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let scale = min(rect.width, rect.height) / 24
+        let ox = rect.minX + (rect.width - 24 * scale) / 2
+        let oy = rect.minY + (rect.height - 24 * scale) / 2
+        var path = Path()
+        path.move(to: CGPoint(x: ox + 6 * scale, y: oy + 6 * scale))
+        path.addLine(to: CGPoint(x: ox + 18 * scale, y: oy + 18 * scale))
+        path.move(to: CGPoint(x: ox + 18 * scale, y: oy + 6 * scale))
+        path.addLine(to: CGPoint(x: ox + 6 * scale, y: oy + 18 * scale))
+        return path
+    }
+}
+
+struct BonePaperPlacementCancelButton: View {
+    private static let bgRed = Color(red: 0xE6 / 255, green: 0x38 / 255, blue: 0x36 / 255)
+    var onCancel: () -> Void
+
+    var body: some View {
+        Button(action: onCancel) {
+            SkeletonSplitCloseShape()
+                .stroke(Color.white, style: StrokeStyle(lineWidth: 2.5 * (24.0 / 24.0), lineCap: .round))
+                .frame(width: 24, height: 24)
+                .frame(width: BonePaperChrome.leftRail, height: 61)
+                .background(Self.bgRed)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Cancel")
+    }
+}
+
 struct BonePaperSideMenu: View {
     static let width: CGFloat = 200
     private static let dividerColor = Color(red: 0x38 / 255, green: 0x3A / 255, blue: 0x4A / 255)
@@ -383,11 +415,36 @@ struct BonePaperSideMenu: View {
     var showFrames: Bool
     var hasMask: Bool
     @Binding var brushOffset: Double
+    var onPickImage: (() -> Void)? = nil
     var onToggleShowFrames: () -> Void
     var onMask: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let onPickImage {
+                Button(action: onPickImage) {
+                    HStack(spacing: 10) {
+                        Image(uiImage: BonePaperChrome.chromeImage("v3pickimage"))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 22, height: 22)
+                        Text("Image")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Self.dividerColor
+                    .frame(height: 1)
+                    .padding(.horizontal, 12)
+            }
+
             if showsFramesToggle {
                 Button(action: onToggleShowFrames) {
                     HStack(spacing: 10) {
@@ -595,6 +652,8 @@ struct BonePaperStrokeControls: View {
     var eraserMarks: [CGFloat]
     var showingMenu: Bool
     var onToggleMenu: () -> Void
+    var isPlacingImage: Bool = false
+    var onCancelPlacement: () -> Void = {}
     var canUndo: Bool
     var onUndo: () -> Void
     var canRedo: Bool
@@ -622,9 +681,14 @@ struct BonePaperStrokeControls: View {
     var body: some View {
         let itemSpacing: CGFloat = isPad ? 3 : 2
         let bottomPad: CGFloat = isPad ? bottomInset + BonePaperChrome.pad : max(bottomInset, 8)
+        let dimAlpha: Double = isPlacingImage ? 0.25 : 1.0
         GeometryReader { geo in
             VStack(alignment: .leading, spacing: 0) {
-                BonePaperMenuButton(activated: showingMenu, onTap: onToggleMenu)
+                if isPlacingImage {
+                    BonePaperPlacementCancelButton(onCancel: onCancelPlacement)
+                } else {
+                    BonePaperMenuButton(activated: showingMenu, onTap: onToggleMenu)
+                }
                 Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: itemSpacing) {
                     if isPad {
@@ -638,13 +702,17 @@ struct BonePaperStrokeControls: View {
                     eraserControl
                 }
                 .padding(.leading, BonePaperChrome.railIconInset)
+                .opacity(dimAlpha)
+                .disabled(isPlacingImage)
                 Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: itemSpacing) {
-                    BonePaperRedoButton(canRedo: canRedo, showsCaption: isPad, onRedo: onRedo)
-                    BonePaperUndoButton(canUndo: canUndo, showsCaption: isPad, onUndo: onUndo)
+                    BonePaperRedoButton(canRedo: canRedo && !isPlacingImage, showsCaption: isPad, onRedo: onRedo)
+                    BonePaperUndoButton(canUndo: canUndo && !isPlacingImage, showsCaption: isPad, onUndo: onUndo)
                 }
                 .padding(.leading, BonePaperChrome.railIconInset)
                 .padding(.bottom, bottomPad)
+                .opacity(dimAlpha)
+                .disabled(isPlacingImage)
             }
             .animation(nil, value: tool)
             .frame(width: railWidth, height: geo.size.height, alignment: .leading)

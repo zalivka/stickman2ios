@@ -1,3 +1,4 @@
+import BonePaper
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -468,6 +469,25 @@ struct AssetsLibrarySheet: View {
             if toast == text {
                 toast = ""
             }
+        }
+    }
+
+    @MainActor static func configureBonePaperImagePicker() {
+        BonePaperScreen.imagePickerSheetProvider = { onPicked, onCancel in
+            AnyView(
+                AssetsLibrarySheet(
+                    mode: .pickImage { entry in
+                        do {
+                            let cgImage = try ImageLibrary.decodeForBonePaper(entry: entry)
+                            onPicked(cgImage)
+                        } catch {
+                            onCancel()
+                            ToastCenter.show("Failed to load image")
+                        }
+                    },
+                    onCancel: onCancel
+                )
+            )
         }
     }
 }

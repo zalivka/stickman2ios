@@ -27,6 +27,7 @@ struct at_elementsApp: App {
         Records.boot()
         BootLog.say("App.init")
         StickmanFonts.boot()
+        AssetsLibrarySheet.configureBonePaperImagePicker()
     }
 
     var body: some Scene {

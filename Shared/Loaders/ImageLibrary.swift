@@ -5,6 +5,7 @@ import UIKit
 /// each saved as `<id>.png` (capped at 2048px) and `<id>_thumb.png` (capped at 256px).
 enum ImageLibrary {
     static let maxDimension = 2048
+    static let maxBonePaperDimension = 3072
     static let thumbMaxDimension = 256
     private static let thumbSuffix = "_thumb.png"
     private static let mainExt = ".png"
@@ -183,6 +184,27 @@ enum ImageLibrary {
         return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
+    }
+
+    static func decodeForBonePaper(entry: Entry) throws -> CGImage {
+        let data: Data
+        do {
+            data = try Data(contentsOf: entry.mainURL)
+        } catch {
+            throw Failure.ioFailed(entry.mainURL.lastPathComponent, error)
+        }
+        guard !data.isEmpty, let decoded = UIImage(data: data) else {
+            throw Failure.unreadableImage(entry.mainURL.lastPathComponent)
+        }
+        let normalized = reasonableImage(
+            decoded,
+            minDesiredWidth: maxBonePaperDimension,
+            minDesiredHeight: maxBonePaperDimension
+        )
+        guard let cgImage = normalized.cgImage, cgImage.width > 0, cgImage.height > 0 else {
+            throw Failure.unreadableImage(entry.mainURL.lastPathComponent)
+        }
+        return cgImage
     }
 
     /// Android `ImageLibraryRepository.makeThumb`: square thumbnail of size `thumbMaxDimension`,

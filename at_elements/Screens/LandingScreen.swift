@@ -225,6 +225,7 @@ private struct MakePane: View {
                 ShipBoilScreen()
             }
             .navigationDestination(isPresented: $openDraw) {
+                let _ = AssetsLibrarySheet.configureBonePaperImagePicker()
                 BonePaperScreen(
                     sheet: BonePaperSheet(width: 640, height: 480, paper: .white)
                 )

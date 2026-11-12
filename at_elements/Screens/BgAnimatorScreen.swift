@@ -227,6 +227,7 @@ struct BgAnimatorScreen: View {
             )
         }
         .fullScreenCover(item: $drawSession) { session in
+            let _ = AssetsLibrarySheet.configureBonePaperImagePicker()
             Group {
                 if let buffer = session.buffer {
                     BonePaperScreen(

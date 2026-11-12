@@ -2,6 +2,11 @@ import SwiftUI
 
 public struct BonePaperScreen: View {
     public static var worldSide: Int { BonePaperDocument.maxSide }
+    /// Provider registered by the app target to build the image picker sheet (e.g. `AssetsLibrarySheet`).
+    @MainActor public static var imagePickerSheetProvider: ((
+        @escaping (CGImage) -> Void,
+        @escaping () -> Void
+    ) -> AnyView)?
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var document: BonePaperDocument
@@ -27,6 +32,8 @@ public struct BonePaperScreen: View {
     @State private var showingMenu = false
     @State private var showFramesPanel = false
     @State private var isRearrangingFrames = false
+    @State private var hasImagePlacement = false
+    @State private var showingImagePicker = false
     @State private var brushOffset: Double = Double(BonePaperToolStore.brushOffset)
     @State private var errorStripeOpacity: Double = 0
     @State private var errorStripeTask: Task<Void, Never>?
@@ -322,7 +329,10 @@ public struct BonePaperScreen: View {
                         stage: stage,
                         zoom: $zoom,
                         fitInsets: fit,
-                        onCommitStroke: recordCommittedStroke
+                        onCommitStroke: recordCommittedStroke,
+                        onImagePlacementChanged: { placing in
+                            hasImagePlacement = placing
+                        }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -383,7 +393,8 @@ public struct BonePaperScreen: View {
                         .ignoresSafeArea(edges: .bottom)
                         .padding(.leading, BonePaperChrome.leftRail)
                         .offset(x: -safe.leading)
-                        .opacity(chromeOpacity)
+                        .opacity(chromeOpacity * (hasImagePlacement ? 0.25 : 1.0))
+                        .disabled(hasImagePlacement)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                 }
@@ -439,6 +450,8 @@ public struct BonePaperScreen: View {
                                 flashStrokePreview()
                             }
                         )
+                        .opacity(hasImagePlacement ? 0.25 : 1.0)
+                        .disabled(hasImagePlacement)
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.trailing, BonePaperChrome.pad)
@@ -461,6 +474,13 @@ public struct BonePaperScreen: View {
                                 showFrames: showFramesPanel,
                                 hasMask: document.hasMask,
                                 brushOffset: $brushOffset,
+                                onPickImage: Self.imagePickerSheetProvider != nil ? {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingMenu = false
+                                    }
+                                    guard !document.filling else { return }
+                                    showingImagePicker = true
+                                } : nil,
                                 onToggleShowFrames: {
                                     withAnimation(.easeInOut(duration: 0.17)) {
                                         showFramesPanel.toggle()
@@ -517,6 +537,10 @@ public struct BonePaperScreen: View {
                                 showingMenu.toggle()
                             }
                         },
+                        isPlacingImage: hasImagePlacement,
+                        onCancelPlacement: {
+                            cancelImagePlacement()
+                        },
                         canUndo: document.canUndo,
                         onUndo: {
                             document.undo()
@@ -568,6 +592,8 @@ public struct BonePaperScreen: View {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     showingMenu = false
                                 }
+                            } else if hasImagePlacement {
+                                cancelImagePlacement()
                             } else {
                                 leave()
                             }
@@ -665,6 +691,36 @@ public struct BonePaperScreen: View {
                 activeStrokeSetting = nil
             }
         }
+        .sheet(isPresented: $showingImagePicker) {
+            if let provider = Self.imagePickerSheetProvider {
+                provider(
+                    { pickedImage in
+                        showingImagePicker = false
+                        startImagePlacement(pickedImage)
+                    },
+                    {
+                        showingImagePicker = false
+                    }
+                )
+            }
+        }
+    }
+
+    private func startImagePlacement(_ image: CGImage) {
+        if document.filling { return }
+        showingMenu = false
+        activeStrokeSetting = nil
+        activeSwatchTrack = nil
+        previewHideWorkItem?.cancel()
+        showingStrokePreview = false
+        isRearrangingFrames = false
+        stage.startImagePlacement(image)
+        hasImagePlacement = stage.hasImagePlacement
+    }
+
+    private func cancelImagePlacement() {
+        stage.cancelImagePlacement()
+        hasImagePlacement = false
     }
 
     private func flashErrorStripes() {
@@ -740,6 +796,16 @@ public struct BonePaperScreen: View {
     }
 
     private func apply() {
+        if hasImagePlacement {
+            if document.filling { return }
+            if stage.commitImagePlacement() {
+                if supportsFramesStrip {
+                    framesSession.refreshActiveThumbnail(from: document.preview)
+                }
+            }
+            hasImagePlacement = stage.hasImagePlacement
+            return
+        }
         if let onApplyFrames {
             let exportedFrames = framesSession.exportAll(syncing: document, currentConfig: drawingConfig)
             #if DEBUG

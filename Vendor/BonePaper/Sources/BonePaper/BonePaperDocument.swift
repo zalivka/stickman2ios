@@ -596,6 +596,105 @@ public final class BonePaperDocument: ObservableObject {
         }
     }
 
+    func stampBitmapWorld(
+        _ image: CGImage,
+        centerWorld: CGPoint,
+        scale: CGFloat,
+        angleRadians: CGFloat
+    ) {
+        if filling { return }
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        if image.width < 1 || image.height < 1 {
+            fatalError("BonePaperDocument invalid stamp image size \(image.width)x\(image.height)")
+        }
+        if !centerWorld.x.isFinite || !centerWorld.y.isFinite || !scale.isFinite || scale <= 0 || !angleRadians.isFinite {
+            fatalError(
+                "BonePaperDocument invalid stamp transform center=\(centerWorld) scale=\(scale) angle=\(angleRadians)"
+            )
+        }
+
+        let halfW = CGFloat(image.width) * scale * 0.5
+        let halfH = CGFloat(image.height) * scale * 0.5
+        let c = abs(cos(angleRadians))
+        let s = abs(sin(angleRadians))
+        let extentX = halfW * c + halfH * s + 2
+        let extentY = halfW * s + halfH * c + 2
+
+        let minWorldX = centerWorld.x - extentX
+        let minWorldY = centerWorld.y - extentY
+        let maxWorldX = centerWorld.x + extentX
+        let maxWorldY = centerWorld.y + extentY
+
+        let beforeSnapshot = capture()
+        var grew = false
+        if !fixed {
+            let clampedMinX = max(0, minWorldX)
+            let clampedMinY = max(0, minWorldY)
+            let clampedMaxX = min(CGFloat(worldSize), maxWorldX)
+            let clampedMaxY = min(CGFloat(worldSize), maxWorldY)
+            if clampedMinX >= clampedMaxX || clampedMinY >= clampedMaxY {
+                return
+            }
+            let left = min(Self.chunk(max(0, CGFloat(originX) - clampedMinX)), originX)
+            let top = min(Self.chunk(max(0, CGFloat(originY) - clampedMinY)), originY)
+            let right = min(
+                Self.chunk(max(0, clampedMaxX - CGFloat(originX + width))),
+                worldSize - originX - width
+            )
+            let bottom = min(
+                Self.chunk(max(0, clampedMaxY - CGFloat(originY + height))),
+                worldSize - originY - height
+            )
+            if left > 0 || top > 0 || right > 0 || bottom > 0 {
+                grow(left: left, top: top, right: right, bottom: bottom)
+                grew = true
+            }
+        }
+
+        let sampleScale = CGFloat(Self.sample)
+        let dirtyLeft = max(0, Int(floor((minWorldX - CGFloat(originX)) * sampleScale)))
+        let dirtyTop = max(0, Int(floor((minWorldY - CGFloat(originY)) * sampleScale)))
+        let dirtyRight = min(pixelWidth, Int(ceil((maxWorldX - CGFloat(originX)) * sampleScale)))
+        let dirtyBottom = min(pixelHeight, Int(ceil((maxWorldY - CGFloat(originY)) * sampleScale)))
+        if dirtyLeft >= dirtyRight || dirtyTop >= dirtyBottom {
+            if grew {
+                restore(beforeSnapshot)
+            }
+            return
+        }
+
+        lastFillOperation = nil
+        undoStack.append(beforeSnapshot)
+        if undoStack.count > Self.undoCap {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
+
+        let centerBitmap = sampledPoint(bitmapFromWorld(centerWorld))
+        context.saveGState()
+        if let maskImage {
+            context.clip(to: pixelRect, mask: maskImage)
+        }
+        context.interpolationQuality = .high
+        context.translateBy(x: centerBitmap.x, y: centerBitmap.y)
+        context.rotate(by: -angleRadians)
+        context.scaleBy(x: scale * sampleScale, y: scale * sampleScale)
+        context.draw(
+            image,
+            in: CGRect(
+                x: -CGFloat(image.width) * 0.5,
+                y: -CGFloat(image.height) * 0.5,
+                width: CGFloat(image.width),
+                height: CGFloat(image.height)
+            )
+        )
+        context.restoreGState()
+        publishPreview()
+        publishStacks()
+    }
+
     func undo() {
         if filling { return }
         if strokeLive || brushfillLive {
@@ -883,6 +982,9 @@ public final class BonePaperDocument: ObservableObject {
     private func grow(left: Int, top: Int, right: Int, bottom: Int) {
         let oldWidth = width
         let oldHeight = height
+        let oldPixelWidth = pixelWidth
+        let oldPixelHeight = pixelHeight
+        let oldMaskAlpha = maskAlpha
         guard let committed = context.makeImage() else {
             fatalError("BonePaperDocument grow committed snapshot failed")
         }
@@ -901,6 +1003,23 @@ public final class BonePaperDocument: ObservableObject {
         extraTop += top
         if originX < 0 || originY < 0 || originX + width > worldSize || originY + height > worldSize {
             fatalError("BonePaperDocument origin (\(originX),\(originY)) size \(width)x\(height) outside world")
+        }
+        if let oldMaskAlpha, oldMaskAlpha.count == oldPixelWidth * oldPixelHeight {
+            let newPixelWidth = pixelWidth
+            let newPixelHeight = pixelHeight
+            var newMaskAlpha = [UInt8](repeating: 0, count: newPixelWidth * newPixelHeight)
+            let dstX0 = left * Self.sample
+            let dstY0 = top * Self.sample
+            for y in 0..<oldPixelHeight {
+                let srcRow = y * oldPixelWidth
+                let dstRow = (dstY0 + y) * newPixelWidth + dstX0
+                for x in 0..<oldPixelWidth {
+                    newMaskAlpha[dstRow + x] = oldMaskAlpha[srcRow + x]
+                }
+            }
+            maskAlpha = newMaskAlpha
+            maskImage = Self.makeMaskImage(alpha: newMaskAlpha, width: newPixelWidth, height: newPixelHeight)
+            maskOverlay = Self.makeMaskOverlay(alpha: newMaskAlpha, width: newPixelWidth, height: newPixelHeight)
         }
         context = Self.makeBuffer(width: pixelWidth, height: pixelHeight)
         stroke = Self.makeBuffer(width: pixelWidth, height: pixelHeight)

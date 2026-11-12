@@ -268,6 +268,7 @@ struct SkeletonScreen: View {
             )
         }
         .fullScreenCover(item: $bonePaperEdit) { session in
+            let _ = AssetsLibrarySheet.configureBonePaperImagePicker()
             BonePaperScreen(
                 frames: session.frames,
                 initialState: session.initialState,
