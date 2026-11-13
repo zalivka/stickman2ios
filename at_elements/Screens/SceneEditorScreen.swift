@@ -65,6 +65,7 @@ struct SceneEditorScreen: View {
     @State private var scenePropsSheet: ScenePropsSheet?
     @State private var selectedUnitName: String?
     @State private var capturedUnitName: String?
+    @State private var scaleStartByFrame: [Int: [String: CGFloat]] = [:]
     @State private var stretchHold = false
     @State private var showingSave = false
     @State private var saveName = ""
@@ -208,12 +209,20 @@ struct SceneEditorScreen: View {
                     layerEpoch: assetsEpoch,
                     onPrepareUndo: prepareSelectionUndo,
                     canMutatePoseFor: { name in
-                        !scene.isPoseLocked(unitName: name, frameIndex: scene.currentIndex)
+                        rearrangeFrames.contains(scene.currentIndex)
+                            && !rearrangeFrames.contains(where: { scene.isPoseLocked(unitName: name, frameIndex: $0) })
                     },
-                    onLockedEdit: { showToast("Locked") },
+                    onLockedEdit: {
+                        if !rearrangeFrames.contains(scene.currentIndex) {
+                            return
+                        }
+                        showToast("Locked")
+                    },
+                    onPoseEdit: applyCanvasPoseEdit,
                     onPoseEditEnded: {
+                        scaleStartByFrame.removeAll()
                         do {
-                            try retweenSelectedAfterPoseEdit(frames: [scene.currentIndex])
+                            try retweenSelectedAfterPoseEdit(frames: rearrangeFrames)
                         } catch {
                             bail(error)
                         }
@@ -767,6 +776,7 @@ struct SceneEditorScreen: View {
         scenePropsSheet = nil
         selectedUnitName = nil
         capturedUnitName = nil
+        scaleStartByFrame.removeAll()
         showingSave = false
         saveName = ""
         saveError = ""
@@ -1507,6 +1517,7 @@ struct SceneEditorScreen: View {
 
     private func prepareSelectionUndo() {
         do {
+            scaleStartByFrame.removeAll()
             if let name = selectedUnitName,
                let span = scene.unitTweens.findContaining(unitName: name, frameIndex: scene.currentIndex)
             {
@@ -1514,6 +1525,119 @@ struct SceneEditorScreen: View {
                 return
             }
             try undo.commitSelection(from: scene, indices: rearrangeFrames)
+        } catch {
+            bail(error)
+        }
+    }
+
+    private func applyCanvasPoseEdit(_ edit: CanvasPoseEdit) {
+        guard let unitName = selectedUnitName ?? scene.currentFrameOrNil?.units.first?.name else {
+            return
+        }
+        selectedUnitName = unitName
+        do {
+            switch edit {
+            case .translate(let dx, let dy):
+                if dx == 0 && dy == 0 { return }
+                for frameIndex in rearrangeFrames {
+                    guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == unitName }) else {
+                        continue
+                    }
+                    let old = scene.frames[frameIndex].units[index]
+                    scene.frames[frameIndex].units[index].translateAll(dx: dx, dy: dy)
+                    let new = scene.frames[frameIndex].units[index]
+                    try carrySlaves(old: old, new: new, frameIndex: frameIndex)
+                }
+            case .rotateHandler(let handler, let constDiff):
+                guard let currentUnit = scene.frames[scene.currentIndex].units.first(where: { $0.name == unitName }),
+                      !currentUnit.edges.isEmpty
+                else {
+                    return
+                }
+                let base = try currentUnit.basePoint()
+                let pivotAngle = atan2(handler.y - base.y, handler.x - base.x)
+                let from = try currentUnit.point(id: currentUnit.edges[0].from)
+                let to = try currentUnit.point(id: currentUnit.edges[0].to)
+                let edgeAngle = atan2(to.y - from.y, to.x - from.x)
+                let angleRad = constDiff - (edgeAngle - pivotAngle)
+                for frameIndex in rearrangeFrames {
+                    guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == unitName }) else {
+                        continue
+                    }
+                    let old = scene.frames[frameIndex].units[index]
+                    let frameBase = try old.basePoint()
+                    scene.frames[frameIndex].units[index].rotate(
+                        radians: angleRad,
+                        pivotX: frameBase.x,
+                        pivotY: frameBase.y
+                    )
+                    let new = scene.frames[frameIndex].units[index]
+                    try carrySlaves(old: old, new: new, frameIndex: frameIndex)
+                }
+            case .scaleHandler(let ratio):
+                if scaleStartByFrame.isEmpty {
+                    for frameIndex in rearrangeFrames {
+                        guard let host = scene.frames[frameIndex].units.first(where: { $0.name == unitName }) else {
+                            continue
+                        }
+                        try scene.frames[frameIndex].refreshAttachments()
+                        let names = [unitName] + scene.frames[frameIndex].slaves.allSlaves(of: unitName)
+                        var scales: [String: CGFloat] = [host.name: host.scale]
+                        for slaveName in names where slaveName != unitName {
+                            if let slave = scene.frames[frameIndex].units.first(where: { $0.name == slaveName }) {
+                                scales[slaveName] = slave.scale
+                            }
+                        }
+                        scaleStartByFrame[frameIndex] = scales
+                    }
+                }
+                for frameIndex in rearrangeFrames {
+                    guard let scales = scaleStartByFrame[frameIndex],
+                          let hostStart = scales[unitName],
+                          let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == unitName })
+                    else {
+                        continue
+                    }
+                    let old = scene.frames[frameIndex].units[index]
+                    let frameBase = try old.basePoint()
+                    try scene.frames[frameIndex].units[index].scaleAt(
+                        pivotX: frameBase.x,
+                        pivotY: frameBase.y,
+                        target: hostStart * ratio
+                    )
+                    let new = scene.frames[frameIndex].units[index]
+                    try carrySlaves(old: old, new: new, frameIndex: frameIndex)
+                }
+            case .dragNode(let id, let destX, let destY, let stretch):
+                for frameIndex in rearrangeFrames {
+                    guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == unitName }),
+                          scene.frames[frameIndex].units[index].point(optionalId: id) != nil
+                    else {
+                        continue
+                    }
+                    let old = scene.frames[frameIndex].units[index]
+                    if stretch {
+                        try scene.frames[frameIndex].units[index].stretchMove(id: id, destX: destX, destY: destY)
+                    } else {
+                        try scene.frames[frameIndex].units[index].drag(id: id, destX: destX, destY: destY)
+                    }
+                    let new = scene.frames[frameIndex].units[index]
+                    try carrySlaves(old: old, new: new, frameIndex: frameIndex)
+                }
+            case .restoreRestLength(let id, let rest):
+                for frameIndex in rearrangeFrames {
+                    guard let index = scene.frames[frameIndex].units.firstIndex(where: { $0.name == unitName }),
+                          let point = scene.frames[frameIndex].units[index].point(optionalId: id),
+                          !point.isBase, point.stretchable, !point.kinematicStart
+                    else {
+                        continue
+                    }
+                    let old = scene.frames[frameIndex].units[index]
+                    try scene.frames[frameIndex].units[index].restoreRestLength(id: id, rest: rest)
+                    let new = scene.frames[frameIndex].units[index]
+                    try carrySlaves(old: old, new: new, frameIndex: frameIndex)
+                }
+            }
         } catch {
             bail(error)
         }

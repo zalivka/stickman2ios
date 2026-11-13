@@ -116,6 +116,14 @@ private enum HandlerArtwork {
     }
 }
 
+enum CanvasPoseEdit {
+    case translate(dx: CGFloat, dy: CGFloat)
+    case rotateHandler(handler: CGPoint, constDiff: CGFloat)
+    case scaleHandler(ratio: CGFloat)
+    case dragNode(id: Int, destX: CGFloat, destY: CGFloat, stretch: Bool)
+    case restoreRestLength(id: Int, rest: CGFloat)
+}
+
 enum SkeletonCanvasMode {
     case editor
     case preview
@@ -220,6 +228,7 @@ struct SkeletonCanvas: View {
     var canMutatePose: Bool = true
     var canMutatePoseFor: ((String) -> Bool)? = nil
     var onLockedEdit: (() -> Void)? = nil
+    var onPoseEdit: ((CanvasPoseEdit) -> Void)? = nil
     var onPoseEditEnded: (() -> Void)? = nil
     /// Finger up on a straying unit. `scale` is points per scene unit. Returns whether an attach snapped.
     var onTryAttach: ((CGFloat) -> Bool)? = nil
@@ -1384,27 +1393,40 @@ struct SkeletonCanvas: View {
             dragRef.handlerY = graph.y
             switch kind {
             case .move:
-                liveUnit.translateAll(dx: dx, dy: dy)
+                if let onPoseEdit {
+                    onPoseEdit(.translate(dx: dx, dy: dy))
+                } else {
+                    liveUnit.translateAll(dx: dx, dy: dy)
+                }
             case .rotate:
-                do {
-                    try liveUnit.rotateToHandler(
-                        handler: CGPoint(x: dragRef.handlerX, y: dragRef.handlerY),
-                        constDiff: dragRef.rotateDiff
-                    )
-                } catch {
-                    onEditError?(error)
-                    return
+                if let onPoseEdit {
+                    onPoseEdit(.rotateHandler(handler: CGPoint(x: dragRef.handlerX, y: dragRef.handlerY), constDiff: dragRef.rotateDiff))
+                } else {
+                    do {
+                        try liveUnit.rotateToHandler(
+                            handler: CGPoint(x: dragRef.handlerX, y: dragRef.handlerY),
+                            constDiff: dragRef.rotateDiff
+                        )
+                    } catch {
+                        onEditError?(error)
+                        return
+                    }
                 }
             case .scale:
                 do {
                     let base = try liveUnit.basePoint()
                     let dist = hypot(dragRef.handlerX - base.x, dragRef.handlerY - base.y)
                     if dist <= 1 { return }
-                    try liveUnit.scaleAt(
-                        pivotX: base.x,
-                        pivotY: base.y,
-                        target: dragRef.scaleStart * dist / dragRef.scalePivotDist
-                    )
+                    let ratio = dist / dragRef.scalePivotDist
+                    if let onPoseEdit {
+                        onPoseEdit(.scaleHandler(ratio: ratio))
+                    } else {
+                        try liveUnit.scaleAt(
+                            pivotX: base.x,
+                            pivotY: base.y,
+                            target: dragRef.scaleStart * ratio
+                        )
+                    }
                 } catch {
                     onEditError?(error)
                     return
@@ -1419,6 +1441,10 @@ struct SkeletonCanvas: View {
             let graphPoint = current.graphPoint(screen: location)
             let destX = graphPoint.x - dragRef.touchOffsetX
             let destY = graphPoint.y - dragRef.touchOffsetY
+            if mode == .editor, let onPoseEdit {
+                onPoseEdit(.dragNode(id: id, destX: destX, destY: destY, stretch: dragRef.stretching))
+                return
+            }
             do {
                 if dragRef.stretching {
                     // Android `PointManipulator.stretchMove` — no rotation about the parent.
@@ -1475,11 +1501,15 @@ struct SkeletonCanvas: View {
             return true
         }
         onPrepareUndo?()
-        do {
-            try liveUnit.restoreRestLength(id: hit.pointId, rest: rest)
-        } catch {
-            onEditError?(error)
-            return true
+        if let onPoseEdit {
+            onPoseEdit(.restoreRestLength(id: hit.pointId, rest: rest))
+        } else {
+            do {
+                try liveUnit.restoreRestLength(id: hit.pointId, rest: rest)
+            } catch {
+                onEditError?(error)
+                return true
+            }
         }
         editSession?.select(hit.pointId)
         selectedPointNameIfNeeded(hit.unit.name)

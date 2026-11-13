@@ -200,39 +200,32 @@ struct VerticalRangeBar: View {
             drawHorizontalTrack(context: context, size: size, activeRange: activeRange)
             return
         }
-        let span = axisLength(size) - 2 * Self.pad
-        let tickSpacing = span / CGFloat(frameCount - 1)
-        let lowFramePin = pinOf(frame: activeRange.lowerBound)
+        let start = trackPoint(frame: activeRange.lowerBound, size: size)
+        let end = trackPoint(frame: activeRange.upperBound, size: size)
+        if start.y != end.y {
+            var selectedPath = Path()
+            selectedPath.move(to: start)
+            selectedPath.addLine(to: end)
+            context.stroke(selectedPath, with: .color(Self.tickColor), lineWidth: Self.selectedTickThickness)
+        }
+
         let manyTicks = (frameCount - 1) > 50
         let baseRadius = manyTicks ? Self.tickHeight / 3 : Self.tickHeight / 2
-
-        var selectedPath = Path()
         var unselectedPath = Path()
 
         for pin in 0..<frameCount {
             let frame = frameOf(pin: pin)
-            let point = trackPoint(pin: pin, size: size)
-            let selected = activeRange.contains(frame)
-            if selected && pin != lowFramePin {
-                let rect = CGRect(
-                    x: point.x - Self.selectedTickThickness / 2,
-                    y: point.y - tickSpacing / 2,
-                    width: Self.selectedTickThickness,
-                    height: tickSpacing + 2
-                )
-                selectedPath.addRect(rect)
-            } else {
-                let radius = baseRadius * (pin == 0 || pin == frameCount - 1 ? 2 : 1)
-                let rect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
-                unselectedPath.addEllipse(in: rect)
+            if activeRange.contains(frame) {
+                continue
             }
+            let point = trackPoint(pin: pin, size: size)
+            let radius = baseRadius * (pin == 0 || pin == frameCount - 1 ? 2 : 1)
+            let rect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
+            unselectedPath.addEllipse(in: rect)
         }
 
         if !unselectedPath.isEmpty {
             context.fill(unselectedPath, with: .color(Self.tickColor))
-        }
-        if !selectedPath.isEmpty {
-            context.fill(selectedPath, with: .color(Self.tickColor))
         }
     }
 
