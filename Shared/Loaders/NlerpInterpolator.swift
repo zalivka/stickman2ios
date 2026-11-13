@@ -60,17 +60,38 @@ enum NlerpInterpolator {
                 let cameraT = CGFloat(step + 1) / CGFloat(duration + 1)
                 cameraMove = frame1.cameraMove.lerp(frame2.cameraMove, t: cameraT)
             }
+            let bgName: String?
             let bgMove: PictureMove
-            if frame1.bgName == frame2.bgName {
-                let bgT = CGFloat(step + 1) / CGFloat(duration + 1)
-                bgMove = frame1.bgMove.lerp(frame2.bgMove, t: bgT)
+            if let scene, let originIndex,
+               let span = scene.backgroundTweens.findForSpan(from: originIndex, to: originIndex + 1) {
+                bgName = span.bgName
+                let source = scene.frames[span.fromFrame].bgMove
+                let target = scene.frames[span.toFrame].bgMove
+                let localProgress = Float(step + 1) / Float(duration + 1)
+                let sourcePosition = Float(originIndex) + localProgress
+                let raw = (sourcePosition - Float(span.fromFrame)) / Float(span.toFrame - span.fromFrame)
+                let spanProgress = min(max(raw, 0), 1)
+                bgMove = CameraMoveInterpolator.tween(
+                    source,
+                    target,
+                    easing: span.easingType,
+                    strength: span.easingStrength,
+                    frequency: span.shakeFrequency,
+                    t: spanProgress
+                )
             } else {
-                bgMove = frame1.bgMove
+                bgName = frame1.bgName
+                if frame1.bgName == frame2.bgName {
+                    let bgT = CGFloat(step + 1) / CGFloat(duration + 1)
+                    bgMove = frame1.bgMove.lerp(frame2.bgMove, t: bgT)
+                } else {
+                    bgMove = frame1.bgMove
+                }
             }
             var generated = StickmanFrame(
                 id: -1,
                 units: units,
-                bgName: frame1.bgName,
+                bgName: bgName,
                 bgMove: bgMove,
                 cameraMove: cameraMove
             )

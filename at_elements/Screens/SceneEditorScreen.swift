@@ -1305,6 +1305,7 @@ struct SceneEditorScreen: View {
         let animations = scene.unitAnimations
         let tweens = scene.unitTweens
         let cameraTweens = scene.cameraTweens
+        let backgroundTweens = scene.backgroundTweens
         let audio = scene.audio.clips
         do {
             try scene.addFrame()
@@ -1314,6 +1315,7 @@ struct SceneEditorScreen: View {
                 animations: animations,
                 tweens: tweens,
                 cameraTweens: cameraTweens,
+                backgroundTweens: backgroundTweens,
                 audio: audio
             )
         } catch {
@@ -1334,6 +1336,7 @@ struct SceneEditorScreen: View {
         let animations = scene.unitAnimations
         let tweens = scene.unitTweens
         let cameraTweens = scene.cameraTweens
+        let backgroundTweens = scene.backgroundTweens
         let audio = scene.audio.clips
         do {
             let deleted = try indices.map { try scene.frames[$0].clone() }
@@ -1345,6 +1348,7 @@ struct SceneEditorScreen: View {
                 animations: animations,
                 tweens: tweens,
                 cameraTweens: cameraTweens,
+                backgroundTweens: backgroundTweens,
                 audio: audio
             )
         } catch {
@@ -1378,6 +1382,7 @@ struct SceneEditorScreen: View {
         let animations = scene.unitAnimations
         let tweens = scene.unitTweens
         let cameraTweens = scene.cameraTweens
+        let backgroundTweens = scene.backgroundTweens
         let audio = scene.audio.clips
         do {
             let inserted = try clipboard.pasteFrames(into: &scene)
@@ -1388,6 +1393,7 @@ struct SceneEditorScreen: View {
                 animations: animations,
                 tweens: tweens,
                 cameraTweens: cameraTweens,
+                backgroundTweens: backgroundTweens,
                 audio: audio
             )
         } catch {

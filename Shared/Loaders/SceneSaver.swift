@@ -94,6 +94,9 @@ enum SceneSaver {
         if !scene.cameraTweens.isEmpty {
             files.append((name: CameraTweenStorage.archiveName, data: try scene.cameraTweens.encodeArchive(scene: scene)))
         }
+        if !scene.backgroundTweens.isEmpty {
+            files.append((name: BackgroundTweenStorage.archiveName, data: try scene.backgroundTweens.encodeArchive(scene: scene)))
+        }
         files.append(contentsOf: try SceneAudioArchive.files(scene: scene))
         for font in StickmanFonts.customFontsUsed(in: scene) {
             files.append((name: "fonts/\(font.file)", data: font.data))
@@ -132,6 +135,12 @@ enum SceneSaver {
         }
         if !scene.cameraTweens.isEmpty {
             guard let archive = try? scene.cameraTweens.encodeArchive(scene: scene) else {
+                return nil
+            }
+            bytes.append(archive)
+        }
+        if !scene.backgroundTweens.isEmpty {
+            guard let archive = try? scene.backgroundTweens.encodeArchive(scene: scene) else {
                 return nil
             }
             bytes.append(archive)

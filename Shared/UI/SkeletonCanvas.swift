@@ -237,6 +237,7 @@ struct SkeletonCanvas: View {
     /// Finger count on the camera overlay. The screen copies the held move when this is non-zero.
     var onCameraTouchCount: ((Int) -> Void)? = nil
     var onBackgroundChange: ((PictureMove) -> Void)? = nil
+    var canMutateBackground: Bool = true
     /// Finger count on the background. The screen copies the held move when this is non-zero.
     var onBackgroundTouchCount: ((Int) -> Void)? = nil
     @State private var layout: SkeletonLayout?
@@ -405,9 +406,9 @@ struct SkeletonCanvas: View {
                         layoutScale: resolvedLayout(size: proxy.size).scale,
                         windowCenter: CGPoint(x: sceneWidth / 2, y: sceneHeight / 2),
                         allowsRotation: false,
-                        canMutate: true,
+                        canMutate: canMutateBackground,
                         onTouchCount: { onBackgroundTouchCount?($0) },
-                        onLocked: {},
+                        onLocked: { onLockedEdit?() },
                         onPrepareUndo: onPrepareUndo,
                         onChange: backgroundChangeHandler
                     )

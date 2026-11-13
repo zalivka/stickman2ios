@@ -1206,6 +1206,7 @@ struct StickmanScene {
     var speedModifier = SpeedModifier()
     var unitTweens = UnitTweenStorage()
     var cameraTweens = CameraTweenStorage()
+    var backgroundTweens = BackgroundTweenStorage()
     var audio = SceneAudio()
 
     /// Android `CartoonStage.makeOneFrameStage` — one empty frame at `LARGE_L` 640×480.
@@ -1279,6 +1280,7 @@ struct StickmanScene {
         if !appendAtEnd {
             try retweenReconciled(unitTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
             retweenCameraReconciled(cameraTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
+            retweenBackgroundReconciled(backgroundTweens.reconcileInsert(at: insertIndex, oldFrameCount: oldCount))
         }
     }
 
@@ -1315,6 +1317,7 @@ struct StickmanScene {
         speedModifier.adjustTo(frameCount: frames.count)
         try retweenReconciled(unitTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
         retweenCameraReconciled(cameraTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
+        retweenBackgroundReconciled(backgroundTweens.reconcileDelete(deleted: unique, oldFrameCount: oldCount))
     }
 
     /// Android `Scene.pasteFrames` — insert after current, or at start when current is 0.
@@ -1357,8 +1360,12 @@ struct StickmanScene {
         speedModifier.adjustTo(frameCount: frames.count)
         // Pasted frames push later keyframes down; keep clips attached to theirs.
         audio.shiftClips(insertedAtOrAfter: insertAt, by: source.count)
+        if currentIndex == 0 {
+            currentIndex = source.count
+        }
         unitTweens.clear()
         cameraTweens.clear()
+        backgroundTweens.clear()
         return inserted
     }
 
@@ -1416,7 +1423,9 @@ struct StickmanScene {
 
     func wouldPasteSplitTweens() -> Bool {
         let after = currentIndex == 0 ? -1 : currentIndex
-        return unitTweens.wouldInsertSplit(after: after) || cameraTweens.wouldInsertSplit(after: after)
+        return unitTweens.wouldInsertSplit(after: after)
+            || cameraTweens.wouldInsertSplit(after: after)
+            || backgroundTweens.wouldInsertSplit(after: after)
     }
 
     func isCameraPoseLocked(frameIndex: Int) -> Bool {
@@ -1450,6 +1459,41 @@ struct StickmanScene {
         for span in cameraTweens.ranges
         where editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame) {
             retweenCameraSpan(span)
+        }
+    }
+
+    func isBackgroundPoseLocked(frameIndex: Int) -> Bool {
+        backgroundTweens.isPoseLocked(frameIndex: frameIndex)
+    }
+
+    mutating func removeBackgroundTweenContaining(frameIndex: Int) -> BackgroundAutoTweenRange? {
+        backgroundTweens.removeContaining(frameIndex: frameIndex)
+    }
+
+    mutating func retweenBackgroundSpan(_ span: BackgroundAutoTweenRange) {
+        if span.fromFrame < 0 || span.toFrame >= frames.count || span.fromFrame >= span.toFrame {
+            _ = backgroundTweens.removeExact(from: span.fromFrame, to: span.toFrame)
+            return
+        }
+        BackgroundInbetweener.bakeInteriors(
+            scene: &self,
+            from: span.fromFrame,
+            to: span.toFrame,
+            bgName: span.bgName,
+            easing: span.easingType,
+            strength: span.easingStrength,
+            shakeFrequency: span.shakeFrequency
+        )
+    }
+
+    mutating func retweenBackgroundEndpoints(frames edited: [Int]) {
+        if edited.isEmpty {
+            return
+        }
+        let editedSet = Set(edited)
+        for span in backgroundTweens.ranges
+        where editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame) {
+            retweenBackgroundSpan(span)
         }
     }
 
@@ -1582,6 +1626,17 @@ struct StickmanScene {
                 continue
             }
             retweenCameraSpan(span)
+        }
+    }
+
+    private mutating func retweenBackgroundReconciled(_ spans: [BackgroundAutoTweenRange]) {
+        var seen = Set<String>()
+        for span in spans {
+            let key = "\(span.fromFrame):\(span.toFrame)"
+            if !seen.insert(key).inserted {
+                continue
+            }
+            retweenBackgroundSpan(span)
         }
     }
 

@@ -71,6 +71,7 @@ enum SceneLoader {
         scene.unitAnimations = try loadAnimations(zipIndex: zipIndex, resource: resource)
         scene.unitTweens = try loadUnitTweens(zipIndex: zipIndex, scene: scene, resource: resource)
         scene.cameraTweens = try loadCameraTweens(zipIndex: zipIndex, scene: scene, resource: resource)
+        scene.backgroundTweens = try loadBackgroundTweens(zipIndex: zipIndex, scene: scene, resource: resource)
         scene.audio = try SceneAudioArchive.load(
             zip: zip,
             names: names,
@@ -176,6 +177,19 @@ enum SceneLoader {
         return storage
     }
 
+    private static func loadBackgroundTweens(
+        zipIndex: ZipStore.Index,
+        scene: StickmanScene,
+        resource _: String
+    ) throws -> BackgroundTweenStorage {
+        if !zipIndex.contains(BackgroundTweenStorage.archiveName) {
+            return BackgroundTweenStorage()
+        }
+        var storage = BackgroundTweenStorage()
+        try storage.importArchive(zipIndex.dataThrowing(named: BackgroundTweenStorage.archiveName), scene: scene)
+        return storage
+    }
+
     private static func loadBackgrounds(
         scene: inout StickmanScene,
         zipIndex: ZipStore.Index,
@@ -221,6 +235,9 @@ enum SceneLoader {
             }
         }
         if !failed.isEmpty {
+            for bgName in failed {
+                scene.backgroundTweens.removeSpans(named: bgName)
+            }
             for i in scene.frames.indices {
                 if let bgName = scene.frames[i].bgName, failed.contains(bgName) {
                     scene.frames[i].bgName = "#ffffff"

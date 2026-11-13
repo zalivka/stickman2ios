@@ -67,6 +67,11 @@ struct BgAnimatorScreen: View {
     @State private var tempBackgrounds: [String] = []
     @State private var showingChooser = false
     @State private var pendingRangeBg: String?
+    @State private var showingTweenRange = false
+    @State private var showingTweenEasing = false
+    @State private var tweenDraftRange: ClosedRange<Int> = 0...0
+    @State private var tweenApplyRange: ClosedRange<Int>?
+    @State private var tweenApplyBgName: String?
     @State private var drawSession: DrawSession?
     @State private var toast = ""
     @State private var backgroundRevision = 0
@@ -86,6 +91,12 @@ struct BgAnimatorScreen: View {
                 frameCount: scene.wrappedValue.frames.count
             )
         )
+        _tweenDraftRange = State(
+            initialValue: RangePicker.suggestedTweenRange(
+                current: scene.wrappedValue.currentIndex,
+                frameCount: scene.wrappedValue.frames.count
+            )
+        )
         _extraColors = State(initialValue: Self.nonStandardSolids(in: scene.wrappedValue))
     }
 
@@ -99,7 +110,9 @@ struct BgAnimatorScreen: View {
                     onAdd: { showingChooser = true },
                     onUndo: performUndo,
                     undoEnabled: undo.canUndo,
-                    onReset: resetBackground
+                    onReset: resetBackground,
+                    onTween: openTweenRange,
+                    tweenEnabled: scene.frames.count >= 2
                 )
                 ZStack(alignment: .leading) {
                     workArea
@@ -128,8 +141,37 @@ struct BgAnimatorScreen: View {
                         } catch {
                             bail(error)
                         }
-                    }
+                    },
+                    stickStyle: tweenStickStyle
                 )
+        }
+        .overlay(alignment: .top) {
+            if navMode == .frames, let chip = currentBackgroundSpan {
+                HStack(spacing: 0) {
+                    Button {
+                        openTweenEasing(for: chip)
+                    } label: {
+                        Text(chip.easingType.displayName)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .frame(minHeight: 40)
+                    }
+                    .background(chip.easingType.chipColor)
+                    Button {
+                        deleteCurrentTween()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                    }
+                    .background(Color(red: 0x1a / 255, green: 0x1a / 255, blue: 0x1a / 255))
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .padding(.top, 10)
+            }
         }
         .ignoresSafeArea(edges: [.horizontal, .bottom])
         .modifier(StatusBarClearance())
@@ -148,7 +190,7 @@ struct BgAnimatorScreen: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(Color.black.opacity(0.72), in: Capsule())
-                    .padding(.top, 8)
+                    .padding(.top, currentBackgroundSpan != nil && navMode == .frames ? 58 : 8)
                     .allowsHitTesting(false)
             }
         }
@@ -197,6 +239,40 @@ struct BgAnimatorScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(isPresented: $showingPreview) {
             FullscreenPreviewScreen(source: scene, assets: assets, backgrounds: backgrounds)
+        }
+        .sheet(isPresented: $showingTweenRange) {
+            RangePicker(
+                title: "Smooth background movement",
+                frameCount: scene.frames.count,
+                initialRange: tweenDraftRange,
+                preview: { index in
+                    AnyView(
+                        RangeFramePreview(
+                            scene: scene,
+                            index: index,
+                            assets: assets,
+                            backgrounds: backgrounds
+                        )
+                    )
+                },
+                canApply: canApplyTween(range:),
+                onApply: { next in
+                    showingTweenRange = false
+                    tweenApplyRange = next
+                    showingTweenEasing = true
+                }
+            )
+            .id("\(tweenDraftRange.lowerBound):\(tweenDraftRange.upperBound):\(scene.frames.count)")
+        }
+        .sheet(isPresented: $showingTweenEasing) {
+            let span = tweenEasingInitial
+            EasingChoiceSheet(
+                initialType: span.type,
+                initialStrength: span.strength,
+                initialFrequency: span.frequency,
+                showsCartwheel: false,
+                onApply: applyTweenEasing
+            )
         }
         .sheet(isPresented: $showingColorPicker) {
             FlexColorPickerSheet(initial: pickerInitialColor) { color in
@@ -374,6 +450,7 @@ struct BgAnimatorScreen: View {
             return false
         }
         tempBackgrounds.removeAll { $0 == bgName }
+        scene.backgroundTweens.removeSpans(named: bgName)
         for index in scene.frames.indices where scene.frames[index].bgName == bgName {
             scene.frames[index].bgName = SolidBackgrounds.reset
             scene.frames[index].bgMove = .identity
@@ -446,6 +523,7 @@ struct BgAnimatorScreen: View {
             }
             backgrounds.install(name: saved.bgName, image: image, archive: saved.archive)
             commitTimeline()
+            scene.backgroundTweens.retargetSpans(from: retargetName, to: saved.bgName)
             for index in scene.frames.indices where scene.frames[index].bgName == retargetName {
                 scene.frames[index].bgName = saved.bgName
             }
@@ -567,11 +645,41 @@ struct BgAnimatorScreen: View {
                 mode: .background,
                 showSkeleton: false,
                 onPrepareUndo: prepareBgUndo,
+                onLockedEdit: { showToast("Locked") },
                 onBackgroundChange: applyBgMove,
+                canMutateBackground: canMutateBackground,
                 onBackgroundTouchCount: noteBgFingers
             )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SkeletonCanvas.pane)
+    }
+
+    private var canMutateBackground: Bool {
+        switch navMode {
+        case .frames:
+            return !scene.isBackgroundPoseLocked(frameIndex: scene.currentIndex)
+        case .range:
+            return !range.contains(where: { scene.isBackgroundPoseLocked(frameIndex: $0) })
+        }
+    }
+
+    private var currentBackgroundSpan: BackgroundAutoTweenRange? {
+        scene.backgroundTweens.findContaining(frameIndex: scene.currentIndex)
+    }
+
+    private func tweenStickStyle(_ index: Int) -> (color: Color?, scale: CGFloat) {
+        guard let span = scene.backgroundTweens.findContaining(frameIndex: index) else {
+            return (nil, 1)
+        }
+        let scale: CGFloat
+        if index == span.fromFrame || index == span.toFrame {
+            scale = 1.5
+        } else if span.containsInterior(index) {
+            scale = 1 / 1.5
+        } else {
+            scale = 1
+        }
+        return (span.easingType.chipColor, scale)
     }
 
     private var pickerInitialColor: UIColor {
@@ -705,6 +813,12 @@ struct BgAnimatorScreen: View {
             return
         }
         commitTimeline()
+        var hadTweenToDelete = false
+        for index in span {
+            if scene.removeBackgroundTweenContaining(frameIndex: index) != nil {
+                hadTweenToDelete = true
+            }
+        }
         let move: PictureMove
         if bgName.hasPrefix("#") {
             rememberColor(bgName)
@@ -728,9 +842,15 @@ struct BgAnimatorScreen: View {
             scene.frames[index].bgName = bgName
             scene.frames[index].bgMove = move
         }
+        if hadTweenToDelete {
+            showToast("Tweening removed")
+        }
     }
 
     private func applyBgMove(_ move: PictureMove) {
+        if !canMutateBackground {
+            return
+        }
         let span: ClosedRange<Int>
         switch navMode {
         case .frames:
@@ -746,10 +866,122 @@ struct BgAnimatorScreen: View {
         for index in span {
             scene.frames[index].bgMove = move
         }
+        scene.retweenBackgroundEndpoints(frames: Array(span))
     }
 
     private func resetBackground() {
-        applyBackground(SolidBackgrounds.reset)
+        switch navMode {
+        case .frames:
+            if scene.backgroundTweens.findContaining(frameIndex: scene.currentIndex) != nil {
+                deleteCurrentTween()
+                return
+            }
+            applyBackground(SolidBackgrounds.reset)
+        case .range:
+            var deleted = false
+            for index in range {
+                if scene.backgroundTweens.findContaining(frameIndex: index) != nil {
+                    deleted = true
+                    break
+                }
+            }
+            if deleted {
+                commitTimeline()
+                for index in range {
+                    _ = scene.removeBackgroundTweenContaining(frameIndex: index)
+                }
+                showToast("Tweening removed")
+                return
+            }
+            applyBackground(SolidBackgrounds.reset)
+        }
+    }
+
+    private func openTweenRange() {
+        if scene.frames.count < 2 {
+            return
+        }
+        tweenApplyBgName = scene.currentFrameOrNil?.bgName ?? SolidBackgrounds.reset
+        tweenDraftRange = resolveTweenInitialRange()
+        showingTweenRange = true
+    }
+
+    private func resolveTweenInitialRange() -> ClosedRange<Int> {
+        if navMode == .range, range.upperBound - range.lowerBound >= 2 {
+            return range
+        }
+        if let existing = scene.backgroundTweens.findContaining(frameIndex: scene.currentIndex) {
+            return existing.fromFrame...existing.toFrame
+        }
+        return RangePicker.suggestedTweenRange(current: scene.currentIndex, frameCount: scene.frames.count)
+    }
+
+    private func canApplyTween(range: ClosedRange<Int>) -> Bool {
+        if range.upperBound - range.lowerBound < 2 {
+            return false
+        }
+        if let intersecting = scene.backgroundTweens.findIntersecting(
+            from: range.lowerBound,
+            to: range.upperBound
+        ), intersecting.fromFrame != range.lowerBound || intersecting.toFrame != range.upperBound {
+            return false
+        }
+        return true
+    }
+
+    private var tweenEasingInitial: (type: TweenEasing, strength: Float, frequency: Float) {
+        let range = tweenApplyRange ?? tweenDraftRange
+        if let span = scene.backgroundTweens.findExact(from: range.lowerBound, to: range.upperBound) {
+            return (span.easingType, span.easingStrength, span.shakeFrequency)
+        }
+        return (.NO, Easing.defaultStrength, UnitTweenStorage.defaultShakeFrequency)
+    }
+
+    private func openTweenEasing(for span: BackgroundAutoTweenRange) {
+        tweenApplyRange = span.fromFrame...span.toFrame
+        tweenApplyBgName = span.bgName
+        showingTweenEasing = true
+    }
+
+    private func applyTweenEasing(type: TweenEasing, strength: Float, frequency: Float) {
+        let range = tweenApplyRange ?? tweenDraftRange
+        let from = range.lowerBound
+        let to = range.upperBound
+        if to - from < 2 {
+            assertionFailure("BgAnimatorScreen tween range \(from)..\(to) too short")
+            return
+        }
+        if !canApplyTween(range: from...to) {
+            return
+        }
+        let bgName = tweenApplyBgName
+            ?? scene.backgroundTweens.findExact(from: from, to: to)?.bgName
+            ?? scene.currentFrameOrNil?.bgName
+            ?? SolidBackgrounds.reset
+        commitTimeline()
+        BackgroundInbetweener.propagate(
+            scene: &scene,
+            from: from,
+            to: to,
+            bgName: bgName,
+            easing: type,
+            strength: strength,
+            shakeFrequency: frequency
+        )
+        scene.currentIndex = to
+        clampRange()
+        tweenApplyRange = nil
+        tweenApplyBgName = nil
+    }
+
+    private func deleteCurrentTween() {
+        if scene.backgroundTweens.findContaining(frameIndex: scene.currentIndex) == nil {
+            return
+        }
+        commitTimeline()
+        if scene.removeBackgroundTweenContaining(frameIndex: scene.currentIndex) != nil {
+            showToast("Tweening removed")
+        }
     }
 
     private func performUndo() {
@@ -762,7 +994,19 @@ struct BgAnimatorScreen: View {
             bail(error)
             return
         }
+        clampRange()
+    }
+
+    private func clampRange() {
         let last = scene.frames.count - 1
+        if last < 0 {
+            assertionFailure("BgAnimatorScreen clampRange empty scene")
+            return
+        }
+        if scene.currentIndex < 0 || scene.currentIndex > last {
+            assertionFailure("BgAnimatorScreen currentIndex \(scene.currentIndex) out of \(scene.frames.count)")
+            return
+        }
         let low = min(max(range.lowerBound, 0), last)
         let high = min(max(range.upperBound, low), last)
         range = low...high
@@ -780,9 +1024,12 @@ struct BgAnimatorScreen: View {
                 if bgHold.fingers > 0, newIndex != source {
                     if source < 0 || source >= scene.frames.count {
                         assertionFailure("BgAnimatorScreen hold-copy source \(source) out of \(scene.frames.count)")
+                    } else if scene.isBackgroundPoseLocked(frameIndex: newIndex) {
+                        showToast("Locked")
                     } else {
                         prepareBgUndo()
                         scene.frames[newIndex].bgMove = scene.frames[source].bgMove
+                        scene.retweenBackgroundEndpoints(frames: [newIndex])
                     }
                 }
                 scene.currentIndex = newIndex
