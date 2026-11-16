@@ -12,6 +12,8 @@ struct SavedScenesGrid: View {
     var showsChrome = true
     @State private var items: [SavedScenes.Item] = []
     @StateObject private var opener = SceneOpener()
+    @State private var shareItem: SavedScenes.Item?
+    @State private var deleteItem: SavedScenes.Item?
     private let thumbWidth: CGFloat = 160
     private let thumbHeight: CGFloat = 64
 
@@ -33,6 +35,10 @@ struct SavedScenesGrid: View {
                             SavedSceneCell(item: item, width: thumbWidth, height: thumbHeight)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Delete", role: .destructive) { deleteItem = item }
+                            Button("Share") { shareItem = item }
+                        }
                     }
                 }
                 .padding(.horizontal, leftover / 2)
@@ -47,6 +53,34 @@ struct SavedScenesGrid: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .savedScenesDidChange)) { _ in
             items = SavedScenes.collect()
+        }
+        .sheet(item: $shareItem) { item in
+            ActivityShareSheet(url: item.url)
+        }
+        .confirmationDialog(
+            "Delete “\(deleteItem?.name ?? "")”?",
+            isPresented: Binding(
+                get: { deleteItem != nil },
+                set: { if !$0 { deleteItem = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let item = deleteItem {
+                    confirmDelete(item)
+                }
+            }
+            Button("Cancel", role: .cancel) { deleteItem = nil }
+        }
+    }
+
+    private func confirmDelete(_ item: SavedScenes.Item) {
+        do {
+            try FileManager.default.removeItem(at: item.url)
+            items.removeAll { $0.id == item.id }
+            deleteItem = nil
+        } catch {
+            ToastCenter.show("Could not delete \(item.name): \(error.localizedDescription)")
         }
     }
 }
