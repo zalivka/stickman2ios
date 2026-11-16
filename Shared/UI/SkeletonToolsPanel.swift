@@ -109,6 +109,50 @@ struct SkeletonPreviewPanel: View {
     }
 }
 
+/// Android `ItemPreview.mStatesList`: 75dp rail beside `item_preview_controls`, shown only when `states.count > 1`.
+struct SkeletonPreviewStatesList: View {
+    static let width: CGFloat = 75
+    private static let activeGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
+
+    var states: [Int]
+    var activeState: Int
+    var onSelectState: (Int) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(states, id: \.self) { state in
+                    stateRow(state)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+    }
+
+    private func stateRow(_ state: Int) -> some View {
+        let active = activeState == state
+        return Button {
+            onSelectState(state)
+        } label: {
+            ZStack {
+                Image(decorative: chromeImage(active ? "filled_frame" : "empty_frame"), scale: 2)
+                    .frame(width: 44, height: 44)
+                Text("\(state)")
+                    .font(.system(size: 22))
+                    .foregroundStyle(active ? Self.activeGreen : .white)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("State \(state)")
+        .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+}
+
 struct SkeletonLeftPanel: View {
     var panel: SkeletonToolsPanel
     var onMenu: () -> Void

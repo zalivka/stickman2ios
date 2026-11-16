@@ -16,6 +16,14 @@ struct SkeletonPreviewScreen: View {
         self.sceneHeight = sceneHeight
     }
 
+    private var availableStates: [Int] {
+        assets.states(for: unit.name)
+    }
+
+    private var hasMultipleStates: Bool {
+        availableStates.count > 1
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             SkeletonCanvas(
@@ -31,14 +39,23 @@ struct SkeletonPreviewScreen: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            SkeletonPreviewPanel(canvasPane: $canvasPane, onBack: { dismiss() })
+            HStack(spacing: 0) {
+                SkeletonPreviewPanel(canvasPane: $canvasPane, onBack: { dismiss() })
+                if hasMultipleStates {
+                    SkeletonPreviewStatesList(
+                        states: availableStates,
+                        activeState: unit.assetsState,
+                        onSelectState: { unit.assetsState = $0 }
+                    )
+                }
+            }
 
             if stretchHold || BoneStretch.hasStretchablePoint(unit) {
                 VStack {
                     Spacer(minLength: 0)
                     HStack {
                         StretchHoldButton(
-                            leading: SkeletonChrome.sidebarWidth + 8,
+                            leading: SkeletonChrome.sidebarWidth + (hasMultipleStates ? SkeletonPreviewStatesList.width : 0) + 8,
                             isActive: stretchHold,
                             onHoldStart: { stretchHold = true },
                             onHoldEnd: { stretchHold = false }

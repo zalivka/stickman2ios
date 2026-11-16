@@ -7,8 +7,14 @@ enum BonePaperToolStore {
     private static let opacityKey = "bonepaper.opacity"
     private static let colorKey = "bonepaper.color"
     private static let fallbackConfigKey = "bonepaper.fallback_drawing_config"
+    private static let hasUsedDragSliderKey = "bonepaper.has_used_drag_slider"
     private static let brushOffsetKey = "paperDrawBrushOffset"
     private static let clearToken = "CLEAR"
+
+    static var hasUsedDragSlider: Bool {
+        get { UserDefaults.standard.bool(forKey: hasUsedDragSliderKey) }
+        set { UserDefaults.standard.set(newValue, forKey: hasUsedDragSliderKey) }
+    }
 
     static let maxBrushOffset: Int = 70
     static let brushOffsetStep: Int = 10

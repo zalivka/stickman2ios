@@ -227,6 +227,9 @@ struct BonePaperDragControl: View {
                     value = start
                     return
                 }
+                if !BonePaperToolStore.hasUsedDragSlider {
+                    BonePaperToolStore.hasUsedDragSlider = true
+                }
                 let rawX = min(max(drag.location.x - valueStart, 0), valueWidth)
                 let span = range.upperBound - range.lowerBound
                 if let snapped = nearestMark(atTrackX: rawX, valueWidth: valueWidth, span: span, maxDistance: Self.snapRadius) {
@@ -289,6 +292,7 @@ struct BonePaperDragControl: View {
 
     private func handleTap(at location: CGPoint) {
         if !enabled { return }
+        let wasAlreadyActiveTool = selected || setting == .opacity
         onActivate()
         if swallowNextTap {
             swallowNextTap = false
@@ -303,12 +307,21 @@ struct BonePaperDragControl: View {
                 let span = range.upperBound - range.lowerBound
                 if let jumped = nearestMark(atTrackX: rawX, valueWidth: valueWidth, span: span, maxDistance: Self.tapJumpRadius) {
                     value = jumped
-                    onFlashPreview()
-                    return
+                } else {
+                    let t = rawX / valueWidth
+                    value = range.lowerBound + t * span
                 }
+                onFlashPreview()
+                return
             }
             pinned = false
             activeSetting = nil
+        } else if wasAlreadyActiveTool {
+            pinned = true
+            activeSetting = setting
+            if !BonePaperToolStore.hasUsedDragSlider {
+                BonePaperHexToast.showMessage("Drag right to adjust")
+            }
         }
     }
 }

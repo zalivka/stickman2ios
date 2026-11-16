@@ -89,6 +89,7 @@ struct BonePaperStrokeControls: View {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
+                activeSetting = nil
                 fillMode = .bucket
                 tool = .bucket
             }
@@ -103,6 +104,7 @@ struct BonePaperStrokeControls: View {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
+                activeSetting = nil
                 if UIColor(color).cgColor.alpha == 0 {
                     onToggleFillMode()
                 } else {
@@ -122,6 +124,7 @@ struct BonePaperStrokeControls: View {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
+                    activeSetting = nil
                     if UIColor(color).cgColor.alpha == 0 {
                         fillMode = .bucket
                     }
@@ -132,6 +135,7 @@ struct BonePaperStrokeControls: View {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
+                    activeSetting = nil
                     onToggleFillMode()
                 }
             }
