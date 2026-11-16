@@ -100,14 +100,18 @@ struct ItemChooserPanel: View {
                         onPick(item)
                     } label: {
                         HStack(spacing: 8) {
-                            Group {
+                            ZStack(alignment: .topLeading) {
                                 if let thumb = itemThumb(item) {
                                     Image(decorative: thumb, scale: UIScreen.main.scale)
                                         .resizable()
                                         .scaledToFit()
+                                        .frame(width: 50, height: 50)
+                                }
+                                if item.multiframed {
+                                    Image(decorative: Self.multiframedBadgeIcon, scale: 2)
                                 }
                             }
-                            .frame(width: 50, height: 50)
+                            .frame(width: 50, height: 50, alignment: .topLeading)
                             .background(Color.white)
                             Text(item.humanName)
                                 .font(.system(size: 14))
@@ -185,6 +189,21 @@ struct ItemChooserPanel: View {
         }
         do {
             return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/dir2.png")
+        } catch {
+            // bundled resource: a failure here ships broken, fires on first debug run
+            fatalError("ItemChooserPanel could not read \(url.path): \(error)")
+        }
+    }()
+
+    private static let multiframedBadgeIcon: CGImage = {
+        guard let url = Bundle.main.url(forResource: "multiframed_badge", withExtension: "png", subdirectory: "chrome")
+            ?? Bundle.main.url(forResource: "multiframed_badge", withExtension: "png")
+        else {
+            // bundled resource: a failure here ships broken, fires on first debug run
+            fatalError("ItemChooserPanel missing chrome/multiframed_badge.png")
+        }
+        do {
+            return PNGImage.cgImage(from: try Data(contentsOf: url), name: "chrome/multiframed_badge.png")
         } catch {
             // bundled resource: a failure here ships broken, fires on first debug run
             fatalError("ItemChooserPanel could not read \(url.path): \(error)")

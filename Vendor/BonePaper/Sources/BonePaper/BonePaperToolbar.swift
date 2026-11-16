@@ -366,7 +366,10 @@ struct BonePaperMenuButton: View {
                 .frame(width: 36, height: 36)
                 .frame(width: BonePaperChrome.leftRail)
                 .padding(.vertical, 6)
-                .background(activated ? Color(white: 0.22) : Color.clear)
+                .background(
+                    activated ? Color(white: 0.22) : Color.clear,
+                    ignoresSafeAreaEdges: []
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

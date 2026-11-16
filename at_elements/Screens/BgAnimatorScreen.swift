@@ -179,7 +179,6 @@ struct BgAnimatorScreen: View {
             FullscreenBackButton(
                 extraLeading: BackgroundStrip.width(pictureMode: pictureStrip)
             )
-            .offsetLeadingIsland()
         }
         #if DEBUG
         .overlay(alignment: .top) {

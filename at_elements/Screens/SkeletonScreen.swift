@@ -195,7 +195,7 @@ struct SkeletonScreen: View {
         .overlay(alignment: .topLeading) {
             FullscreenBackButton(
                 besideMainPanel: false,
-                extraLeading: SkeletonChrome.leadingWidth(panel: toolsPanel),
+                extraLeading: showingMenu ? SideMenu.width : SkeletonChrome.leadingWidth(panel: toolsPanel),
                 action: {
                     if showingMenu {
                         showingMenu = false
@@ -204,6 +204,7 @@ struct SkeletonScreen: View {
                     }
                 }
             )
+            .paddingLeadingIsland()
         }
         .overlay(alignment: .trailing) {
             if scene != nil, assets != nil {

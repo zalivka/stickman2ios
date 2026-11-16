@@ -93,6 +93,7 @@ struct SkeletonPreviewPanel: View {
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(SkeletonChrome.pane)
+        .paddingLeadingIsland(background: SkeletonChrome.pane)
     }
 
     private func previewBgButton(_ color: Color, label: String) -> some View {
@@ -129,7 +130,10 @@ struct SkeletonLeftPanel: View {
                     .frame(width: 36, height: 36)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(menuActivated ? Color(white: 0.22) : Color.clear)
+                    .background(
+                        menuActivated ? Color(white: 0.22) : Color.clear,
+                        ignoresSafeAreaEdges: []
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -158,6 +162,7 @@ struct SkeletonLeftPanel: View {
         .frame(width: SkeletonChrome.sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(SkeletonChrome.pane)
+        .paddingLeadingIsland(background: SkeletonChrome.pane)
     }
 
     private var editButton: some View {
@@ -570,6 +575,7 @@ struct SkeletonSideMenu: View {
         .frame(width: SideMenu.width)
         .frame(maxHeight: .infinity)
         .background(SkeletonChrome.pane)
+        .paddingLeadingIsland(background: SkeletonChrome.pane)
     }
 
     private func row(_ title: String, icon: String, action: @escaping () -> Void) -> some View {

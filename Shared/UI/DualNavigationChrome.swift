@@ -38,10 +38,10 @@ struct DualNavigationChrome: View {
                 .padding(.bottom, 24)
                 .padding(.trailing, 16)
                 .frame(maxHeight: .infinity)
+                .paddingBottomSafeArea()
             }
         }
         .paddingTrailingIsland()
-        .paddingBottomSafeArea()
         .onChange(of: nextPressToken) { _, _ in
             next()
         }
@@ -157,8 +157,8 @@ extension View {
         modifier(TrailingIslandPad())
     }
 
-    func offsetLeadingIsland() -> some View {
-        modifier(LeadingIslandOffset())
+    func paddingLeadingIsland(background: Color? = nil) -> some View {
+        modifier(LeadingIslandPad(background: background))
     }
 
     /// Callers ignore the horizontal/bottom safe area, so the home indicator or
@@ -185,21 +185,25 @@ private struct TrailingIslandPad: ViewModifier {
     }
 }
 
-/// The button sits in the safe area while the tool rail is drawn from the screen edge.
-/// Drop the leading inset so the circle stays 8 pt past the rail.
-private struct LeadingIslandOffset: ViewModifier {
+private struct LeadingIslandPad: ViewModifier {
+    var background: Color?
     @State private var leadingInset: CGFloat = 0
 
     func body(content: Content) -> some View {
         content
-            .offset(x: -leadingInset)
+            .padding(.leading, leadingInset)
             .background {
-                IslandInsetProbe(edge: .leading) { inset in
-                    if inset != leadingInset {
-                        leadingInset = inset
+                ZStack {
+                    if let background {
+                        background.ignoresSafeArea()
                     }
+                    IslandInsetProbe(edge: .leading) { inset in
+                        if inset != leadingInset {
+                            leadingInset = inset
+                        }
+                    }
+                    .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
             }
     }
 }

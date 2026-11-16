@@ -98,7 +98,6 @@ struct AudioScreen: View {
             FullscreenBackButton(
                 extraLeading: showingPalette ? Self.paletteWidth : 0
             )
-            .offsetLeadingIsland()
         }
         .overlay {
             if !toast.isEmpty {

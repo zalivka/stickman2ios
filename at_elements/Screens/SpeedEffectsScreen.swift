@@ -102,6 +102,7 @@ struct SpeedEffectsScreen: View {
         .frame(width: MainPanel.width)
         .frame(maxHeight: .infinity)
         .background(MainPanel.pane)
+        .paddingLeadingIsland(background: MainPanel.pane)
     }
 
     private var highlightIndex: Int {

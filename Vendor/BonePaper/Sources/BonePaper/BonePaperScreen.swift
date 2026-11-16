@@ -312,7 +312,7 @@ public struct BonePaperScreen: View {
                     .opacity(chromeOpacity)
                 HStack(spacing: 0) {
                     BonePaperChrome.pane
-                        .frame(width: BonePaperChrome.leftRail)
+                        .frame(width: safe.leading + BonePaperChrome.leftRail)
                         .frame(maxHeight: .infinity)
                         .opacity(chromeOpacity)
                     BonePaperCanvas(
@@ -392,7 +392,6 @@ public struct BonePaperScreen: View {
                         )
                         .ignoresSafeArea(edges: .bottom)
                         .padding(.leading, BonePaperChrome.leftRail)
-                        .offset(x: -safe.leading)
                         .opacity(chromeOpacity * (hasImagePlacement ? 0.25 : 1.0))
                         .disabled(hasImagePlacement)
                         .transition(.move(edge: .leading).combined(with: .opacity))
@@ -511,7 +510,6 @@ public struct BonePaperScreen: View {
                             .padding(.leading, BonePaperChrome.leftRail)
                             .transition(.move(edge: .leading))
                         }
-                        .offset(x: -safe.leading)
                         .opacity(chromeOpacity)
                     }
                 }
@@ -581,7 +579,6 @@ public struct BonePaperScreen: View {
                     )
                     .padding(.top, topClearance)
                     .ignoresSafeArea(edges: .bottom)
-                    .offset(x: -safe.leading)
                     .opacity(chromeOpacity)
                 }
                 .overlay(alignment: .topLeading) {
@@ -600,7 +597,6 @@ public struct BonePaperScreen: View {
                         }
                     )
                     .padding(.top, topClearance)
-                    .offset(x: -safe.leading)
                     .opacity(chromeOpacity)
                     .animation(.easeInOut(duration: 0.17), value: backExtraLeading)
                 }

@@ -120,7 +120,6 @@ struct CameraAnimatorScreen: View {
         .modifier(StatusBarClearance())
         .overlay(alignment: .topLeading) {
             FullscreenBackButton()
-                .offsetLeadingIsland()
         }
         .overlay {
             if !toast.isEmpty {

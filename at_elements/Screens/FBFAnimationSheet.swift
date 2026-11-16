@@ -126,16 +126,20 @@ struct FBFAnimationSheet: View {
 
             Spacer(minLength: 0)
 
-            Button("Apply") {
+            Button {
                 onCommit(enabled ? draft : nil)
                 dismiss()
+            } label: {
+                Text("Apply")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Self.apply)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
             }
-            .font(.system(size: 17, weight: .semibold))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(Self.apply)
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .buttonStyle(.plain)
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

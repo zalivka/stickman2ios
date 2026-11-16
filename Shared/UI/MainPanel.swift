@@ -57,7 +57,10 @@ struct MainPanel: View {
                         .frame(width: 36, height: 36)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(menuActivated ? Color(white: 0.22) : Color.clear)
+                        .background(
+                            menuActivated ? Color(white: 0.22) : Color.clear,
+                            ignoresSafeAreaEdges: []
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -175,7 +178,8 @@ struct MainPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(Self.pane)
+        .background(Self.pane, ignoresSafeAreaEdges: [])
+        .paddingLeadingIsland(background: Self.pane)
         .accessibilityIdentifier("main panel")
     }
 
@@ -216,7 +220,10 @@ struct MainPanel: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
-            .background(activated ? activatedFill : Color.clear)
+            .background(
+                activated ? activatedFill : Color.clear,
+                ignoresSafeAreaEdges: []
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

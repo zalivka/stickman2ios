@@ -104,8 +104,8 @@ private struct MakePane: View {
             let dividerX = proxy.size.width * 0.6
             ZStack(alignment: .topLeading) {
                 versionLabel
-                    .padding(.leading, 8)
-                    .padding(.top, 8)
+                .padding(.leading, 8)
+                .padding(.top, 8)
 
                 #if DEBUG
                 VStack(alignment: .leading, spacing: 6) {

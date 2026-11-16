@@ -90,7 +90,7 @@ struct SceneEditorScreen: View {
     private static let leaveGraceSeconds = 10.0
     @State private var savedSceneSnapshot: StickmanScene
     @StateObject private var videoExport = VideoExport()
-    @StateObject private var clipboard = CopyPasteBuffer()
+    @ObservedObject private var clipboard = CopyPasteBuffer.shared
     @StateObject private var undo = SceneUndo()
     @State private var frameInsertFlash = 0
     @State private var tutorialStep: TutorialStep?
@@ -237,6 +237,7 @@ struct SceneEditorScreen: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
+                .ignoresSafeArea(edges: .bottom)
             }
             if showingInsert {
                 ItemChooserPanel(
@@ -244,7 +245,8 @@ struct SceneEditorScreen: View {
                     onClose: { showingInsert = false },
                     onCreateItems: { showingCreateItems = true }
                 )
-                    .padding(.leading, MainPanel.width)
+                .padding(.leading, MainPanel.width)
+                .paddingLeadingIsland()
             }
             if showingEditFrame {
                 FrameOpsPanel(
@@ -256,6 +258,7 @@ struct SceneEditorScreen: View {
                     onPaste: pasteFrames
                 )
                 .padding(.leading, MainPanel.width)
+                .paddingLeadingIsland()
             }
             if showingEditUnit {
                 Group {
@@ -308,14 +311,17 @@ struct SceneEditorScreen: View {
                     }
                 }
                 .padding(.leading, MainPanel.width)
+                .paddingLeadingIsland()
             }
             if showingMenu {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
                     .padding(.leading, MainPanel.width)
+                    .paddingLeadingIsland()
                     .onTapGesture { showingMenu = false }
                 SideMenu(onPick: pickMenu, exportDisabled: videoExport.phase == .saving)
                     .padding(.leading, MainPanel.width)
+                    .paddingLeadingIsland()
                     .transition(.move(edge: .leading))
             }
         }
@@ -350,11 +356,13 @@ struct SceneEditorScreen: View {
         .onChange(of: selectedUnitName) { _, next in
             refreshEditableItem(for: next)
         }
-        .ignoresSafeArea(edges: .horizontal)
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
         .modifier(StatusBarClearance())
         .background {
             HStack(spacing: 0) {
-                MainPanel.pane.frame(width: MainPanel.width)
+                MainPanel.pane
+                    .frame(width: MainPanel.width)
+                    .paddingLeadingIsland(background: MainPanel.pane)
                 SkeletonCanvas.pane.frame(maxWidth: .infinity)
             }
             .ignoresSafeArea(edges: [.horizontal, .bottom])
@@ -403,7 +411,6 @@ struct SceneEditorScreen: View {
                     extraLeading: backExtraLeading,
                     action: screenBack
                 )
-                .offsetLeadingIsland()
             }
         }
         .overlay(alignment: .bottom) {
@@ -429,6 +436,7 @@ struct SceneEditorScreen: View {
                 .buttonStyle(.plain)
                 .padding(.leading, 12)
                 .padding(.bottom, 16)
+                .paddingBottomSafeArea()
             } else if stretchButtonVisible {
                 StretchHoldButton(
                     leading: MainPanel.width + backExtraLeading + 8,
@@ -442,7 +450,7 @@ struct SceneEditorScreen: View {
                         onStretchHoldChanged(false)
                     }
                 )
-                .offsetLeadingIsland()
+                .paddingBottomSafeArea()
             }
         }
         .onAppear {
@@ -739,12 +747,11 @@ struct SceneEditorScreen: View {
 
     /// Swaps the whole scene without touching the navigation stack. Mirrors
     /// `init` plus a reset of every transient/editor state that references the
-    /// old scene, so no stale undo, clipboard, export, selection, or sheet
-    /// can leak into the new one.
+    /// old scene, so no stale undo, export, selection, or sheet can leak into
+    /// the new one.
     private func replaceScene(scene: StickmanScene, assets: UnitAssets, backgrounds: BackgroundAssets) {
         videoExport.cancel()
         undo.clear()
-        clipboard.clear()
         self.scene = scene
         self.assets = assets
         self.backgrounds = backgrounds
@@ -1372,7 +1379,7 @@ struct SceneEditorScreen: View {
     private func copySelectedFrames() {
         let indices = rearrangeFrames
         do {
-            try clipboard.copyFrames(from: scene, indices: indices)
+            try clipboard.copyFrames(from: scene, indices: indices, assets: assets, backgrounds: backgrounds)
         } catch {
             bail(error)
             return
@@ -1395,9 +1402,9 @@ struct SceneEditorScreen: View {
         let backgroundTweens = scene.backgroundTweens
         let audio = scene.audio.clips
         do {
-            let inserted = try clipboard.pasteFrames(into: &scene)
+            let inserted = try clipboard.pasteFrames(into: &scene, assets: assets, backgrounds: backgrounds)
             let ids = inserted.map { scene.frames[$0].id }
-            try undo.commitFramesInserted(
+            undo.commitFramesInserted(
                 ids: ids,
                 currentIndex: currentIndex,
                 animations: animations,
@@ -1411,6 +1418,8 @@ struct SceneEditorScreen: View {
             return
         }
         clampRange()
+        frameInsertFlash += 1
+        showToast("Pasted \(clipboard.framesInBuffer) frames")
     }
 
     private func openSetText() {
@@ -1495,7 +1504,7 @@ struct SceneEditorScreen: View {
         }
         do {
             let connected = try SlavesRegistry.allConnected(of: selectedUnit, in: frame.units)
-            clipboard.copyUnits(connected)
+            clipboard.copyUnits(connected, assets: assets)
         } catch {
             bail(error)
             return
@@ -1509,7 +1518,7 @@ struct SceneEditorScreen: View {
         }
         prepareSelectionUndo()
         do {
-            try clipboard.pasteUnits(into: &scene, at: rearrangeFrames)
+            try clipboard.pasteUnits(into: &scene, at: rearrangeFrames, assets: assets)
         } catch {
             bail(error)
         }
