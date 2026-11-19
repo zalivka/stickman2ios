@@ -9,6 +9,7 @@ enum BonePaperRecolor {
     /// `mask` is the island (value 1) from the flood fill. `seed` is the tapped pixel index (`y * width + x`).
     static func apply(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]? = nil,
         mask: [UInt8],
         width: Int,
         height: Int,
@@ -20,14 +21,15 @@ enum BonePaperRecolor {
         let edge = BonePaperFlags.antialiasing
             ? edgeShares(pixels: pixels, mask: mask, width: width, height: height, stride: stride, seed: seed)
             : nil
-        paintIsland(pixels: pixels, mask: mask, width: width, stride: stride, paint: paint)
+        paintIsland(pixels: pixels, clipMask: clipMask, mask: mask, width: width, stride: stride, paint: paint)
         if let edge {
-            paintEdge(edge, pixels: pixels, width: width, stride: stride, paint: paint)
+            paintEdge(edge, pixels: pixels, clipMask: clipMask, width: width, stride: stride, paint: paint)
         }
     }
 
     static func clear(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]? = nil,
         mask: [UInt8],
         width: Int,
         height: Int,
@@ -38,14 +40,24 @@ enum BonePaperRecolor {
             ? edgeShares(pixels: pixels, mask: mask, width: width, height: height, stride: stride, seed: seed)
             : nil
         for m in mask.indices where mask[m] == 1 {
+            let maskScale = clipMask.map { Int($0[m]) } ?? 255
+            if maskScale == 0 { continue }
             let i = (m / width) * stride + (m % width) * 4
-            pixels[i] = 0
-            pixels[i + 1] = 0
-            pixels[i + 2] = 0
-            pixels[i + 3] = 0
+            if maskScale >= 255 {
+                pixels[i] = 0
+                pixels[i + 1] = 0
+                pixels[i + 2] = 0
+                pixels[i + 3] = 0
+            } else {
+                let keep = 255 - maskScale
+                pixels[i] = UInt8(clamping: (Int(pixels[i]) * keep + 127) / 255)
+                pixels[i + 1] = UInt8(clamping: (Int(pixels[i + 1]) * keep + 127) / 255)
+                pixels[i + 2] = UInt8(clamping: (Int(pixels[i + 2]) * keep + 127) / 255)
+                pixels[i + 3] = UInt8(clamping: (Int(pixels[i + 3]) * keep + 127) / 255)
+            }
         }
         if let edge {
-            clearEdge(edge, pixels: pixels, width: width, stride: stride)
+            clearEdge(edge, pixels: pixels, clipMask: clipMask, width: width, stride: stride)
         }
     }
 
@@ -58,22 +70,27 @@ enum BonePaperRecolor {
     /// Paint RGB at the pixel's own alpha, mixed by tool opacity, so the silhouette stays.
     private static func paintIsland(
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         mask: [UInt8],
         width: Int,
         stride: Int,
         paint: BonePaperDocument.FillPaint
     ) {
-        let o = paint.a
-        func mix(_ dst: UInt8, _ channel: Int, _ alpha: Int) -> UInt8 {
+        let baseO = paint.a
+        func mix(_ dst: UInt8, _ channel: Int, _ alpha: Int, _ o: Int) -> UInt8 {
             let src = (channel * alpha + 127) / 255
             return UInt8(clamping: (Int(dst) * (255 - o) + src * o + 127) / 255)
         }
         for m in mask.indices where mask[m] == 1 {
+            let maskScale = clipMask.map { Int($0[m]) } ?? 255
+            if maskScale == 0 { continue }
+            let o = (baseO * maskScale + 127) / 255
+            if o == 0 { continue }
             let i = (m / width) * stride + (m % width) * 4
             let alpha = Int(pixels[i + 3])
-            pixels[i] = mix(pixels[i], paint.r, alpha)
-            pixels[i + 1] = mix(pixels[i + 1], paint.g, alpha)
-            pixels[i + 2] = mix(pixels[i + 2], paint.b, alpha)
+            pixels[i] = mix(pixels[i], paint.r, alpha, o)
+            pixels[i + 1] = mix(pixels[i + 1], paint.g, alpha, o)
+            pixels[i + 2] = mix(pixels[i + 2], paint.b, alpha, o)
         }
     }
 
@@ -148,15 +165,19 @@ enum BonePaperRecolor {
     private static func paintEdge(
         _ edge: Edge,
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         width: Int,
         stride: Int,
         paint: BonePaperDocument.FillPaint
     ) {
         let shift = (SIMD3(Float(paint.r), Float(paint.g), Float(paint.b)) - edge.island) * (Float(paint.a) / 255)
         for (n, share) in edge.shares {
+            let maskScale = clipMask.map { Int($0[Int(n)]) } ?? 255
+            if maskScale == 0 { continue }
+            let effShare = share * (Float(maskScale) / 255)
             let i = (Int(n) / width) * stride + (Int(n) % width) * 4
             let alpha = Float(pixels[i + 3])
-            let color = straightColor(pixels, i) + shift * share
+            let color = straightColor(pixels, i) + shift * effShare
             for c in 0..<3 {
                 pixels[i + c] = UInt8((min(max(color[c], 0), 255) * alpha / 255).rounded())
             }
@@ -166,10 +187,14 @@ enum BonePaperRecolor {
     private static func clearEdge(
         _ edge: Edge,
         pixels: UnsafeMutablePointer<UInt8>,
+        clipMask: [UInt8]?,
         width: Int,
         stride: Int
     ) {
-        for (n, islandShare) in edge.shares {
+        for (n, share) in edge.shares {
+            let maskScale = clipMask.map { Int($0[Int(n)]) } ?? 255
+            if maskScale == 0 { continue }
+            let islandShare = share * (Float(maskScale) / 255)
             let lineShare = 1 - islandShare
             let i = (Int(n) / width) * stride + (Int(n) % width) * 4
             let oldAlpha = Float(pixels[i + 3])

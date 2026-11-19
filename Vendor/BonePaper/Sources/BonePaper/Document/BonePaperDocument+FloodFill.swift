@@ -71,6 +71,7 @@ extension BonePaperDocument {
             case .clear:
                 BonePaperRecolor.clear(
                     pixels: pixels,
+                    clipMask: activeMask,
                     mask: mask,
                     width: width,
                     height: height,
@@ -80,6 +81,7 @@ extension BonePaperDocument {
             case .color(let paint) where seedPainted:
                 BonePaperRecolor.apply(
                     pixels: pixels,
+                    clipMask: activeMask,
                     mask: mask,
                     width: width,
                     height: height,
@@ -185,7 +187,6 @@ extension BonePaperDocument {
         // Ink wall is relative when the tap itself is dark: tapping a dark line still
         // recolours the line (same ink passes), but a darker outline around a dark fill blocks.
         let inkLimit = max(limits.ink, seed.ink + Self.fillInkRelativeMargin)
-        let distance: (FillLab, FillLab) -> Float = recolor ? FillLab.colorDistance : FillLab.coverDistance
         var mask = [UInt8](repeating: 0, count: width * height)
         mask[seedY * width + seedX] = 1
         var stack = [Int32(seedY * width + seedX)]
@@ -214,8 +215,8 @@ extension BonePaperDocument {
                 if next.ink > inkLimit { return }
                 let current = currentLab ?? lab(pixels, currentOffset)
                 currentLab = current
-                if distance(next, current) >= limits.neighbour { return }
-                if distance(next, seed) >= limits.seed { return }
+                if FillLab.coverDistance(next, current) >= limits.neighbour { return }
+                if FillLab.coverDistance(next, seed) >= limits.seed { return }
                 if recolor, isEdgeRamp(pixels: pixels, width: width, height: height, stride: stride, x: nx, y: ny, next: next, seed: seed, limit: Self.fillEdgeLimit) { return }
                 mask[n] = 1
                 stack.append(Int32(n))
@@ -282,7 +283,7 @@ extension BonePaperDocument {
         seed: FillLab,
         limit: Float
     ) -> Bool {
-        let toSeed = FillLab.colorDistance(next, seed)
+        let toSeed = FillLab.coverDistance(next, seed)
         if toSeed < limit / 2 { return false }
         for (dx, dy) in edgeRays {
             for step in 1...fillRing {
@@ -291,7 +292,7 @@ extension BonePaperDocument {
                 if qx < 0 || qy < 0 || qx >= width || qy >= height { break }
                 let q = lab(pixels, qy * stride + qx * 4)
                 if q.alpha == 0 { continue }
-                if FillLab.colorDistance(q, next) >= limit, FillLab.colorDistance(q, seed) < toSeed {
+                if FillLab.coverDistance(q, next) >= limit, FillLab.coverDistance(q, seed) < toSeed {
                     return true
                 }
             }
@@ -414,7 +415,7 @@ extension BonePaperDocument {
 
         var ink: Float { alpha * (1 - L) }
 
-        /// Recolour metric: chroma/lightness only. Transparent pixels are rejected before this.
+        /// Chroma/lightness Euclidean distance in OKLab.
         static func colorDistance(_ p: FillLab, _ q: FillLab) -> Float {
             let dL = p.L - q.L
             let da = p.a - q.a

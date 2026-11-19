@@ -19,12 +19,15 @@ final class BonePaperDrawView: UIView {
     private let paperView = UIView()
     private let onionView = UIImageView()
     private weak var displayedOnion: CGImage?
+    private let bitmapClipView = UIView()
     private let bitmap = UIImageView()
     private let placementClipView = UIView()
     private let placementImageView = UIImageView()
     private weak var displayedPlacementImage: CGImage?
     /// Displays `document.maskOverlay` above the drawing to dim the area outside the active mask.
     /// Named `maskOverlayView` to avoid colliding with `UIView.mask`.
+    private let maskOverlayClipView = UIView()
+    private let maskOverlayFadeLayer = CALayer()
     private let maskOverlayView = UIImageView()
     private weak var displayedMaskOverlay: CGImage?
     private let frameLayer = CAShapeLayer()
@@ -52,9 +55,13 @@ final class BonePaperDrawView: UIView {
         onionView.isUserInteractionEnabled = false
         onionView.contentMode = .scaleToFill
         onionView.backgroundColor = .clear
+        bitmapClipView.isUserInteractionEnabled = false
+        bitmapClipView.clipsToBounds = true
+        bitmapClipView.backgroundColor = .clear
         bitmap.isUserInteractionEnabled = false
         bitmap.contentMode = .scaleToFill
         bitmap.backgroundColor = .clear
+        bitmapClipView.addSubview(bitmap)
         placementClipView.isUserInteractionEnabled = false
         placementClipView.clipsToBounds = true
         placementClipView.backgroundColor = .clear
@@ -63,10 +70,16 @@ final class BonePaperDrawView: UIView {
         placementImageView.contentMode = .scaleToFill
         placementImageView.backgroundColor = .clear
         placementClipView.addSubview(placementImageView)
+        maskOverlayClipView.isUserInteractionEnabled = false
+        maskOverlayClipView.clipsToBounds = true
+        maskOverlayClipView.backgroundColor = .clear
+        maskOverlayClipView.isHidden = true
+        maskOverlayFadeLayer.backgroundColor = UIColor.black.withAlphaComponent(115.0 / 255.0).cgColor
+        maskOverlayClipView.layer.addSublayer(maskOverlayFadeLayer)
         maskOverlayView.isUserInteractionEnabled = false
         maskOverlayView.contentMode = .scaleToFill
         maskOverlayView.backgroundColor = .clear
-        maskOverlayView.isHidden = true
+        maskOverlayClipView.addSubview(maskOverlayView)
         frameLayer.fillColor = nil
         frameLayer.strokeColor = UIColor(red: 1, green: 0.35, blue: 0.72, alpha: 1).cgColor
         frameLayer.lineWidth = 1
@@ -76,9 +89,9 @@ final class BonePaperDrawView: UIView {
         addSubview(checker)
         addSubview(paperView)
         addSubview(onionView)
-        addSubview(bitmap)
+        addSubview(bitmapClipView)
         addSubview(placementClipView)
-        addSubview(maskOverlayView)
+        addSubview(maskOverlayClipView)
         layer.addSublayer(frameLayer)
         layer.addSublayer(boneLayer)
     }
@@ -98,7 +111,7 @@ final class BonePaperDrawView: UIView {
     func setBackdropAlpha(_ alpha: CGFloat) {
         checker.alpha = alpha
         onionView.alpha = alpha
-        maskOverlayView.alpha = alpha
+        maskOverlayClipView.alpha = alpha
     }
 
     /// The pink frame is a bare layer, so `UIView.animate` does not drive it.
@@ -135,17 +148,32 @@ final class BonePaperDrawView: UIView {
             }
         }
         let rect = bitmapRect(document)
-        bitmap.frame = rect
+        let clipRect = (boneStart != nil && boneTip != nil) ? bounds : rect
+        bitmapClipView.frame = clipRect
+        bitmap.transform = .identity
+        bitmap.frame = CGRect(
+            x: rect.minX - clipRect.minX,
+            y: rect.minY - clipRect.minY,
+            width: rect.width,
+            height: rect.height
+        )
         bitmap.image = UIImage(cgImage: document.preview)
-        maskOverlayView.frame = rect
+        maskOverlayClipView.frame = clipRect
+        maskOverlayView.transform = .identity
+        maskOverlayView.frame = CGRect(
+            x: rect.minX - clipRect.minX,
+            y: rect.minY - clipRect.minY,
+            width: rect.width,
+            height: rect.height
+        )
         if displayedMaskOverlay !== document.maskOverlay {
             displayedMaskOverlay = document.maskOverlay
             if let overlay = document.maskOverlay {
                 maskOverlayView.image = UIImage(cgImage: overlay)
-                maskOverlayView.isHidden = false
+                maskOverlayClipView.isHidden = false
             } else {
                 maskOverlayView.image = nil
-                maskOverlayView.isHidden = true
+                maskOverlayClipView.isHidden = true
             }
         }
         paperView.frame = rect
@@ -153,6 +181,7 @@ final class BonePaperDrawView: UIView {
         paperView.isHidden = paperColor == nil
         layoutMarks(document)
         updatePlacementLayer(stageView?.imagePlacement)
+        updateCanvasTransformLayer(stageView?.canvasTransform)
     }
 
     func updatePlacementLayer(_ placement: BonePaperImagePlacement?) {
@@ -187,6 +216,101 @@ final class BonePaperDrawView: UIView {
         )
     }
 
+    func updateCanvasTransformLayer(_ canvasTransform: BonePaperCanvasTransform?) {
+        guard let document else { return }
+        let rect = bitmapRect(document)
+        let clipRect = (boneStart != nil && boneTip != nil) ? bounds : rect
+        bitmapClipView.frame = clipRect
+        maskOverlayClipView.frame = clipRect
+
+        let baseFrame = CGRect(
+            x: rect.minX - clipRect.minX,
+            y: rect.minY - clipRect.minY,
+            width: rect.width,
+            height: rect.height
+        )
+
+        guard let canvasTransform else {
+            isMultipleTouchEnabled = false
+            bitmap.transform = .identity
+            bitmap.frame = baseFrame
+            maskOverlayView.transform = .identity
+            maskOverlayView.frame = baseFrame
+            updateMaskOuterHole(document: document, clipRect: clipRect, bitmapBaseRect: baseFrame, transform: .identity)
+            return
+        }
+
+        isMultipleTouchEnabled = true
+        let side = CGFloat(document.worldSize)
+        let scaleFactor = bounds.width > 0 ? bounds.width / side : 1
+        let oldCenterWorld = CGPoint(
+            x: CGFloat(canvasTransform.initialOriginX) + CGFloat(canvasTransform.initialWidth) * 0.5,
+            y: CGFloat(canvasTransform.initialOriginY) + CGFloat(canvasTransform.initialHeight) * 0.5
+        )
+        let newCenterWorld = oldCenterWorld.applying(canvasTransform.worldTransform)
+        let newCenterInClip = CGPoint(
+            x: newCenterWorld.x * scaleFactor - clipRect.minX,
+            y: newCenterWorld.y * scaleFactor - clipRect.minY
+        )
+
+        var linear = canvasTransform.worldTransform
+        linear.tx = 0
+        linear.ty = 0
+
+        let unscaledBounds = CGRect(x: 0, y: 0, width: baseFrame.width, height: baseFrame.height)
+        bitmap.transform = .identity
+        bitmap.bounds = unscaledBounds
+        bitmap.center = newCenterInClip
+        bitmap.transform = linear
+
+        maskOverlayView.transform = .identity
+        maskOverlayView.bounds = unscaledBounds
+        maskOverlayView.center = newCenterInClip
+        maskOverlayView.transform = linear
+
+        let fullTransform = CGAffineTransform(translationX: -baseFrame.midX, y: -baseFrame.midY)
+            .concatenating(linear)
+            .concatenating(CGAffineTransform(translationX: newCenterInClip.x, y: newCenterInClip.y))
+        updateMaskOuterHole(document: document, clipRect: clipRect, bitmapBaseRect: baseFrame, transform: fullTransform)
+    }
+
+    private func updateMaskOuterHole(
+        document: BonePaperDocument,
+        clipRect: CGRect,
+        bitmapBaseRect: CGRect,
+        transform: CGAffineTransform
+    ) {
+        if document.maskOverlay == nil {
+            maskOverlayFadeLayer.isHidden = true
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        maskOverlayFadeLayer.frame = CGRect(origin: .zero, size: clipRect.size)
+        let outerPath = CGMutablePath()
+        outerPath.addRect(CGRect(origin: .zero, size: clipRect.size))
+        let corners = [
+            CGPoint(x: bitmapBaseRect.minX, y: bitmapBaseRect.minY).applying(transform),
+            CGPoint(x: bitmapBaseRect.maxX, y: bitmapBaseRect.minY).applying(transform),
+            CGPoint(x: bitmapBaseRect.maxX, y: bitmapBaseRect.maxY).applying(transform),
+            CGPoint(x: bitmapBaseRect.minX, y: bitmapBaseRect.maxY).applying(transform)
+        ]
+        outerPath.move(to: corners[0])
+        outerPath.addLine(to: corners[1])
+        outerPath.addLine(to: corners[2])
+        outerPath.addLine(to: corners[3])
+        outerPath.closeSubpath()
+        let maskShape = (maskOverlayFadeLayer.mask as? CAShapeLayer) ?? {
+            let layer = CAShapeLayer()
+            layer.fillRule = .evenOdd
+            maskOverlayFadeLayer.mask = layer
+            return layer
+        }()
+        maskShape.path = outerPath
+        maskOverlayFadeLayer.isHidden = false
+        CATransaction.commit()
+    }
+
     private func layoutMarks(_ document: BonePaperDocument) {
         let rect = bitmapRect(document)
         let inset = frameLayer.lineWidth / 2
@@ -207,6 +331,11 @@ final class BonePaperDrawView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if document?.filling == true { return }
+        if let stageView, let canvasTransform = stageView.canvasTransform {
+            canvasTransform.onTouchesBegan(touches: touches, event: event, stageView: stageView)
+            stageView.syncCanvasTransform()
+            return
+        }
         if let stageView, let placement = stageView.imagePlacement {
             if event?.allTouches?.count != 1 {
                 placement.cancelGesture()
@@ -243,6 +372,11 @@ final class BonePaperDrawView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if document?.filling == true { return }
+        if let stageView, let canvasTransform = stageView.canvasTransform {
+            canvasTransform.onTouchesMoved(touches: touches, event: event, stageView: stageView)
+            stageView.syncCanvasTransform()
+            return
+        }
         if let stageView, let placement = stageView.imagePlacement {
             if event?.allTouches?.count != 1 {
                 placement.cancelGesture()
@@ -281,7 +415,19 @@ final class BonePaperDrawView: UIView {
             if hypot(dx, dy) < slop {
                 return
             }
-            if (tool == .pen || tool == .brushfill), color.cgColor.alpha == 0 {
+            if tool != .eraser, color.cgColor.alpha == 0 {
+                return
+            }
+            if tool.isTwoPointShape {
+                if tool == .line {
+                    document.beginStroke(erase: false, opacity: opacity)
+                } else {
+                    document.beginBrushfillStroke(color: color, opacity: opacity)
+                }
+                stroking = true
+                strokeStartWorld = startWorld
+                updateShapeToolWorld(document: document, from: startWorld, to: point)
+                lastWorld = point
                 return
             }
             if tool == .brushfill {
@@ -303,6 +449,12 @@ final class BonePaperDrawView: UIView {
             lastWorld = point
             return
         }
+        if tool.isTwoPointShape {
+            guard let startWorld = strokeStartWorld else { return }
+            updateShapeToolWorld(document: document, from: startWorld, to: point)
+            lastWorld = point
+            return
+        }
         guard let last = lastWorld else { return }
         if tool == .brushfill {
             document.stampBrushfillWorld(from: last, to: point)
@@ -318,6 +470,15 @@ final class BonePaperDrawView: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let stageView, let canvasTransform = stageView.canvasTransform {
+            let shouldCancel = canvasTransform.onTouchesEnded(touches: touches, event: event, stageView: stageView)
+            if shouldCancel {
+                stageView.cancelCanvasTransform()
+            } else {
+                stageView.syncCanvasTransform()
+            }
+            return
+        }
         if let stageView, let placement = stageView.imagePlacement {
             placement.endGesture()
             stageView.syncImagePlacement()
@@ -325,18 +486,32 @@ final class BonePaperDrawView: UIView {
         }
         if let touch = touches.first {
             document?.recorder.touchMoved(samples(touch, event))
+            if stroking, tool.isTwoPointShape, let document, let startWorld = strokeStartWorld {
+                let point = worldPoint(touch)
+                updateShapeToolWorld(document: document, from: startWorld, to: point)
+                lastWorld = point
+            }
         }
         finishStroke()
         document?.recorder.touchUp()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let stageView, let canvasTransform = stageView.canvasTransform {
+            canvasTransform.onTouchesCancelled()
+            stageView.syncCanvasTransform()
+            return
+        }
         abortStroke()
     }
 
     // Second finger or pinch: discard, do not endStroke() which would keep the speck.
     func abortStroke() {
         stageView?.hideOffsetCursor()
+        if let stageView, let canvasTransform = stageView.canvasTransform {
+            canvasTransform.onTouchesCancelled()
+            stageView.syncCanvasTransform()
+        }
         if let stageView, let placement = stageView.imagePlacement {
             placement.cancelGesture()
             stageView.syncImagePlacement()
@@ -389,7 +564,23 @@ final class BonePaperDrawView: UIView {
         stroking = false
     }
 
+    private func updateShapeToolWorld(document: BonePaperDocument, from start: CGPoint, to end: CGPoint) {
+        switch tool {
+        case .line:
+            document.updateLineWorld(from: start, to: end, color: color, size: brushSize)
+        case .rectangle:
+            document.updateRectWorld(from: start, to: end)
+        case .circle:
+            document.updateCircleWorld(center: start, edge: end)
+        default:
+            break
+        }
+    }
+
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if stageView?.canvasTransform != nil {
+            return true
+        }
         if let stageView, let placement = stageView.imagePlacement {
             let screenPt = convert(point, to: stageView)
             let geom = placement.computeScreenGeometry { stageView.stagePoint(fromWorld: $0) }

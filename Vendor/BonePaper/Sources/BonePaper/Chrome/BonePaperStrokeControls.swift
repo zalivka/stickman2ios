@@ -3,6 +3,7 @@ import UIKit
 
 struct BonePaperStrokeControls: View {
     @Binding var tool: BonePaperTool
+    @Binding var strokeMode: BonePaperTool
     @Binding var fillMode: BonePaperTool
     @Binding var brushSize: CGFloat
     @Binding var eraserSize: CGFloat
@@ -20,7 +21,6 @@ struct BonePaperStrokeControls: View {
     var canRedo: Bool
     var onRedo: () -> Void
     var color: Color
-    var onToggleFillMode: () -> Void
     var onSeeking: (Bool) -> Void
     var onFlashPreview: () -> Void
     var bottomInset: CGFloat = 0
@@ -52,12 +52,7 @@ struct BonePaperStrokeControls: View {
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: itemSpacing) {
-                    if isPad {
-                        bucketSingleChip
-                        brushfillSingleChip
-                    } else {
-                        fillToggleChip
-                    }
+                    modeControl
                     brushControl
                     opacityControl
                     eraserControl
@@ -81,62 +76,22 @@ struct BonePaperStrokeControls: View {
         .frame(width: railWidth)
     }
 
-    private var bucketSingleChip: some View {
-        BonePaperSingleFillChip(
-            mode: .bucket,
-            selected: tool == .bucket
-        ) {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                activeSetting = nil
-                fillMode = .bucket
-                tool = .bucket
-            }
-        }
-    }
-
-    private var brushfillSingleChip: some View {
-        BonePaperSingleFillChip(
-            mode: .brushfill,
-            selected: tool == .brushfill
-        ) {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                activeSetting = nil
-                if UIColor(color).cgColor.alpha == 0 {
-                    onToggleFillMode()
-                } else {
-                    fillMode = .brushfill
-                    tool = .brushfill
-                }
-            }
-        }
-    }
-
-    private var fillToggleChip: some View {
-        BonePaperFillChip(
-            selected: tool == .bucket || tool == .brushfill,
-            fillMode: fillMode,
+    private var modeControl: some View {
+        BonePaperModeControl(
+            fillMode: $fillMode,
+            selected: tool.isFillMode,
+            paintModesEnabled: brushAndOpacityEnabled,
             showsCaption: isPad,
-            onSelect: {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    activeSetting = nil
-                    if UIColor(color).cgColor.alpha == 0 {
-                        fillMode = .bucket
-                    }
-                    tool = fillMode
+            activeSetting: $activeSetting,
+            onSelectMode: { picked in
+                if !brushAndOpacityEnabled && picked != .bucket {
+                    return
                 }
-            },
-            onToggleMode: {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    activeSetting = nil
-                    onToggleFillMode()
+                    fillMode = picked
+                    tool = picked
                 }
             }
         )
@@ -149,11 +104,22 @@ struct BonePaperStrokeControls: View {
             range: BonePaperBrush.sizeRange,
             marks: brushMarks,
             color: color,
-            selected: tool == .pen,
+            selected: tool.isStrokeMode,
             enabled: brushAndOpacityEnabled,
             showsCaption: isPad,
+            strokeMode: strokeMode,
             activeSetting: $activeSetting,
-            onActivate: { tool = .pen },
+            onActivate: {
+                tool = strokeMode
+            },
+            onSelectStrokeMode: { picked in
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    strokeMode = picked
+                    tool = picked
+                }
+            },
             onSeeking: onSeeking,
             onFlashPreview: onFlashPreview
         )
@@ -171,8 +137,8 @@ struct BonePaperStrokeControls: View {
             showsCaption: isPad,
             activeSetting: $activeSetting,
             onActivate: {
-                if tool != .bucket, tool != .brushfill {
-                    tool = .pen
+                if !tool.isFillMode && !tool.isStrokeMode {
+                    tool = strokeMode
                 }
             },
             onSeeking: onSeeking,
@@ -198,130 +164,247 @@ struct BonePaperStrokeControls: View {
     }
 }
 
-/// Top-right white corner triangle indicating a long-press subtool (`fillButtonBackground` on Android).
-private struct SubtoolCornerTriangle: Shape {
-    var inset: CGFloat = 3
-    var leg: CGFloat = 7
+/// Top rail button for the 4 filling tools: Bucket, Brushfill, Rectangle, Circle.
+/// Supports tap to activate, tap-when-active / long-press / double-tap to pin the strip open,
+/// and horizontal drag-right to scrub across the 4 tools.
+private struct BonePaperModeControl: View {
+    private static let modes: [BonePaperTool] = [.bucket, .brushfill, .rectangle, .circle]
+    private static let side: CGFloat = BonePaperTrackStyle.side
+    private static let trackGap: CGFloat = BonePaperTrackStyle.trackGap
+    private static let trackWidth: CGFloat = BonePaperTrackStyle.chipStripWidth(chipCount: modes.count)
+    private static let space = "bonepaper.mode"
 
-    func path(in rect: CGRect) -> Path {
-        let right = rect.maxX - inset
-        let top = rect.minY + inset
-        var path = Path()
-        path.move(to: CGPoint(x: right, y: top))
-        path.addLine(to: CGPoint(x: right, y: top + leg))
-        path.addLine(to: CGPoint(x: right - leg, y: top))
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// Standalone Bucket or Brushfill button used on iPad where vertical rail space allows separate buttons.
-private struct BonePaperSingleFillChip: View {
-    var mode: BonePaperTool
+    @Binding var fillMode: BonePaperTool
     var selected: Bool
-    var onSelect: () -> Void
-
-    private var isBrushfill: Bool {
-        mode == .brushfill
-    }
-
-    private var activeColor: Color {
-        isBrushfill ? BonePaperChrome.brushfillSelected : BonePaperChrome.selected
-    }
-
-    var body: some View {
-        VStack(spacing: 1) {
-            Image(uiImage: BonePaperChrome.chromeImage(
-                isBrushfill ? "kurwa_fill" : "vector_flood_unactivated"
-            ))
-            .resizable()
-            .scaledToFit()
-            .frame(width: 30, height: 30)
-            .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
-            .background {
-                if selected {
-                    activeColor
-                        .transition(.identity)
-                }
-            }
-            Text(isBrushfill ? "brushfill" : "bucket")
-                .font(.system(size: 12, weight: .regular))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(selected ? activeColor : Color.white)
-                .frame(width: BonePaperChrome.tool)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .transaction { $0.animation = nil }
-        .accessibilityLabel(isBrushfill ? "Brushfill" : "Bucket")
-        .accessibilityAddTraits(.isButton)
-    }
-}
-
-/// Bucket (`vector_flood_unactivated`) / Brushfill (`kurwa_fill`) toggle chip.
-private struct BonePaperFillChip: View {
-    var selected: Bool
-    var fillMode: BonePaperTool
+    var paintModesEnabled: Bool
     var showsCaption: Bool = true
-    var onSelect: () -> Void
-    var onToggleMode: () -> Void
+    @Binding var activeSetting: BonePaperStrokeSetting?
+    var onSelectMode: (BonePaperTool) -> Void
 
-    private var isBrushfill: Bool {
-        fillMode == .brushfill
+    @State private var dragging = false
+    @State private var pinned = false
+    @State private var swallowNextTap = false
+
+    private var isActive: Bool {
+        pinned || activeSetting == .mode
     }
 
-    private var activeColor: Color {
-        isBrushfill ? BonePaperChrome.brushfillSelected : BonePaperChrome.selected
+    private func highlightColor(for mode: BonePaperTool) -> Color {
+        mode == .brushfill ? BonePaperChrome.brushfillSelected : BonePaperChrome.selected
+    }
+
+    private var captionText: String {
+        switch fillMode {
+        case .bucket: "bucket"
+        case .brushfill: "brushfill"
+        case .rectangle: "rect"
+        case .circle: "circle"
+        default: "bucket"
+        }
+    }
+
+    private func isModeAllowed(_ mode: BonePaperTool) -> Bool {
+        mode == .bucket || paintModesEnabled
     }
 
     var body: some View {
-        VStack(spacing: 1) {
-            Image(uiImage: BonePaperChrome.chromeImage(
-                isBrushfill ? "kurwa_fill" : "vector_flood_unactivated"
-            ))
-            .resizable()
-            .scaledToFit()
-            .frame(width: 30, height: 30)
-            .frame(width: BonePaperChrome.tool, height: BonePaperChrome.tool)
-            .background {
-                if selected {
-                    activeColor
-                        .transition(.identity)
+        let activeColor = highlightColor(for: fillMode)
+        VStack(alignment: .leading, spacing: 1) {
+            ZStack(alignment: .leading) {
+                if isActive {
+                    track
+                        .offset(x: Self.side + Self.trackGap)
+                }
+                icon(activeColor: activeColor)
+            }
+            .frame(
+                width: isActive ? Self.side + Self.trackGap + Self.trackWidth : Self.side,
+                height: Self.side,
+                alignment: .leading
+            )
+            .contentShape(Rectangle())
+            .coordinateSpace(name: Self.space)
+            .gesture(drag)
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    pinStrip()
+                }
+            )
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                    pinStrip()
+                }
+            )
+            .simultaneousGesture(
+                SpatialTapGesture(coordinateSpace: .named(Self.space)).onEnded { event in
+                    handleTap(at: event.location)
+                }
+            )
+            .onChange(of: activeSetting) { _, next in
+                if next != .mode {
+                    pinned = false
+                    swallowNextTap = false
                 }
             }
-            .overlay {
-                SubtoolCornerTriangle()
-                    .fill(Color.white)
+            .onChange(of: paintModesEnabled) { _, next in
+                if !next, fillMode != .bucket {
+                    fillMode = .bucket
+                }
             }
             if showsCaption {
-                Text(isBrushfill ? "brushfill" : "bucket")
+                Text(captionText)
                     .font(.system(size: 12, weight: .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
-                    .foregroundStyle(selected ? activeColor : Color.white)
-                    .frame(width: BonePaperChrome.tool)
+                    .foregroundStyle(selected || isActive ? activeColor : Color.white)
+                    .frame(width: Self.side)
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .onLongPressGesture(minimumDuration: 0.4) {
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-            onToggleMode()
-        }
-        .transaction { $0.animation = nil }
-        .accessibilityLabel(isBrushfill ? "Brushfill" : "Bucket")
+        .animation(.easeOut(duration: 0.12), value: isActive)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(captionText)
         .accessibilityAddTraits(.isButton)
+    }
+
+    private func icon(activeColor: Color) -> some View {
+        ZStack {
+            if selected {
+                activeColor
+            }
+            BonePaperToolChipIcon(
+                mode: fillMode,
+                boxSide: Self.side,
+                inset: (Self.side - 30) / 2,
+                tintColor: .white
+            )
+        }
+        .frame(width: Self.side, height: Self.side)
+        .overlay {
+            SubtoolCornerTriangle()
+                .fill(Color.white)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var track: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.black.opacity(0.25), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+
+            HStack(spacing: BonePaperTrackStyle.chipGap) {
+                ForEach(Self.modes, id: \.self) { mode in
+                    let isSelectedMode = mode == fillMode
+                    let allowed = isModeAllowed(mode)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(isSelectedMode ? highlightColor(for: mode) : BonePaperTrackStyle.unselectedChipFill)
+                            .overlay {
+                                if !isSelectedMode {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .stroke(BonePaperTrackStyle.unselectedChipStroke, lineWidth: 1)
+                                }
+                            }
+                        BonePaperToolChipIcon(
+                            mode: mode,
+                            boxSide: BonePaperTrackStyle.chipSide,
+                            inset: 6,
+                            tintColor: isSelectedMode ? .white : BonePaperTrackStyle.unselectedIconColor,
+                            opacity: allowed ? 1 : 0.35
+                        )
+                    }
+                    .frame(width: BonePaperTrackStyle.chipSide, height: BonePaperTrackStyle.chipSide)
+                }
+            }
+            .padding(.horizontal, BonePaperTrackStyle.chipPadH)
+        }
+        .frame(width: Self.trackWidth, height: Self.side)
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                if !dragging {
+                    dragging = true
+                    onSelectMode(fillMode)
+                }
+                activeSetting = .mode
+                if let picked = modeAtTrackX(value.location.x), isModeAllowed(picked), picked != fillMode {
+                    onSelectMode(picked)
+                }
+            }
+            .onEnded { value in
+                dragging = false
+                if let picked = modeAtTrackX(value.location.x), isModeAllowed(picked) {
+                    onSelectMode(picked)
+                }
+                if !pinned {
+                    activeSetting = nil
+                }
+            }
+    }
+
+    private func modeAtTrackX(_ x: CGFloat) -> BonePaperTool? {
+        let startX = Self.side + Self.trackGap + BonePaperTrackStyle.chipPadH
+        guard let idx = BonePaperTrackStyle.chipIndex(
+            atX: x,
+            startX: startX,
+            count: Self.modes.count
+        ) else {
+            return nil
+        }
+        return Self.modes[idx]
+    }
+
+    private func pinStrip() {
+        pinned = true
+        activeSetting = .mode
+        swallowNextTap = true
+        onSelectMode(fillMode)
+    }
+
+    private func handleTap(at location: CGPoint) {
+        if swallowNextTap {
+            swallowNextTap = false
+            return
+        }
+        let wasAlreadyActive = selected
+        if pinned {
+            let trackLeft = Self.side + Self.trackGap
+            if location.x >= trackLeft {
+                if let tapped = modeAtTrackX(location.x), isModeAllowed(tapped) {
+                    onSelectMode(tapped)
+                    pinned = false
+                    activeSetting = nil
+                }
+                return
+            }
+            pinned = false
+            activeSetting = nil
+            return
+        }
+        onSelectMode(fillMode)
+        if wasAlreadyActive {
+            pinned = true
+            activeSetting = .mode
+        }
     }
 }
 
 enum BonePaperStrokeSetting: Equatable {
+    case mode
     case size
     case opacity
     case eraser
 
     var label: String {
         switch self {
+        case .mode: "bucket"
         case .size: "brush"
         case .opacity: "opacity"
         case .eraser: "erase"

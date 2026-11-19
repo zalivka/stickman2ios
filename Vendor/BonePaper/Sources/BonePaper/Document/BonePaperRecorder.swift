@@ -162,6 +162,38 @@ final class BonePaperRecorder {
         open = stroke
     }
 
+    func updateLine(from start: CGPoint, to end: CGPoint, color: UIColor, size: CGFloat) {
+        guard var stroke = open, stroke.op == "stroke" else {
+            fatalError("BonePaperRecorder updateLine with no open stroke")
+        }
+        let t = now()
+        stroke.color = BonePaperColorStore.hex(from: color)
+        stroke.size = Self.round(size, 100)
+        let first = stroke.points?.first ?? Self.row(start, t: t)
+        stroke.points = [first, Self.row(end, t: t)]
+        open = stroke
+    }
+
+    func updateRect(from start: CGPoint, to end: CGPoint) {
+        guard var stroke = open, stroke.op == "brushfill" else {
+            fatalError("BonePaperRecorder updateRect with no open brushfill stroke")
+        }
+        let t = now()
+        let first = stroke.points?.first ?? Self.row(start, t: t)
+        stroke.points = [first, Self.row(end, t: t)]
+        open = stroke
+    }
+
+    func updateCircle(center: CGPoint, edge: CGPoint) {
+        guard var stroke = open, stroke.op == "brushfill" else {
+            fatalError("BonePaperRecorder updateCircle with no open brushfill stroke")
+        }
+        let t = now()
+        let first = stroke.points?.first ?? Self.row(center, t: t)
+        stroke.points = [first, Self.row(edge, t: t)]
+        open = stroke
+    }
+
     func dot(at point: CGPoint, color: UIColor, size: CGFloat, erase: Bool) {
         guard var stroke = open, let points = stroke.points else {
             fatalError("BonePaperRecorder dot with no open stroke")

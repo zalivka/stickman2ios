@@ -13,6 +13,7 @@ public struct BonePaperScreen: View {
     @StateObject var document: BonePaperDocument
     @StateObject var framesSession: BonePaperFramesSession
     @State var tool: BonePaperTool = UIColor(BonePaperToolStore.color).cgColor.alpha == 0 ? .bucket : .pen
+    @State var strokeMode: BonePaperTool = .pen
     @State var fillMode: BonePaperTool = .bucket
     @State var color: Color = BonePaperToolStore.color
     @State var activeSwatchBaseColor: Color = BonePaperToolStore.color
@@ -34,6 +35,7 @@ public struct BonePaperScreen: View {
     @State var showFramesPanel = false
     @State var isRearrangingFrames = false
     @State var hasImagePlacement = false
+    @State var hasCanvasTransform = false
     @State var showingImagePicker = false
     @State var brushOffset: Double = Double(BonePaperToolStore.brushOffset)
     @State var errorStripeOpacity: Double = 0

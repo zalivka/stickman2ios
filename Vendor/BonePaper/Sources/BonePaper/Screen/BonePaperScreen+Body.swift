@@ -9,6 +9,7 @@ extension BonePaperScreen {
             let isStripVisible = supportsFramesStrip && showFramesPanel
             let stripWidth: CGFloat = isStripVisible ? BonePaperFramesStrip.width(rearranging: isRearrangingFrames) : 0
             let backExtraLeading: CGFloat = showingMenu ? BonePaperSideMenu.width : stripWidth
+            let isModalSession = hasImagePlacement || hasCanvasTransform
             var fit = BonePaperChrome.fitInsets(safe: safe, topClearance: topClearance)
             let _ = { fit.left += stripWidth }()
             ZStack {
@@ -36,6 +37,9 @@ extension BonePaperScreen {
                         onCommitStroke: recordCommittedStroke,
                         onImagePlacementChanged: { placing in
                             hasImagePlacement = placing
+                        },
+                        onCanvasTransformChanged: { transforming in
+                            hasCanvasTransform = transforming
                         }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -96,8 +100,8 @@ extension BonePaperScreen {
                         )
                         .ignoresSafeArea(edges: .bottom)
                         .padding(.leading, BonePaperChrome.leftRail)
-                        .opacity(chromeOpacity * (hasImagePlacement ? 0.25 : 1.0))
-                        .disabled(hasImagePlacement)
+                        .opacity(chromeOpacity * (isModalSession ? 0.25 : 1.0))
+                        .disabled(isModalSession)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                 }
@@ -132,8 +136,8 @@ extension BonePaperScreen {
                             drawingConfig: drawingConfig,
                             stage: stage,
                             onPick: { _ in
-                                if tool != .bucket, tool != .brushfill {
-                                    tool = .pen
+                                if !tool.isFillMode && !tool.isStrokeMode {
+                                    tool = strokeMode
                                 }
                             },
                             onPickTransparent: {
@@ -141,6 +145,9 @@ extension BonePaperScreen {
                                 tool = .bucket
                             },
                             onSeekingBrightness: { dragging in
+                                if !tool.isFillMode && !tool.isStrokeMode {
+                                    tool = strokeMode
+                                }
                                 if dragging {
                                     activeStrokeSetting = nil
                                     previewHideWorkItem?.cancel()
@@ -150,11 +157,14 @@ extension BonePaperScreen {
                                 }
                             },
                             onFlashPreview: {
+                                if !tool.isFillMode && !tool.isStrokeMode {
+                                    tool = strokeMode
+                                }
                                 flashStrokePreview()
                             }
                         )
-                        .opacity(hasImagePlacement ? 0.25 : 1.0)
-                        .disabled(hasImagePlacement)
+                        .opacity(isModalSession ? 0.25 : 1.0)
+                        .disabled(isModalSession)
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.trailing, BonePaperChrome.pad)
@@ -184,6 +194,12 @@ extension BonePaperScreen {
                                     guard !document.filling else { return }
                                     showingImagePicker = true
                                 } : nil,
+                                onStartTransform: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingMenu = false
+                                    }
+                                    startCanvasTransform()
+                                },
                                 onToggleShowFrames: {
                                     withAnimation(.easeInOut(duration: 0.17)) {
                                         showFramesPanel.toggle()
@@ -220,6 +236,7 @@ extension BonePaperScreen {
                 .overlay(alignment: .bottomLeading) {
                     BonePaperStrokeControls(
                         tool: $tool,
+                        strokeMode: $strokeMode,
                         fillMode: $fillMode,
                         brushSize: $brushSize,
                         eraserSize: $eraserSize,
@@ -239,9 +256,13 @@ extension BonePaperScreen {
                                 showingMenu.toggle()
                             }
                         },
-                        isPlacingImage: hasImagePlacement,
+                        isPlacingImage: isModalSession,
                         onCancelPlacement: {
-                            cancelImagePlacement()
+                            if hasImagePlacement {
+                                cancelImagePlacement()
+                            } else if hasCanvasTransform {
+                                cancelCanvasTransform()
+                            }
                         },
                         canUndo: document.canUndo,
                         onUndo: {
@@ -258,14 +279,6 @@ extension BonePaperScreen {
                             }
                         },
                         color: color,
-                        onToggleFillMode: {
-                            fillMode = fillMode == .bucket ? .brushfill : .bucket
-                            if fillMode == .brushfill, UIColor(color).cgColor.alpha == 0 {
-                                color = .black
-                                activeSwatchBaseColor = .black
-                            }
-                            tool = fillMode
-                        },
                         onSeeking: { dragging in
                             if dragging {
                                 activeSwatchTrack = nil
@@ -295,6 +308,8 @@ extension BonePaperScreen {
                                 }
                             } else if hasImagePlacement {
                                 cancelImagePlacement()
+                            } else if hasCanvasTransform {
+                                cancelCanvasTransform()
                             } else {
                                 leave()
                             }
@@ -376,7 +391,7 @@ extension BonePaperScreen {
             BonePaperToolStore.color = next
             if UIColor(next).cgColor.alpha == 0 {
                 fillMode = .bucket
-                if tool == .brushfill {
+                if tool != .bucket && tool != .eraser {
                     tool = .bucket
                 }
             }

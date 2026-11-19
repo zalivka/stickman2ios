@@ -32,6 +32,10 @@ final class BonePaperStage {
         view?.hasImagePlacement ?? false
     }
 
+    var hasCanvasTransform: Bool {
+        view?.hasCanvasTransform ?? false
+    }
+
     func startImagePlacement(_ image: CGImage) {
         view?.startImagePlacement(image)
     }
@@ -42,6 +46,18 @@ final class BonePaperStage {
 
     func cancelImagePlacement() {
         view?.cancelImagePlacement()
+    }
+
+    func startCanvasTransform() -> Bool {
+        view?.startCanvasTransform() ?? false
+    }
+
+    func commitCanvasTransform() -> Bool {
+        view?.commitCanvasTransform() ?? false
+    }
+
+    func cancelCanvasTransform() {
+        view?.cancelCanvasTransform()
     }
 
     func zoomBack(duration: TimeInterval, completion: @escaping () -> Void) {

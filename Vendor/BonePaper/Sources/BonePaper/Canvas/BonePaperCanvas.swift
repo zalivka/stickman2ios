@@ -17,6 +17,7 @@ struct BonePaperCanvas: UIViewRepresentable {
     var fitInsets: UIEdgeInsets
     var onCommitStroke: () -> Void
     var onImagePlacementChanged: ((Bool) -> Void)? = nil
+    var onCanvasTransformChanged: ((Bool) -> Void)? = nil
 
     func makeUIView(context: Context) -> BonePaperStageView {
         let view = BonePaperStageView(placement: placement)
@@ -42,10 +43,12 @@ struct BonePaperCanvas: UIViewRepresentable {
         view.paper.onCommitStroke = onCommitStroke
         view.onZoom = { zoom.wrappedValue = $0 }
         view.onImagePlacementChanged = onImagePlacementChanged
+        view.onCanvasTransformChanged = onCanvasTransformChanged
         view.setPanMode(tool == .pan)
         view.fitInsets = fitInsets
         view.layoutPaper(side: CGFloat(document.worldSize))
         view.paper.show(document)
         view.syncImagePlacement()
+        view.syncCanvasTransform()
     }
 }

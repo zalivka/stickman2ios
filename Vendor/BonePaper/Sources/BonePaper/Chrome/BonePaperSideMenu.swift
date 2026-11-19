@@ -10,6 +10,7 @@ struct BonePaperSideMenu: View {
     var hasMask: Bool
     @Binding var brushOffset: Double
     var onPickImage: (() -> Void)? = nil
+    var onStartTransform: (() -> Void)? = nil
     var onToggleShowFrames: () -> Void
     var onMask: () -> Void
 
@@ -23,6 +24,32 @@ struct BonePaperSideMenu: View {
                             .scaledToFit()
                             .frame(width: 22, height: 22)
                         Text("Image")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if onStartTransform == nil {
+                    Self.dividerColor
+                        .frame(height: 1)
+                        .padding(.horizontal, 12)
+                }
+            }
+
+            if let onStartTransform {
+                Button(action: onStartTransform) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.up.left.and.down.right.and.arrow.up.right.and.down.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 22)
+                        Text("Transform")
                             .font(.system(size: 15))
                             .foregroundStyle(.white)
                         Spacer(minLength: 0)
@@ -110,6 +137,11 @@ struct BonePaperSideMenu: View {
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .background(BonePaperChrome.pane.ignoresSafeArea())
+        .overlay(alignment: .leading) {
+            Self.dividerColor
+                .frame(width: 1)
+                .ignoresSafeArea()
+        }
         .accessibilityIdentifier("bone paper side menu")
     }
 }

@@ -11,6 +11,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
     let paper = BonePaperDrawView()
     var onZoom: ((CGFloat) -> Void)?
     var onImagePlacementChanged: ((Bool) -> Void)?
+    var onCanvasTransformChanged: ((Bool) -> Void)?
     var fitInsets: UIEdgeInsets = .zero {
         didSet {
             if oldValue == fitInsets {
@@ -44,9 +45,14 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
     private var entryZoom: CGFloat = 1
     private var panModeRequested = false
     private(set) var imagePlacement: BonePaperImagePlacement?
+    private(set) var canvasTransform: BonePaperCanvasTransform?
 
     var hasImagePlacement: Bool {
         imagePlacement != nil
+    }
+
+    var hasCanvasTransform: Bool {
+        canvasTransform != nil
     }
 
     init(placement: BonePaperPlacement?) {
@@ -125,14 +131,20 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
 
     func setPanMode(_ on: Bool) {
         panModeRequested = on
-        let effectivePan = on && imagePlacement == nil
+        let effectivePan = on && imagePlacement == nil && canvasTransform == nil
         paper.isUserInteractionEnabled = !effectivePan
         pan.minimumNumberOfTouches = effectivePan ? 1 : 2
+        let cameraGesturesEnabled = canvasTransform == nil
+        pan.isEnabled = cameraGesturesEnabled
+        pinch.isEnabled = cameraGesturesEnabled
     }
 
     func startImagePlacement(_ image: CGImage) {
         guard let document = paper.document else { return }
         if document.filling { return }
+        if canvasTransform != nil {
+            cancelCanvasTransform()
+        }
         paper.abortStroke()
         imagePlacement = BonePaperImagePlacement.create(
             image: image,
@@ -179,12 +191,84 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         onImagePlacementChanged?(false)
     }
 
+    @discardableResult
+    func startCanvasTransform() -> Bool {
+        guard let document = paper.document else { return false }
+        if document.filling { return false }
+        if imagePlacement != nil {
+            cancelImagePlacement()
+        }
+        paper.abortStroke()
+        guard let session = BonePaperCanvasTransform.create(document: document) else {
+            return false
+        }
+        canvasTransform = session
+        setPanMode(panModeRequested)
+        syncCanvasTransform()
+        onCanvasTransformChanged?(true)
+        return true
+    }
+
+    @discardableResult
+    func commitCanvasTransform() -> Bool {
+        guard let session = canvasTransform, let document = paper.document else {
+            return false
+        }
+        if document.filling {
+            return false
+        }
+        let transform = session.worldTransform
+        canvasTransform = nil
+        document.commitTransformWorld(transform)
+        setPanMode(panModeRequested)
+        paper.show(document)
+        syncCanvasTransform()
+        onCanvasTransformChanged?(false)
+        return true
+    }
+
+    func cancelCanvasTransform() {
+        guard canvasTransform != nil else { return }
+        canvasTransform = nil
+        setPanMode(panModeRequested)
+        syncCanvasTransform()
+        onCanvasTransformChanged?(false)
+    }
+
     func syncImagePlacement() {
         paper.updatePlacementLayer(imagePlacement)
         updatePlacementOverlay()
     }
 
+    func syncCanvasTransform() {
+        paper.updateCanvasTransformLayer(canvasTransform)
+        updatePlacementOverlay()
+    }
+
     func updatePlacementOverlay() {
+        if let session = canvasTransform {
+            let corners = session.computeScreenCorners { world in
+                screenPoint(world)
+            }
+            let boxPath = CGMutablePath()
+            if corners.count == 4 {
+                boxPath.move(to: corners[0])
+                boxPath.addLine(to: corners[1])
+                boxPath.addLine(to: corners[2])
+                boxPath.addLine(to: corners[3])
+                boxPath.closeSubpath()
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            placementBoxHaloLayer.path = boxPath
+            placementBoxStrokeLayer.path = boxPath
+            placementBoxHaloLayer.isHidden = false
+            placementBoxStrokeLayer.isHidden = false
+            placementCornerHandlesLayer.isHidden = true
+            placementRotateHandleLayer.isHidden = true
+            CATransaction.commit()
+            return
+        }
         guard let currentPlacement = imagePlacement else {
             if !placementBoxHaloLayer.isHidden {
                 CATransaction.begin()
@@ -346,7 +430,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
         }
         let path = CGMutablePath()
         switch tool {
-        case .pen, .eraser:
+        case .pen, .line, .eraser:
             let radius = max((brushSize * zoom) / 2, 4)
             path.addEllipse(in: CGRect(
                 x: targetStage.x - radius,
@@ -359,7 +443,7 @@ final class BonePaperStageView: UIView, UIGestureRecognizerDelegate {
             path.addLine(to: CGPoint(x: targetStage.x + cross, y: targetStage.y))
             path.move(to: CGPoint(x: targetStage.x, y: targetStage.y - cross))
             path.addLine(to: CGPoint(x: targetStage.x, y: targetStage.y + cross))
-        case .brushfill:
+        case .brushfill, .rectangle, .circle:
             let cross: CGFloat = 5
             path.move(to: CGPoint(x: targetStage.x - cross, y: targetStage.y))
             path.addLine(to: CGPoint(x: targetStage.x + cross, y: targetStage.y))

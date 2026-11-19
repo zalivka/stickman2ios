@@ -19,6 +19,26 @@ extension BonePaperScreen {
         hasImagePlacement = false
     }
 
+    func startCanvasTransform() {
+        if document.filling { return }
+        showingMenu = false
+        activeStrokeSetting = nil
+        activeSwatchTrack = nil
+        previewHideWorkItem?.cancel()
+        showingStrokePreview = false
+        isRearrangingFrames = false
+        if stage.startCanvasTransform() {
+            hasCanvasTransform = stage.hasCanvasTransform
+        } else {
+            BonePaperHexToast.showMessage("Draw something first")
+        }
+    }
+
+    func cancelCanvasTransform() {
+        stage.cancelCanvasTransform()
+        hasCanvasTransform = false
+    }
+
     func flashErrorStripes() {
         errorStripeTask?.cancel()
         errorStripeOpacity = 0
@@ -69,12 +89,12 @@ extension BonePaperScreen {
         }()
 
         switch tool {
-        case .pen:
+        case .pen, .line:
             guard activeUIColor.cgColor.alpha > 0 else { return }
             let hex = BonePaperColorStore.hex(from: paletteUIColor)
             drawingConfig.recordPenOrFill(colorHex: hex, brushSize: brushSize, opacity: opacity)
             drawingConfig.recordColorBrightness(baseColor: paletteUIColor, activeColor: activeUIColor)
-        case .bucket, .brushfill:
+        case .bucket, .brushfill, .rectangle, .circle:
             let hex = activeUIColor.cgColor.alpha > 0 ? BonePaperColorStore.hex(from: paletteUIColor) : nil
             drawingConfig.recordPenOrFill(colorHex: hex, brushSize: nil, opacity: opacity)
             if activeUIColor.cgColor.alpha > 0 {
@@ -100,6 +120,16 @@ extension BonePaperScreen {
                 }
             }
             hasImagePlacement = stage.hasImagePlacement
+            return
+        }
+        if hasCanvasTransform {
+            if document.filling { return }
+            if stage.commitCanvasTransform() {
+                if supportsFramesStrip {
+                    framesSession.refreshActiveThumbnail(from: document.preview)
+                }
+            }
+            hasCanvasTransform = stage.hasCanvasTransform
             return
         }
         if let onApplyFrames {

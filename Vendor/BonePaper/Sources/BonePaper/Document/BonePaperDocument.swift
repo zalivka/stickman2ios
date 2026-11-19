@@ -65,6 +65,7 @@ public final class BonePaperDocument: ObservableObject {
     private var brushfillLastPoint: CGPoint = .zero
     private var brushfillHasDot = false
     private var brushfillHasSegment = false
+    private var brushfillCloseOnEnd = true
     private var brushfillColor: UIColor = .black
     private var strokeOpacity: CGFloat = 1
     var undoStack: [Snapshot] = []
@@ -209,6 +210,7 @@ public final class BonePaperDocument: ObservableObject {
         brushfillLastPoint = .zero
         brushfillHasDot = false
         brushfillHasSegment = false
+        brushfillCloseOnEnd = true
         brushfillLive = true
         strokeOpacity = opacity
         brushfillColor = color.withAlphaComponent(1)
@@ -232,11 +234,13 @@ public final class BonePaperDocument: ObservableObject {
             stroke.clear(pixelRect)
             strokeLive = false
         } else if brushfillLive {
-            if brushfillHasSegment {
-                brushfillPath.addLine(to: brushfillLastPoint)
-                brushfillHasSegment = false
+            if brushfillCloseOnEnd {
+                if brushfillHasSegment {
+                    brushfillPath.addLine(to: brushfillLastPoint)
+                    brushfillHasSegment = false
+                }
+                brushfillPath.closeSubpath()
             }
-            brushfillPath.closeSubpath()
             if !brushfillPath.isEmpty {
                 context.saveGState()
                 if let maskImage {
@@ -253,6 +257,7 @@ public final class BonePaperDocument: ObservableObject {
             brushfillPath = CGMutablePath()
             brushfillHasDot = false
             brushfillHasSegment = false
+            brushfillCloseOnEnd = true
             brushfillLive = false
         }
         publishPreview()
@@ -271,6 +276,7 @@ public final class BonePaperDocument: ObservableObject {
         brushfillPath = CGMutablePath()
         brushfillHasDot = false
         brushfillHasSegment = false
+        brushfillCloseOnEnd = true
         stroke.clear(pixelRect)
         restore(snapshot)
         publishStacks()
@@ -331,17 +337,118 @@ public final class BonePaperDocument: ObservableObject {
         brushfillPath.addQuadCurve(to: mid, control: p0)
         brushfillLastPoint = p1
         brushfillHasSegment = true
+        brushfillCloseOnEnd = true
+        rasterizeBrushfillPreview()
+    }
+
+    func updateLineWorld(from start: CGPoint, to end: CGPoint, color: UIColor, size: CGFloat) {
+        if filling { return }
+        if size <= 0 {
+            fatalError("BonePaperDocument brush size is \(size)")
+        }
+        if !strokeLive {
+            fatalError("BonePaperDocument line stamp with no live stroke")
+        }
+        recorder.updateLine(from: start, to: end, color: color, size: size)
+        var a = bitmapFromWorld(start)
+        var b = bitmapFromWorld(end)
+        let shift = ensureFits(points: [a, b], radius: size / 2)
+        a.x += shift.dx
+        a.y += shift.dy
+        b.x += shift.dx
+        b.y += shift.dy
+        let sampled = size * CGFloat(Self.sample)
+        stroke.clear(pixelRect)
+        stroke.saveGState()
+        stroke.setShouldAntialias(BonePaperFlags.antialiasing)
+        stroke.setBlendMode(.normal)
+        stroke.setStrokeColor(color.withAlphaComponent(1).cgColor)
+        stroke.setLineCap(.round)
+        stroke.setLineJoin(.round)
+        stroke.setLineWidth(sampled)
+        stroke.move(to: sampledPoint(a))
+        stroke.addLine(to: sampledPoint(b))
+        stroke.strokePath()
+        stroke.restoreGState()
+        publishPreview()
+    }
+
+    func updateRectWorld(from start: CGPoint, to end: CGPoint) {
+        if filling { return }
+        if !brushfillLive {
+            fatalError("BonePaperDocument rect stamp with no live brushfill stroke")
+        }
+        recorder.updateRect(from: start, to: end)
+        var a = bitmapFromWorld(start)
+        var b = bitmapFromWorld(end)
+        let shift = ensureFits(points: [a, b], radius: 2)
+        a.x += shift.dx
+        a.y += shift.dy
+        b.x += shift.dx
+        b.y += shift.dy
+        let p0 = sampledPoint(a)
+        let p1 = sampledPoint(b)
+        let rect = CGRect(
+            x: min(p0.x, p1.x),
+            y: min(p0.y, p1.y),
+            width: abs(p1.x - p0.x),
+            height: abs(p1.y - p0.y)
+        )
+        let path = CGMutablePath()
+        path.addRect(rect)
+        brushfillPath = path
+        brushfillHasDot = false
+        brushfillHasSegment = false
+        brushfillCloseOnEnd = false
+        rasterizeBrushfillPreview()
+    }
+
+    func updateCircleWorld(center: CGPoint, edge: CGPoint) {
+        if filling { return }
+        if !brushfillLive {
+            fatalError("BonePaperDocument circle stamp with no live brushfill stroke")
+        }
+        recorder.updateCircle(center: center, edge: edge)
+        let radiusWorld = hypot(edge.x - center.x, edge.y - center.y)
+        var c = bitmapFromWorld(center)
+        let shift = ensureFits(points: [c], radius: radiusWorld + 2)
+        c.x += shift.dx
+        c.y += shift.dy
+        let cp = sampledPoint(c)
+        let rSampled = radiusWorld * CGFloat(Self.sample)
+        let ellipseRect = CGRect(
+            x: cp.x - rSampled,
+            y: cp.y - rSampled,
+            width: rSampled * 2,
+            height: rSampled * 2
+        )
+        let path = CGMutablePath()
+        path.addEllipse(in: ellipseRect)
+        brushfillPath = path
+        brushfillHasDot = false
+        brushfillHasSegment = false
+        brushfillCloseOnEnd = false
         rasterizeBrushfillPreview()
     }
 
     private func rasterizeBrushfillPreview() {
         stroke.clear(pixelRect)
-        guard brushfillHasSegment, let drawPath = brushfillPath.mutableCopy() else {
-            publishPreview()
-            return
+        let drawPath: CGPath
+        if brushfillCloseOnEnd {
+            guard brushfillHasSegment, let mutable = brushfillPath.mutableCopy() else {
+                publishPreview()
+                return
+            }
+            mutable.addLine(to: brushfillLastPoint)
+            mutable.closeSubpath()
+            drawPath = mutable
+        } else {
+            guard !brushfillPath.isEmpty else {
+                publishPreview()
+                return
+            }
+            drawPath = brushfillPath
         }
-        drawPath.addLine(to: brushfillLastPoint)
-        drawPath.closeSubpath()
         stroke.saveGState()
         stroke.setShouldAntialias(BonePaperFlags.antialiasing)
         stroke.setBlendMode(.normal)
@@ -471,6 +578,167 @@ public final class BonePaperDocument: ObservableObject {
             )
         )
         context.restoreGState()
+        publishPreview()
+        publishStacks()
+    }
+
+    /// Returns the tight bounding box in world coordinates (y-down, matching UIView/stage world space)
+    /// of all non-transparent paint pixels and active mask pixels, or `nil` if both are completely empty.
+    func computeContentBoundsWorld() -> CGRect? {
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        guard let data = context.data else {
+            return nil
+        }
+        let pW = pixelWidth
+        let pH = pixelHeight
+        let stride = context.bytesPerRow
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        let mask = maskAlpha
+        let hasMask = mask != nil && mask?.count == pW * pH
+
+        var minX = pW
+        var minY = pH
+        var maxX = -1
+        var maxY = -1
+
+        for y in 0..<pH {
+            let row = y * stride
+            let maskRow = y * pW
+            for x in 0..<pW {
+                let nonEmpty = (pixels[row + x * 4 + 3] != 0)
+                    || (hasMask && mask![maskRow + x] != 0)
+                if nonEmpty {
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                }
+            }
+        }
+        if maxX < 0 {
+            return nil
+        }
+        let sampleScale = CGFloat(Self.sample)
+        return CGRect(
+            x: CGFloat(originX) + CGFloat(minX) / sampleScale,
+            y: CGFloat(originY) + CGFloat(minY) / sampleScale,
+            width: CGFloat(maxX - minX + 1) / sampleScale,
+            height: CGFloat(maxY - minY + 1) / sampleScale
+        )
+    }
+
+    /// Applies a world-space affine transform (y-down) to both the paint buffer and active mask (if any),
+    /// growing the page when needed and recording a single undo snapshot.
+    func commitTransformWorld(_ worldTransform: CGAffineTransform) {
+        if filling { return }
+        if strokeLive || brushfillLive {
+            endStroke()
+        }
+        if worldTransform.isIdentity {
+            return
+        }
+        guard let contentBounds = computeContentBoundsWorld(),
+              let oldPaintImage = context.makeImage() else {
+            return
+        }
+        let oldOriginX = originX
+        let oldOriginY = originY
+        let oldPixelW = pixelWidth
+        let oldPixelH = pixelHeight
+        let oldMaskSidecar: CGImage?
+        if let maskAlpha, maskAlpha.count == oldPixelW * oldPixelH {
+            oldMaskSidecar = Self.makeMaskSidecarImage(alpha: maskAlpha, width: oldPixelW, height: oldPixelH)
+        } else {
+            oldMaskSidecar = nil
+        }
+
+        let beforeSnapshot = capture()
+
+        if !fixed {
+            let corners = [
+                CGPoint(x: contentBounds.minX, y: contentBounds.minY).applying(worldTransform),
+                CGPoint(x: contentBounds.maxX, y: contentBounds.minY).applying(worldTransform),
+                CGPoint(x: contentBounds.maxX, y: contentBounds.maxY).applying(worldTransform),
+                CGPoint(x: contentBounds.minX, y: contentBounds.maxY).applying(worldTransform)
+            ]
+            let minWorldX = corners.map(\.x).min()! - 2
+            let minWorldY = corners.map(\.y).min()! - 2
+            let maxWorldX = corners.map(\.x).max()! + 2
+            let maxWorldY = corners.map(\.y).max()! + 2
+
+            let clampedMinX = max(0, minWorldX)
+            let clampedMinY = max(0, minWorldY)
+            let clampedMaxX = min(CGFloat(worldSize), maxWorldX)
+            let clampedMaxY = min(CGFloat(worldSize), maxWorldY)
+            if clampedMinX < clampedMaxX && clampedMinY < clampedMaxY {
+                let left = min(Self.chunk(max(0, CGFloat(originX) - clampedMinX)), originX)
+                let top = min(Self.chunk(max(0, CGFloat(originY) - clampedMinY)), originY)
+                let right = min(
+                    Self.chunk(max(0, clampedMaxX - CGFloat(originX + width))),
+                    worldSize - originX - width
+                )
+                let bottom = min(
+                    Self.chunk(max(0, clampedMaxY - CGFloat(originY + height))),
+                    worldSize - originY - height
+                )
+                if left > 0 || top > 0 || right > 0 || bottom > 0 {
+                    grow(left: left, top: top, right: right, bottom: bottom)
+                }
+            }
+        }
+
+        let newPixelW = pixelWidth
+        let newPixelH = pixelHeight
+        let s = CGFloat(Self.sample)
+
+        // Map old top-down buffer pixels -> old world -> worldTransform -> new top-down buffer pixels,
+        // then wrap between bottom-up CGContext user space and top-down pixel space.
+        let topDownBufMatrix = CGAffineTransform(scaleX: 1 / s, y: 1 / s)
+            .concatenating(CGAffineTransform(translationX: CGFloat(oldOriginX), y: CGFloat(oldOriginY)))
+            .concatenating(worldTransform)
+            .concatenating(CGAffineTransform(translationX: -CGFloat(originX), y: -CGFloat(originY)))
+            .concatenating(CGAffineTransform(scaleX: s, y: s))
+
+        let cgTransform = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(oldPixelH))
+            .concatenating(topDownBufMatrix)
+            .concatenating(CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(newPixelH)))
+
+        let srcRect = CGRect(x: 0, y: 0, width: oldPixelW, height: oldPixelH)
+        context.clear(pixelRect)
+        context.saveGState()
+        context.interpolationQuality = .high
+        context.concatenate(cgTransform)
+        context.draw(oldPaintImage, in: srcRect)
+        context.restoreGState()
+
+        if let oldMaskSidecar {
+            let maskCtx = Self.makeBuffer(width: newPixelW, height: newPixelH)
+            maskCtx.saveGState()
+            maskCtx.interpolationQuality = .high
+            maskCtx.concatenate(cgTransform)
+            maskCtx.draw(oldMaskSidecar, in: srcRect)
+            maskCtx.restoreGState()
+            if let transformedMaskImg = maskCtx.makeImage(),
+               let nextAlpha = Self.extractMaskAlpha(from: transformedMaskImg, width: newPixelW, height: newPixelH) {
+                maskAlpha = nextAlpha
+                maskImage = Self.makeMaskImage(alpha: nextAlpha, width: newPixelW, height: newPixelH)
+                maskOverlay = Self.makeMaskOverlay(alpha: nextAlpha, width: newPixelW, height: newPixelH)
+            } else {
+                maskAlpha = nil
+                maskImage = nil
+                maskOverlay = nil
+            }
+        }
+
+        lastFillOperation = nil
+        fillStreak = 0
+        undoStack.append(beforeSnapshot)
+        if undoStack.count > Self.undoCap {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
         publishPreview()
         publishStacks()
     }

@@ -1,12 +1,33 @@
 import CoreGraphics
 import UIKit
 
-enum BonePaperTool {
+enum BonePaperTool: Equatable {
     case pen
+    case line
     case pan
     case eraser
     case bucket
     case brushfill
+    case rectangle
+    case circle
+
+    var isStrokeMode: Bool {
+        self == .pen || self == .line
+    }
+
+    var isFillMode: Bool {
+        switch self {
+        case .bucket, .brushfill, .rectangle, .circle: true
+        default: false
+        }
+    }
+
+    var isTwoPointShape: Bool {
+        switch self {
+        case .line, .rectangle, .circle: true
+        default: false
+        }
+    }
 }
 
 enum BonePaperFill {
