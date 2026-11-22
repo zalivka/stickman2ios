@@ -32,11 +32,18 @@ final class BonePaperDrawView: UIView {
     private weak var displayedMaskOverlay: CGImage?
     private let frameLayer = CAShapeLayer()
     private let boneLayer = CAShapeLayer()
+    private struct ActiveStroke {
+        let tool: BonePaperTool
+        let color: UIColor
+        let brushSize: CGFloat
+        let opacity: CGFloat
+    }
+
     private var lastWorld: CGPoint?
     private var strokeStartWorld: CGPoint?
     private var leftCloseZone = false
     private var pendingView: CGPoint?
-    private var stroking = false
+    private var activeStroke: ActiveStroke?
     private var zoomScale: CGFloat = 1
     // Screen points before a brush/eraser stroke starts. Lets a still finger wait for pinch.
     // Divided by zoom when zoomed in, so the same gap is not a long stretch of the paper.
@@ -407,7 +414,7 @@ final class BonePaperDrawView: UIView {
         }
         let closeThresholdWorld = Self.closeRadius / max(zoomScale, 0.01)
         let view = touch.location(in: self)
-        if !stroking {
+        if activeStroke == nil {
             guard let startView = pendingView, let startWorld = lastWorld else { return }
             let dx = view.x - startView.x
             let dy = view.y - startView.y
@@ -418,45 +425,59 @@ final class BonePaperDrawView: UIView {
             if tool != .eraser, color.cgColor.alpha == 0 {
                 return
             }
-            if tool.isTwoPointShape {
-                if tool == .line {
-                    document.beginStroke(erase: false, opacity: opacity)
+            if document.hasOpenStroke {
+                document.endStroke()
+            }
+            let stroke = ActiveStroke(tool: tool, color: color, brushSize: brushSize, opacity: opacity)
+            if stroke.tool.isTwoPointShape {
+                if stroke.tool == .line {
+                    document.beginStroke(erase: false, opacity: stroke.opacity)
                 } else {
-                    document.beginBrushfillStroke(color: color, opacity: opacity)
+                    document.beginBrushfillStroke(color: stroke.color, opacity: stroke.opacity)
                 }
-                stroking = true
+                activeStroke = stroke
                 strokeStartWorld = startWorld
-                updateShapeToolWorld(document: document, from: startWorld, to: point)
+                updateShapeToolWorld(document: document, stroke: stroke, from: startWorld, to: point)
                 lastWorld = point
                 return
             }
-            if tool == .brushfill {
-                document.beginBrushfillStroke(color: color, opacity: opacity)
-                stroking = true
+            if stroke.tool == .brushfill {
+                document.beginBrushfillStroke(color: stroke.color, opacity: stroke.opacity)
+                activeStroke = stroke
                 strokeStartWorld = startWorld
                 document.stampBrushfillWorld(from: startWorld, to: point)
                 lastWorld = point
                 return
             }
-            document.beginStroke(erase: tool == .eraser, opacity: opacity)
-            stroking = true
+            let isErase = stroke.tool == .eraser
+            document.beginStroke(erase: isErase, opacity: stroke.opacity)
+            activeStroke = stroke
             strokeStartWorld = startWorld
             if hypot(point.x - startWorld.x, point.y - startWorld.y) > closeThresholdWorld {
                 leftCloseZone = true
             }
-            document.stampDotWorld(at: startWorld, color: color, size: brushSize, erase: tool == .eraser)
-            document.stampWorld(from: startWorld, to: point, color: color, size: brushSize, erase: tool == .eraser)
+            document.stampDotWorld(at: startWorld, color: stroke.color, size: stroke.brushSize, erase: isErase)
+            document.stampWorld(from: startWorld, to: point, color: stroke.color, size: stroke.brushSize, erase: isErase)
             lastWorld = point
             return
         }
-        if tool.isTwoPointShape {
+        guard let stroke = activeStroke else { return }
+        if !document.hasOpenStroke {
+            lastWorld = nil
+            strokeStartWorld = nil
+            leftCloseZone = false
+            pendingView = nil
+            activeStroke = nil
+            return
+        }
+        if stroke.tool.isTwoPointShape {
             guard let startWorld = strokeStartWorld else { return }
-            updateShapeToolWorld(document: document, from: startWorld, to: point)
+            updateShapeToolWorld(document: document, stroke: stroke, from: startWorld, to: point)
             lastWorld = point
             return
         }
         guard let last = lastWorld else { return }
-        if tool == .brushfill {
+        if stroke.tool == .brushfill {
             document.stampBrushfillWorld(from: last, to: point)
             lastWorld = point
             return
@@ -465,7 +486,13 @@ final class BonePaperDrawView: UIView {
            hypot(point.x - startWorld.x, point.y - startWorld.y) > closeThresholdWorld {
             leftCloseZone = true
         }
-        document.stampWorld(from: last, to: point, color: color, size: brushSize, erase: tool == .eraser)
+        document.stampWorld(
+            from: last,
+            to: point,
+            color: stroke.color,
+            size: stroke.brushSize,
+            erase: stroke.tool == .eraser
+        )
         lastWorld = point
     }
 
@@ -486,9 +513,13 @@ final class BonePaperDrawView: UIView {
         }
         if let touch = touches.first {
             document?.recorder.touchMoved(samples(touch, event))
-            if stroking, tool.isTwoPointShape, let document, let startWorld = strokeStartWorld {
+            if let stroke = activeStroke,
+               stroke.tool.isTwoPointShape,
+               let document,
+               document.hasOpenStroke,
+               let startWorld = strokeStartWorld {
                 let point = worldPoint(touch)
-                updateShapeToolWorld(document: document, from: startWorld, to: point)
+                updateShapeToolWorld(document: document, stroke: stroke, from: startWorld, to: point)
                 lastWorld = point
             }
         }
@@ -516,7 +547,7 @@ final class BonePaperDrawView: UIView {
             placement.cancelGesture()
             stageView.syncImagePlacement()
         }
-        if stroking {
+        if activeStroke != nil, document?.hasOpenStroke == true {
             document?.cancelStroke()
         }
         document?.recorder.touchAbort()
@@ -524,7 +555,7 @@ final class BonePaperDrawView: UIView {
         strokeStartWorld = nil
         leftCloseZone = false
         pendingView = nil
-        stroking = false
+        activeStroke = nil
     }
 
     private func finishStroke() {
@@ -534,25 +565,31 @@ final class BonePaperDrawView: UIView {
             strokeStartWorld = nil
             leftCloseZone = false
             pendingView = nil
-            stroking = false
+            activeStroke = nil
             return
         }
-        if tool == .bucket {
+        if activeStroke == nil, tool == .bucket {
             if let point = lastWorld {
                 let fill: BonePaperFill = color.cgColor.alpha == 0
                     ? .clear
                     : .color(color, opacity: opacity)
                 document?.fillWorld(at: point, fill: fill, onCommitted: onCommitStroke)
             }
-        } else if stroking {
+        } else if let stroke = activeStroke, document?.hasOpenStroke == true {
             if BonePaperFlags.autoCloseStroke,
-               tool == .pen,
+               stroke.tool == .pen,
                leftCloseZone,
                let startWorld = strokeStartWorld,
                let endWorld = lastWorld,
                endWorld != startWorld,
                hypot(endWorld.x - startWorld.x, endWorld.y - startWorld.y) <= Self.closeRadius / max(zoomScale, 0.01) {
-                document?.stampWorld(from: endWorld, to: startWorld, color: color, size: brushSize, erase: false)
+                document?.stampWorld(
+                    from: endWorld,
+                    to: startWorld,
+                    color: stroke.color,
+                    size: stroke.brushSize,
+                    erase: false
+                )
             }
             document?.endStroke()
             onCommitStroke?()
@@ -561,13 +598,18 @@ final class BonePaperDrawView: UIView {
         strokeStartWorld = nil
         leftCloseZone = false
         pendingView = nil
-        stroking = false
+        activeStroke = nil
     }
 
-    private func updateShapeToolWorld(document: BonePaperDocument, from start: CGPoint, to end: CGPoint) {
-        switch tool {
+    private func updateShapeToolWorld(
+        document: BonePaperDocument,
+        stroke: ActiveStroke,
+        from start: CGPoint,
+        to end: CGPoint
+    ) {
+        switch stroke.tool {
         case .line:
-            document.updateLineWorld(from: start, to: end, color: color, size: brushSize)
+            document.updateLineWorld(from: start, to: end, color: stroke.color, size: stroke.brushSize)
         case .rectangle:
             document.updateRectWorld(from: start, to: end)
         case .circle:

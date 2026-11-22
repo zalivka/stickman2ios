@@ -11,7 +11,7 @@ extension BonePaperDocument {
     @discardableResult
     func convertDrawingToMask() -> Bool {
         if filling { return false }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let data = context.data else {
@@ -54,7 +54,7 @@ extension BonePaperDocument {
     /// Removes the active mask while keeping whatever was drawn inside it.
     func clearMask() {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard maskAlpha != nil else { return }

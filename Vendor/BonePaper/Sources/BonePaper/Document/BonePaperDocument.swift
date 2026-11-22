@@ -61,6 +61,7 @@ public final class BonePaperDocument: ObservableObject {
     var maskImage: CGImage?
     var strokeLive = false
     var brushfillLive = false
+    var eraseLive = false
     private var brushfillPath = CGMutablePath()
     private var brushfillLastPoint: CGPoint = .zero
     private var brushfillHasDot = false
@@ -171,9 +172,13 @@ public final class BonePaperDocument: ObservableObject {
         self.preview = preview
     }
 
+    var hasOpenStroke: Bool {
+        strokeLive || brushfillLive || eraseLive
+    }
+
     func beginStroke(erase: Bool, opacity: CGFloat) {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             fatalError("BonePaperDocument beginStroke during an open stroke")
         }
         recorder.begin(erase: erase, opacity: opacity)
@@ -182,12 +187,14 @@ public final class BonePaperDocument: ObservableObject {
         redoStack.removeAll()
         if erase {
             strokeLive = false
+            eraseLive = true
         } else {
             if opacity <= 0 {
                 fatalError("BonePaperDocument stroke opacity is \(opacity)")
             }
             stroke.clear(pixelRect)
             strokeLive = true
+            eraseLive = false
             strokeOpacity = opacity
         }
         publishStacks()
@@ -195,7 +202,7 @@ public final class BonePaperDocument: ObservableObject {
 
     func beginBrushfillStroke(color: UIColor, opacity: CGFloat) {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             fatalError("BonePaperDocument beginBrushfillStroke during an open stroke")
         }
         if opacity <= 0 {
@@ -212,6 +219,7 @@ public final class BonePaperDocument: ObservableObject {
         brushfillHasSegment = false
         brushfillCloseOnEnd = true
         brushfillLive = true
+        eraseLive = false
         strokeOpacity = opacity
         brushfillColor = color.withAlphaComponent(1)
         publishStacks()
@@ -220,7 +228,9 @@ public final class BonePaperDocument: ObservableObject {
     func endStroke() {
         if filling { return }
         recorder.end()
-        if strokeLive {
+        if eraseLive {
+            eraseLive = false
+        } else if strokeLive {
             guard let layer = stroke.makeImage() else {
                 fatalError("BonePaperDocument stroke snapshot failed")
             }
@@ -273,6 +283,7 @@ public final class BonePaperDocument: ObservableObject {
         recorder.cancel()
         strokeLive = false
         brushfillLive = false
+        eraseLive = false
         brushfillPath = CGMutablePath()
         brushfillHasDot = false
         brushfillHasSegment = false
@@ -490,7 +501,7 @@ public final class BonePaperDocument: ObservableObject {
         angleRadians: CGFloat
     ) {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         if image.width < 1 || image.height < 1 {
@@ -585,7 +596,7 @@ public final class BonePaperDocument: ObservableObject {
     /// Returns the tight bounding box in world coordinates (y-down, matching UIView/stage world space)
     /// of all non-transparent paint pixels and active mask pixels, or `nil` if both are completely empty.
     func computeContentBoundsWorld() -> CGRect? {
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let data = context.data else {
@@ -633,7 +644,7 @@ public final class BonePaperDocument: ObservableObject {
     /// growing the page when needed and recording a single undo snapshot.
     func commitTransformWorld(_ worldTransform: CGAffineTransform) {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         if worldTransform.isIdentity {
@@ -745,7 +756,7 @@ public final class BonePaperDocument: ObservableObject {
 
     func undo() {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let previous = undoStack.popLast() else { return }
@@ -758,7 +769,7 @@ public final class BonePaperDocument: ObservableObject {
 
     func redo() {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let next = redoStack.popLast() else { return }
@@ -770,7 +781,7 @@ public final class BonePaperDocument: ObservableObject {
     }
 
     func snapshotBuffer() -> CGImage {
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let image = context.makeImage() else {
@@ -794,7 +805,7 @@ public final class BonePaperDocument: ObservableObject {
         extraTop: Int
     ) {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         if width < 1 || height < 1 || width > worldSize || height > worldSize {
@@ -894,7 +905,7 @@ public final class BonePaperDocument: ObservableObject {
         if filling {
             fatalError("BonePaperDocument export during fill")
         }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let committed = context.makeImage() else {
@@ -916,7 +927,7 @@ public final class BonePaperDocument: ObservableObject {
         if filling {
             fatalError("BonePaperDocument export during fill")
         }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         guard let image = context.makeImage() else {
@@ -1094,7 +1105,11 @@ public final class BonePaperDocument: ObservableObject {
         }
         let sampled = size * CGFloat(Self.sample)
         let target = erase ? context : stroke
-        if !erase, !strokeLive {
+        if erase {
+            if !eraseLive {
+                fatalError("BonePaperDocument erase stamp with no live erase stroke")
+            }
+        } else if !strokeLive {
             fatalError("BonePaperDocument pen stamp with no live stroke")
         }
         target.saveGState()

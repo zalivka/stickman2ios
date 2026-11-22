@@ -5,7 +5,7 @@ extension BonePaperDocument {
     /// Paint-bucket tap. The same operation in a row loosens skip/neighbour/ink; a different operation, stroke, undo or redo resets.
     func fillWorld(at world: CGPoint, fill: BonePaperFill, onCommitted: (() -> Void)? = nil) {
         if filling { return }
-        if strokeLive || brushfillLive {
+        if hasOpenStroke {
             endStroke()
         }
         let px = Int(floor((world.x - CGFloat(originX)) * CGFloat(Self.sample)))
