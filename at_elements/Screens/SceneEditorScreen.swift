@@ -193,7 +193,7 @@ struct SceneEditorScreen: View {
                 SkeletonCanvas(
                     unit: frame.units.isEmpty ? nil : unitBinding,
                     frameUnits: frame.units,
-                    previousFrameUnits: tutorialStep == nil && scene.currentIndex > 0 ? scene.frames[scene.currentIndex - 1].units : [],
+                    previousFrameUnits: tutorialStep == nil && scene.currentIndex > 0 && scene.currentIndex <= scene.frames.count ? scene.frames[scene.currentIndex - 1].units : [],
                     assets: assets,
                     backgrounds: backgrounds,
                     bgName: frame.bgName,
@@ -1272,11 +1272,18 @@ struct SceneEditorScreen: View {
     }
 
     private var rearrangeFrames: [Int] {
+        let last = scene.frames.count - 1
+        guard last >= 0 else {
+            assertionFailure("SceneEditorScreen rearrangeFrames empty scene")
+            return []
+        }
         switch mode {
         case .range:
-            return Array(range)
+            let low = min(max(range.lowerBound, 0), last)
+            let high = min(max(range.upperBound, 0), last)
+            return Array(min(low, high)...max(low, high))
         case .frames:
-            return [scene.currentIndex]
+            return [min(max(scene.currentIndex, 0), last)]
         }
     }
 
@@ -1934,11 +1941,18 @@ struct SceneEditorScreen: View {
     }
 
     private var insertFrames: [Int] {
+        let last = scene.frames.count - 1
+        guard last >= 0 else {
+            assertionFailure("SceneEditorScreen insertFrames empty scene")
+            return []
+        }
         switch mode {
         case .range:
-            return Array(range)
+            let low = min(max(range.lowerBound, 0), last)
+            let high = min(max(range.upperBound, 0), last)
+            return Array(min(low, high)...max(low, high))
         case .frames:
-            return [scene.currentIndex]
+            return [min(max(scene.currentIndex, 0), last)]
         }
     }
 
@@ -2026,6 +2040,9 @@ struct SceneEditorScreen: View {
             return false
         }
         if range.upperBound - range.lowerBound < 2 {
+            return false
+        }
+        guard range.lowerBound >= 0, range.upperBound < scene.frames.count else {
             return false
         }
         let name = rootTweenName(of: selectedUnit)

@@ -1240,9 +1240,8 @@ struct StickmanScene {
     }
 
     func canDeleteFrames(at indices: [Int]) -> Bool {
-        if indices.isEmpty {
-            return false
-        }
+        guard !indices.isEmpty,
+              indices.allSatisfy({ $0 >= 0 && $0 < frames.count }) else { return false }
         return frames.count - Set(indices).count > 0
     }
 

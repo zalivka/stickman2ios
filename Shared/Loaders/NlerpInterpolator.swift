@@ -63,7 +63,8 @@ enum NlerpInterpolator {
             let bgName: String?
             let bgMove: PictureMove
             if let scene, let originIndex,
-               let span = scene.backgroundTweens.findForSpan(from: originIndex, to: originIndex + 1) {
+               let span = scene.backgroundTweens.findForSpan(from: originIndex, to: originIndex + 1),
+               span.fromFrame >= 0, span.toFrame < scene.frames.count {
                 bgName = span.bgName
                 let source = scene.frames[span.fromFrame].bgMove
                 let target = scene.frames[span.toFrame].bgMove

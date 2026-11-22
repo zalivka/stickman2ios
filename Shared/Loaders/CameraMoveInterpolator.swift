@@ -19,7 +19,8 @@ enum CameraMoveInterpolator {
             return frame2.cameraMove
         }
         let localProgress = Float(step + 1) / Float(framesNumber + 1)
-        if let span = scene.cameraTweens.findForSpan(from: originIndex, to: originIndex + 1) {
+        if let span = scene.cameraTweens.findForSpan(from: originIndex, to: originIndex + 1),
+           span.fromFrame >= 0, span.toFrame < scene.frames.count {
             let source = scene.frames[span.fromFrame].cameraMove
             let target = scene.frames[span.toFrame].cameraMove
             let sourcePosition = Float(originIndex) + localProgress

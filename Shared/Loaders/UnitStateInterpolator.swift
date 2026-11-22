@@ -44,7 +44,8 @@ enum UnitStateInterpolator {
             from: originIndex,
             to: originIndex + 1
         ) {
-            if let start = scene.frames[span.fromFrame].units.first(where: { $0.name == unit1.name }),
+            if span.fromFrame >= 0, span.toFrame < scene.frames.count,
+               let start = scene.frames[span.fromFrame].units.first(where: { $0.name == unit1.name }),
                let end = scene.frames[span.toFrame].units.first(where: { $0.name == unit1.name })
             {
                 let sourcePosition = Float(originIndex) + localProgress
