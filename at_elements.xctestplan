@@ -1,0 +1,29 @@
+{
+  "configurations": [
+    {
+      "id": "BBEDCF99-FCD7-41F0-982E-7B3101D5E80C",
+      "name": "Test Scheme Action",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": false,
+    "performanceAntipatternCheckerEnabled": true,
+    "targetForVariableExpansion": {
+      "containerPath": "container:at_elements.xcodeproj",
+      "identifier": "743A529E3054CBF6000CC4A9",
+      "name": "at_elements"
+    }
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:at_elements.xcodeproj",
+        "identifier": "743A53003054CBF7000CC4A9",
+        "name": "at_elementsUITests"
+      },
+      "targetApplicationBundleID": "zalivka.animation"
+    }
+  ],
+  "version": 1
+}

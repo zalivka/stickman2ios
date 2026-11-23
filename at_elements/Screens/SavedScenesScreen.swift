@@ -35,6 +35,7 @@ struct SavedScenesGrid: View {
                             SavedSceneCell(item: item, width: thumbWidth, height: thumbHeight)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("savedScene_\(item.name)")
                         .contextMenu {
                             Button("Delete", role: .destructive) { deleteItem = item }
                             Button("Share") { shareItem = item }

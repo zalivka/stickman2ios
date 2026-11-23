@@ -56,6 +56,7 @@ struct FrameOpsPanel: View {
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
         .accessibilityLabel(label)
+        .accessibilityIdentifier("frame_ops_\(label.lowercased())")
     }
 
     private static func icon(_ name: String) -> CGImage {

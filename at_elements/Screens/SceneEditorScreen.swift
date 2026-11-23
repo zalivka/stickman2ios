@@ -237,6 +237,7 @@ struct SceneEditorScreen: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
+                .accessibilityIdentifier("editor_canvas")
                 .ignoresSafeArea(edges: .bottom)
             }
             if showingInsert {
@@ -2327,6 +2328,7 @@ private struct SaveProjectSheet: View {
                         .padding(.horizontal, 16)
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .accessibilityIdentifier("save_name_field")
                     if !error.isEmpty {
                         Text(error)
                             .font(.system(size: 16))
@@ -2365,6 +2367,7 @@ private struct SaveProjectSheet: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Save")
+                .accessibilityIdentifier("save_confirm")
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)

@@ -75,5 +75,6 @@ struct SideMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("menu_\(action.rawValue)")
     }
 }
