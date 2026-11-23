@@ -34,8 +34,8 @@ struct LandingScreen: View {
 
     private var tabRail: some View {
         VStack(spacing: 0) {
-            tabButton("MAKE", selected: tab == .make) { tab = .make }
-            tabButton("LOAD", selected: tab == .load) { tab = .load }
+            tabButton("MAKE", identifier: "landing_make", selected: tab == .make) { tab = .make }
+            tabButton("LOAD", identifier: "landing_load", selected: tab == .load) { tab = .load }
         }
         .padding(5)
         .frame(width: Self.railWidth)
@@ -43,7 +43,7 @@ struct LandingScreen: View {
         .background(Self.rail)
     }
 
-    private func tabButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func tabButton(_ title: String, identifier: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .bold))
@@ -53,6 +53,7 @@ struct LandingScreen: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 
     static let pane = Color(red: 0x3d / 255, green: 0x3e / 255, blue: 0x4c / 255)

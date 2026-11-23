@@ -28,7 +28,29 @@ struct at_elementsApp: App {
         BootLog.say("App.init")
         StickmanFonts.boot()
         AssetsLibrarySheet.configureBonePaperImagePicker()
+        #if DEBUG
+        Self.seedUITestIfNeeded()
+        #endif
     }
+
+    #if DEBUG
+    private static func seedUITestIfNeeded() {
+        guard ProcessInfo.processInfo.arguments.contains("-uitest-seed") else { return }
+        guard let src = Bundle.main.url(forResource: "demo_intro", withExtension: "ats", subdirectory: "demo")
+            ?? Bundle.main.url(forResource: "demo_intro", withExtension: "ats")
+        else { return }
+        let dir = SceneSaver.savedDirectory()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dst = dir.appendingPathComponent("UITestSeed.ats")
+        try? FileManager.default.removeItem(at: dst)
+        try? FileManager.default.copyItem(at: src, to: dst)
+        CopyPasteBuffer.shared.clear()
+        // Keep the first-run tutorial out of the way of the test: it hides the
+        // frame rail (EDIT FRAME et al.) until it is skipped or finished.
+        UserDefaults.standard.set(true, forKey: "simple_tutorial")
+        UserDefaults.standard.set(true, forKey: "intro_auto_launched")
+    }
+    #endif
 
     var body: some Scene {
         let _ = BootLog.say("App.body")

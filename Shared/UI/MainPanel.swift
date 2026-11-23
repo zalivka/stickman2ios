@@ -65,6 +65,7 @@ struct MainPanel: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Menu")
+                .accessibilityIdentifier("menu_button")
                 .opacity(onlyPlay ? 0 : 1)
                 .allowsHitTesting(!onlyPlay)
             }
@@ -180,7 +181,6 @@ struct MainPanel: View {
         .frame(maxHeight: .infinity)
         .background(Self.pane, ignoresSafeAreaEdges: [])
         .paddingLeadingIsland(background: Self.pane)
-        .accessibilityIdentifier("main panel")
     }
 
     private func tapUndo(_ action: @escaping () -> Void) {
@@ -229,6 +229,7 @@ struct MainPanel: View {
         .buttonStyle(.plain)
         .disabled(!enabled || hidden)
         .opacity(hidden ? 0 : (enabled ? 1 : 0.4))
+        .accessibilityIdentifier("main_\(title.lowercased().replacingOccurrences(of: " ", with: "_"))")
     }
 
     private static let navIcon = chromeImage("main_btn_nav")

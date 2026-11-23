@@ -49,7 +49,7 @@ struct DualNavigationChrome: View {
 
     private var framesColumn: some View {
         VStack(spacing: 0) {
-            navButton(idle: Self.prevIdle, pressed: Self.prevPressed) {
+            navButton(idle: Self.prevIdle, pressed: Self.prevPressed, identifier: "frame_prev") {
                 let source = currentIndex
                 currentIndex = max(0, currentIndex - 1)
                 if currentIndex != source {
@@ -72,7 +72,7 @@ struct DualNavigationChrome: View {
             )
             .frame(maxHeight: .infinity)
 
-            navButton(idle: Self.nextIdle, pressed: Self.nextPressed, tap: next) {
+            navButton(idle: Self.nextIdle, pressed: Self.nextPressed, identifier: "frame_next", tap: next) {
                 currentIndex = SeekFramesBar.nextPage(
                     current: currentIndex,
                     frameCount: frameCount,
@@ -113,6 +113,10 @@ struct DualNavigationChrome: View {
         FrameNavButton(idle: idle, pressed: pressed, tap: tap, longPress: longPress)
     }
 
+    private func navButton(idle: CGImage, pressed: CGImage, identifier: String, tap: @escaping () -> Void, longPress: @escaping () -> Void) -> some View {
+        FrameNavButton(idle: idle, pressed: pressed, identifier: identifier, tap: tap, longPress: longPress)
+    }
+
     private static let prevIdle = chromeImage("main_prev_frame_np")
     private static let prevPressed = chromeImage("main_prev_frame_pr")
     private static let nextIdle = chromeImage("main_next_frame_np")
@@ -138,11 +142,12 @@ struct DualNavigationChrome: View {
 private struct FrameNavButton: View {
     let idle: CGImage
     let pressed: CGImage
+    var identifier: String? = nil
     var tap: () -> Void
     var longPress: () -> Void
 
     var body: some View {
-        FrameNavUIButton(idle: idle, pressed: pressed, tap: tap, longPress: longPress)
+        FrameNavUIButton(idle: idle, pressed: pressed, identifier: identifier, tap: tap, longPress: longPress)
             .frame(width: Self.artwork + 16, height: Self.artwork + 16)
             .clipped()
             .accessibilityAddTraits(.isButton)
@@ -286,6 +291,7 @@ private struct IslandInsetProbe: UIViewRepresentable {
 private struct FrameNavUIButton: UIViewRepresentable {
     let idle: CGImage
     let pressed: CGImage
+    var identifier: String? = nil
     var tap: () -> Void
     var longPress: () -> Void
 
@@ -307,11 +313,14 @@ private struct FrameNavUIButton: UIViewRepresentable {
         button.addGestureRecognizer(hold)
         context.coordinator.haptic.prepare()
         apply(button, context: context)
+        button.accessibilityIdentifier = identifier
+        button.isAccessibilityElement = true
         return button
     }
 
     func updateUIView(_ button: UIButton, context: Context) {
         apply(button, context: context)
+        button.accessibilityIdentifier = identifier
     }
 
     private func apply(_ button: UIButton, context: Context) {
