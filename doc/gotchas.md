@@ -105,6 +105,18 @@ Do not compute page size from a `PreferenceKey` height sitting in DualNavigation
 
 Do not put that `UIButton` in a 60×60 SwiftUI frame and `setImage` the chrome PNG at `UIScreen.main.scale`. `UIViewRepresentable` does not clip; the button's intrinsic size is the image in points and the artwork paints over `SeekFramesBar`. Size the `UIImage` so it displays at `barWidth / 1.5` (40pt), keep the control in the original 40+8+8 slot, and `clipsToBounds`.
 
+## Pushing `.ati` files to the device app_customs directory
+
+Android custom items live in `/data/data/com.zalivka.animation2/app_customs/` (`getDir("customs", MODE_PRIVATE)`), not in shared storage. `adb shell ls` there returns `Permission denied` as `shell` (uid 2000); only `run-as com.zalivka.animation2 ...` works, and only for the integer-authority build (`com.zalivka.animation2` is debuggable; `com.zalivka.animation` is not — `run-as` fails with `package not debuggable`). `adb push` to `/sdcard/` also fails: `run-as` cannot read shared storage (`/sdcard` and `/storage/emulated/0` are both `Permission denied` under `run-as`). The working bridge is `/data/local/tmp/`:
+
+```sh
+adb push New‗Year's‗Zombie_reference.ati /data/local/tmp/zombie_reference.ati
+run-as com.zalivka.animation2 cp /data/local/tmp/zombie_reference.ati app_customs/
+run-as com.zalivka.animation2 ls app_customs/
+```
+
+Filenames with `'` (apostrophe) and Unicode like `‗` (U+2017, UTF-8 `e2 80 97`) break three layers of shell quoting (local `zsh` → `adb shell` → `run-as` → `cp`): `New‗Year's‗Zombie_reference.ati` cannot be typed verbatim in `run-as cp` (every nesting variant ends in `/system/bin/sh: no closing quote`). Push to `/data/local/tmp/` with an ASCII filename, `run-as cp` into `app_customs/` with an ASCII name, then recreate the exact Unicode name: `echo TmV34oCXWWVhcidz4oCXWm9tYmllX3JlZmVyZW5jZS5hdGk= | base64 -d` is the filename bytes; `run-as com.zalivka.animation2 cp app_customs/Zombie_reference.ati "$(cat /data/local/tmp/dstname)"` (overwriting a placeholder) or `mv` from the data root into `app_customs/`, then `rm` the ASCII duplicates. Verify with `run-as com.zalivka.animation2 md5sum app_customs/*.ati` (md5 must match local).
+
 ## iPad pinch zoom on the skeleton canvas
 
 `SkeletonCanvas` stores the pinch layout against one size and draws with another. `resolvedLayout` keeps the stored layout only when those sizes match; otherwise it fits the scene again. Hit testing asks with the stored size, so it uses the zoomed layout. The picture stays fitted. Taps then miss the points you can see.
