@@ -69,3 +69,28 @@ enum IncomingScene {
         NotificationCenter.default.post(name: .savedScenesDidChange, object: nil)
     }
 }
+
+enum IncomingFile {
+    static func importURL(_ url: URL) async -> String {
+        do {
+            switch url.pathExtension.lowercased() {
+            case CustomItems.ext:
+                try await IncomingItem.importURL(url)
+                Analytics.event("entry_item")
+                return "Item copied"
+            case SceneSaver.ext:
+                try IncomingScene.importURL(url)
+                Analytics.event("entry_saved")
+                return "Scene copied"
+            case InstalledPacks.ext:
+                let pack = try await IncomingPack.importURL(url)
+                Analytics.event("entry_pack")
+                return "Installing \(pack.name), version \(pack.version)"
+            default:
+                return "This file is not a scene (.ats), an item (.ati), or a pack (.atp)."
+            }
+        } catch {
+            return ItemLoadError.text(error)
+        }
+    }
+}

@@ -246,6 +246,7 @@ struct SceneEditorScreen: View {
                     onClose: { showingInsert = false },
                     onCreateItems: { showingCreateItems = true }
                 )
+                .equatable()
                 .padding(.leading, MainPanel.width)
                 .paddingLeadingIsland()
             }

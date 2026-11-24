@@ -11,6 +11,8 @@ struct ItemLoadError: Error, CustomStringConvertible {
         if let item = error as? ItemLoadError { return item.message }
         if let missing = error as? MissingManifestItem { return missing.message }
         if let scene = error as? SceneLoadError { return scene.message }
+        if let incomingItem = error as? IncomingItem.Failure { return incomingItem.description }
+        if let incomingScene = error as? IncomingScene.Failure { return incomingScene.description }
         if let pack = error as? IncomingPack.Failure { return pack.description }
         if let zip = error as? ZipError { return zip.message }
         let text = String(describing: error)
@@ -104,7 +106,30 @@ enum PNGImage {
         ) else {
             throw ItemLoadError("PNGImage '\(name)' is not a PNG")
         }
-        return image
+        return decoded(image)
+    }
+
+    /// Forces PNG decompression once so `CGDataProvider` does not retain compressed archive slices
+    /// or re-decode lazily on the main thread during scroll rendering.
+    nonisolated private static func decoded(_ image: CGImage) -> CGImage {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return image }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return image
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? image
     }
 }
 
@@ -146,6 +171,7 @@ nonisolated enum ZipStore {
     struct Index {
         fileprivate let zip: Data
         fileprivate let entriesByName: [String: Entry]
+        fileprivate let entriesByLastComponent: [String: Entry]
         let names: [String]
 
         func contains(_ name: String) -> Bool {
@@ -164,19 +190,38 @@ nonisolated enum ZipStore {
                 uncompressed: entry.uncompressed
             )
         }
+
+        func dataAtiThrowing(file: String) throws -> Data {
+            guard let entry = entriesByName["items/\(file)"] ?? entriesByLastComponent[file] else {
+                throw ZipError(message: "ItemLoader zip missing '\(file)'")
+            }
+            return try ZipStore.payload(
+                zip: zip,
+                localOffset: entry.localOffset,
+                method: entry.method,
+                compressed: entry.compressed,
+                uncompressed: entry.uncompressed
+            )
+        }
     }
 
     static func indexThrowing(in zip: Data) throws -> Index {
         let all = try entries(in: zip)
         var byName: [String: Entry] = [:]
         byName.reserveCapacity(all.count)
+        var byLastComponent: [String: Entry] = [:]
+        byLastComponent.reserveCapacity(all.count)
         var names: [String] = []
         names.reserveCapacity(all.count)
         for entry in all {
             byName[entry.name] = entry
+            let last = (entry.name as NSString).lastPathComponent
+            if byLastComponent[last] == nil || entry.name == "items/\(last)" {
+                byLastComponent[last] = entry
+            }
             names.append(entry.name)
         }
-        return Index(zip: zip, entriesByName: byName, names: names)
+        return Index(zip: zip, entriesByName: byName, entriesByLastComponent: byLastComponent, names: names)
     }
 
     static func namesThrowing(in zip: Data) throws -> [String] {
@@ -392,7 +437,7 @@ nonisolated enum ZipStore {
             if packed.count != uncompressed {
                 throw ZipError(message: "ItemLoader stored entry size \(packed.count) != \(uncompressed)")
             }
-            return packed
+            return packed.withUnsafeBytes { Data($0) }
         case deflate:
             return try inflate(packed, uncompressedSize: uncompressed)
         default:

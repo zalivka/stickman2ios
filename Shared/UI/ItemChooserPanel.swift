@@ -1,11 +1,16 @@
 import CoreGraphics
 import SwiftUI
 
-struct ItemChooserPanel: View {
+struct ItemChooserPanel: View, Equatable {
     static let width: CGFloat = 180
     static let pane = Color(red: 0x20 / 255, green: 0x20 / 255, blue: 0x20 / 255)
     static let accent = Color(red: 0xa5 / 255, green: 0xe9 / 255, blue: 0x3f / 255)
     static let dir = Color(red: 0xac / 255, green: 0x81 / 255, blue: 0x2b / 255)
+    private static let displayScale = UIScreen.main.scale
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        true
+    }
 
     var onPick: (Item) -> Void
     var onClose: () -> Void
@@ -22,8 +27,8 @@ struct ItemChooserPanel: View {
                 switch level {
                 case .packs:
                     packsList
-                case .items(let pack, let dir):
-                    itemsList(pack: pack, dir: dir)
+                case .items(let pack, let dir, let dirs, let items):
+                    itemsList(pack: pack, dir: dir, dirs: dirs, items: items)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,18 +65,7 @@ struct ItemChooserPanel: View {
         }
     }
 
-    private func itemsList(pack: Pack, dir: String?) -> some View {
-        let visible = pack.items.filter { !$0.readOnly }
-        let dirs: [String] = {
-            if dir != nil { return [] }
-            return Array(Set(visible.map(\.setName).filter { !$0.isEmpty })).sorted()
-        }()
-        let items: [Item] = {
-            if let dir {
-                return visible.filter { $0.setName == dir }.sorted { $0.systemName < $1.systemName }
-            }
-            return visible.filter { $0.setName.isEmpty }.sorted { $0.systemName < $1.systemName }
-        }()
+    private func itemsList(pack: Pack, dir: String?, dirs: [String], items: [Item]) -> some View {
         let showsCreate = pack.name == Pack.customName && dir == nil
         return ScrollView {
             LazyVStack(spacing: 0) {
@@ -80,7 +74,7 @@ struct ItemChooserPanel: View {
                 }
                 ForEach(dirs, id: \.self) { name in
                     Button {
-                        level = .items(pack: pack, dir: name)
+                        level = Level.makeItems(pack: pack, dir: name)
                     } label: {
                         HStack(spacing: 8) {
                             Image(decorative: Self.folderIcon, scale: 80.0 / 48)
@@ -101,12 +95,7 @@ struct ItemChooserPanel: View {
                     } label: {
                         HStack(spacing: 8) {
                             ZStack(alignment: .topLeading) {
-                                if let thumb = itemThumb(item) {
-                                    Image(decorative: thumb, scale: UIScreen.main.scale)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 50, height: 50)
-                                }
+                                ItemChooserThumbView(fullName: item.makeFullName(), scale: Self.displayScale)
                                 if item.multiframed {
                                     Image(decorative: Self.multiframedBadgeIcon, scale: 2)
                                 }
@@ -154,10 +143,10 @@ struct ItemChooserPanel: View {
         switch level {
         case .packs:
             onClose()
-        case .items(_, nil):
+        case .items(_, nil, _, _):
             level = .packs
-        case .items(let pack, _?):
-            level = .items(pack: pack, dir: nil)
+        case .items(let pack, _?, _, _):
+            level = Level.makeItems(pack: pack, dir: nil)
         }
     }
 
@@ -217,7 +206,7 @@ struct ItemChooserPanel: View {
         } label: {
             VStack(spacing: 6) {
                 if let logo = packLogo(pack.name) {
-                    Image(decorative: logo, scale: UIScreen.main.scale)
+                    Image(decorative: logo, scale: Self.displayScale)
                         .resizable()
                         .scaledToFit()
                         .frame(width: 150, height: 150)
@@ -261,12 +250,12 @@ struct ItemChooserPanel: View {
 
     private func refreshPacks() async {
         packs = await Manifest.shared.queryPacks(.empty())
-        if case .items(let pack, let dir) = level {
+        if case .items(let pack, let dir, _, _) = level {
             guard let updated = packs.first(where: { $0.name == pack.name }) else {
                 level = .packs
                 return
             }
-            level = .items(pack: updated, dir: dir)
+            level = Level.makeItems(pack: updated, dir: dir)
         }
     }
 
@@ -278,19 +267,19 @@ struct ItemChooserPanel: View {
                 assertionFailure("ItemChooser Query(\(name)) returned \(matched.map(\.name))")
                 return
             }
-            level = .items(pack: pack, dir: nil)
+            level = Level.makeItems(pack: pack, dir: nil)
         }
     }
 
     private func refreshCustomPack() async {
         _ = await Manifest.shared.requestReloadCustomPack()
         packs = await Manifest.shared.queryPacks(.empty())
-        if case .items(let pack, let dir) = level, pack.name == Pack.customName {
+        if case .items(let pack, let dir, _, _) = level, pack.name == Pack.customName {
             guard let updated = packs.first(where: { $0.name == Pack.customName }) else {
                 assertionFailure("ItemChooser custom pack missing after reload")
                 return
             }
-            level = .items(pack: updated, dir: dir)
+            level = Level.makeItems(pack: updated, dir: dir)
         }
     }
 
@@ -304,17 +293,64 @@ struct ItemChooserPanel: View {
         }
     }
 
-    private func itemThumb(_ item: Item) -> CGImage? {
-        let fullName = item.makeFullName()
-        return ThumbCache.imageIfPresent("chooser:" + fullName) {
-            let zip = try Manifest.shared.itemZip(fullname: fullName)
-            return try ItemLoader.thumb(from: zip, name: fullName)
-        }
-    }
-
     private enum Level {
         case packs
-        case items(pack: Pack, dir: String?)
+        case items(pack: Pack, dir: String?, dirs: [String], items: [Item])
+
+        static func makeItems(pack: Pack, dir: String?) -> Level {
+            let visible = pack.items.filter { !$0.readOnly }
+            let dirs: [String]
+            let items: [Item]
+            if let dir {
+                dirs = []
+                items = visible.filter { $0.setName == dir }.sorted { $0.systemName < $1.systemName }
+            } else {
+                dirs = Array(Set(visible.map(\.setName).filter { !$0.isEmpty })).sorted()
+                items = visible.filter { $0.setName.isEmpty }.sorted { $0.systemName < $1.systemName }
+            }
+            return .items(pack: pack, dir: dir, dirs: dirs, items: items)
+        }
+    }
+}
+
+private struct ItemChooserThumbView: View {
+    let fullName: String
+    let scale: CGFloat
+
+    @State private var loaded: CGImage?
+
+    private var cacheKey: String {
+        "chooser:" + fullName
+    }
+
+    var body: some View {
+        let key = cacheKey
+        if let image = loaded ?? ThumbCache.cached(key) {
+            Image(decorative: image, scale: scale)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 50, height: 50)
+        } else {
+            Color.clear
+                .frame(width: 50, height: 50)
+                .task(id: fullName) {
+                    let fullName = self.fullName
+                    let key = "chooser:" + fullName
+                    if let existing = ThumbCache.cached(key) {
+                        loaded = existing
+                        return
+                    }
+                    let decoded = await Task.detached(priority: .userInitiated) {
+                        ThumbCache.imageIfPresent(key) {
+                            let zip = try Manifest.shared.itemZip(fullname: fullName)
+                            return try ItemLoader.thumb(from: zip, name: fullName)
+                        }
+                    }.value
+                    if !Task.isCancelled {
+                        loaded = decoded
+                    }
+                }
+        }
     }
 }
 

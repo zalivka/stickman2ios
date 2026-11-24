@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// App settings. Chrome matches `EditPointDialog` (`doc/good_dialog.md`).
 struct AppSettingsSheet: View {
@@ -7,6 +8,8 @@ struct AppSettingsSheet: View {
     @State private var showOnionSkeleton: Bool
     @State private var skeletonColorRGB: Int
     @State private var showingSkeletonColorPicker = false
+    @State private var showingFileImporter = false
+    @State private var toast = ""
     #if DEBUG
     @State private var ignoreBmSample: Bool
     #endif
@@ -32,6 +35,26 @@ struct AppSettingsSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(SkeletonChrome.pane)
+        .overlay {
+            if !toast.isEmpty {
+                Text(toast)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.bottom, 28)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+            }
+        }
+        .fileImporter(
+            isPresented: $showingFileImporter,
+            allowedContentTypes: Self.importContentTypes,
+            allowsMultipleSelection: false,
+            onCompletion: handleFileImport
+        )
     }
 
     private var topPanel: some View {
@@ -115,6 +138,7 @@ struct AppSettingsSheet: View {
                     .textCase(.uppercase)
                 onionSkeletonCard
                 skeletonColorCard
+                importCard
                 privacyCard
             }
             .padding(.horizontal, 16)
@@ -216,6 +240,76 @@ struct AppSettingsSheet: View {
                 showingSkeletonColorPicker = false
             }
         }
+    }
+
+    private var importCard: some View {
+        Button {
+            showingFileImporter = true
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Circle()
+                    .fill(SkeletonChrome.drawAccent)
+                    .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Import file")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Import a scene (.ats), item (.ati), or pack (.atp)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "folder")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Import file")
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            showToast(error.localizedDescription)
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task { @MainActor in
+                showToast(await IncomingFile.importURL(url))
+            }
+        }
+    }
+
+    private func showToast(_ text: String) {
+        toast = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if toast == text {
+                toast = ""
+            }
+        }
+    }
+
+    private static var importContentTypes: [UTType] {
+        var types: [UTType] = [
+            UTType(exportedAs: "zalivka.animation.ats"),
+            UTType(exportedAs: "zalivka.animation.ati"),
+            UTType(exportedAs: "zalivka.animation.atp"),
+        ]
+        for ext in [SceneSaver.ext, CustomItems.ext, InstalledPacks.ext] {
+            if let tagType = UTType(filenameExtension: ext), !types.contains(tagType) {
+                types.append(tagType)
+            }
+        }
+        types.append(contentsOf: [.data, .item])
+        return types
     }
 
     private var privacyCard: some View {

@@ -128,26 +128,7 @@ private struct ManifestBootView: View {
 
     private func importIncoming(_ url: URL) {
         Task { @MainActor in
-            do {
-                switch url.pathExtension.lowercased() {
-                case CustomItems.ext:
-                    try await IncomingItem.importURL(url)
-                    Analytics.event("entry_item")
-                    showToast("Item copied")
-                case SceneSaver.ext:
-                    try IncomingScene.importURL(url)
-                    Analytics.event("entry_saved")
-                    showToast("Scene copied")
-                case InstalledPacks.ext:
-                    let pack = try await IncomingPack.importURL(url)
-                    Analytics.event("entry_pack")
-                    showToast("Installing \(pack.name), version \(pack.version)")
-                default:
-                    showToast("This file is not a scene (.ats), an item (.ati), or a pack (.atp).")
-                }
-            } catch {
-                showToast(ItemLoadError.text(error))
-            }
+            showToast(await IncomingFile.importURL(url))
         }
     }
 

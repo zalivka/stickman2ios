@@ -119,7 +119,7 @@ nonisolated enum InstalledPacks {
             throw ZipError(message: "Pack '\(packName)' is \(size) bytes")
         }
         do {
-            return try Data(contentsOf: url)
+            return try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {
             throw ZipError(message: "Pack '\(packName)' could not be read: \(error)")
         }

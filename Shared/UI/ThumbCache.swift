@@ -20,8 +20,17 @@ enum ThumbCache {
         }
     }()
 
+    /// Fast read-only lookup without decoding on a cache miss.
+    nonisolated static func cached(_ key: String) -> CGImage? {
+        _ = observer
+        lock.lock()
+        let image = images[key]
+        lock.unlock()
+        return image
+    }
+
     /// Item thumbs. A bad archive toasts once and leaves the cell empty.
-    static func imageIfPresent(_ key: String, make: () throws -> CGImage) -> CGImage? {
+    nonisolated static func imageIfPresent(_ key: String, make: () throws -> CGImage) -> CGImage? {
         _ = observer
         lock.lock()
         if let cached = images[key] {
