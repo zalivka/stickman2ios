@@ -172,6 +172,7 @@ struct SpeedEffectsScreen: View {
             bgName: frame?.bgName,
             bgMove: frame?.bgMove ?? .identity,
             cameraMove: frame?.cameraMove ?? .identity,
+            cameraEffect: frame?.cameraEffect ?? .none,
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,

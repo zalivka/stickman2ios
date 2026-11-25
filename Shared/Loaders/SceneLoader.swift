@@ -393,6 +393,9 @@ enum SceneXML {
         xml += XMLWrite.attr("id", "\(frame.id)")
         xml += XMLWrite.attr("bg", frame.bgMove.serialize())
         xml += XMLWrite.attr("camera", frame.cameraMove.serialize())
+        if !frame.cameraEffect.isZero {
+            xml += XMLWrite.attr("camera_fx", frame.cameraEffect.serialize())
+        }
         xml += XMLWrite.attr("bg_name", bgName)
         xml += ">\n"
         for unit in frame.units {
@@ -496,6 +499,7 @@ enum SceneXML {
         private var frameBgName: String?
         private var frameBgMove: PictureMove = .identity
         private var frameCameraMove: PictureMove = .identity
+        private var frameCameraEffect: CameraEffect = .none
         private var frameUnits: [StickmanUnit] = []
         private var unitName: String?
         private var unitScale: CGFloat?
@@ -741,6 +745,11 @@ enum SceneXML {
                 frameCameraMove = try PictureMove.parse(cameraText)
             } else {
                 frameCameraMove = .identity
+            }
+            if let cameraFxText = attributes["camera_fx"], !cameraFxText.isEmpty {
+                frameCameraEffect = try CameraEffect.parse(cameraFxText)
+            } else {
+                frameCameraEffect = .none
             }
             frameUnits.removeAll(keepingCapacity: true)
         }
@@ -1064,7 +1073,8 @@ enum SceneXML {
                 units: frameUnits,
                 bgName: bgName,
                 bgMove: frameBgMove,
-                cameraMove: frameCameraMove
+                cameraMove: frameCameraMove,
+                cameraEffect: frameCameraEffect
             )
             try frame.slaves.populate(units: frame.units)
             frames.append(frame)
@@ -1072,6 +1082,7 @@ enum SceneXML {
             frameBgName = nil
             frameBgMove = .identity
             frameCameraMove = .identity
+            frameCameraEffect = .none
             frameUnits.removeAll(keepingCapacity: true)
         }
 

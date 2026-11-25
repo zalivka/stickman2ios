@@ -16,12 +16,15 @@ struct MainPanel: View {
     static let reset = Color(red: 0xf3 / 255, green: 0x54 / 255, blue: 0x54 / 255)
     /// Android `audio_palette_accent`, dominant color of `select_music.png`.
     static let effects = Color(red: 0, green: 0xC6 / 255, blue: 1)
+    static let cameraEffects = Color(red: 1, green: 0x2E / 255, blue: 0x93 / 255)
 
     var onPlay: () -> Void = {}
     var playEnabled: Bool = true
     /// Android `audio_btn_palette`: opens the sound palette column next to the rail.
     var onEffects: (() -> Void)? = nil
     var effectsActivated = false
+    var onCameraEffects: (() -> Void)? = nil
+    var cameraEffectsActivated = false
     var onDraw: (() -> Void)? = nil
     var onInsert: (() -> Void)? = nil
     var onAdd: (() -> Void)? = nil
@@ -87,6 +90,16 @@ struct MainPanel: View {
                     activated: effectsActivated,
                     activatedFill: Self.effects,
                     action: onEffects
+                )
+            }
+            if let onCameraEffects {
+                chromeButton(
+                    icon: cameraEffectsActivated ? Self.cameraEffectsIconSel : Self.cameraEffectsIcon,
+                    title: "EFFECTS",
+                    color: cameraEffectsActivated ? .white : Self.cameraEffects,
+                    activated: cameraEffectsActivated,
+                    activatedFill: Self.cameraEffects,
+                    action: onCameraEffects
                 )
             }
             if let onDraw {
@@ -244,6 +257,8 @@ struct MainPanel: View {
     private static let undoIcon = chromeImage("main_btn_undo")
     private static let musicIcon = chromeImage("select_music")
     private static let musicIconSel = chromeImage("select_music_sel")
+    private static let cameraEffectsIcon = chromeImage("btn_effects")
+    private static let cameraEffectsIconSel = chromeImage("btn_effects_sel")
     private static let tweenIcon = chromeImage("btn_tween")
     private static let resetIcon = chromeImage("btn_reset")
 

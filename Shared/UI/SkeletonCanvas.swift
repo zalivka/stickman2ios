@@ -191,6 +191,7 @@ struct SkeletonCanvas: View {
     var backgroundRevision: Int = 0
     var bgMove: PictureMove = .identity
     var cameraMove: PictureMove = .identity
+    var cameraEffect: CameraEffect = .none
     var sceneWidth: CGFloat
     var sceneHeight: CGFloat
     var currentIndex: Int = 0
@@ -1104,18 +1105,27 @@ struct SkeletonCanvas: View {
         ignoreSample: Bool
     ) {
         context.drawLayer { layer in
+            let viewportRect = sceneScreenRect(layout: layout)
             if clip {
-                layer.clip(to: Path(sceneScreenRect(layout: layout)))
+                layer.clip(to: Path(viewportRect))
             }
-            layer.concatenate(cameraMove.canvasTransform(layout: layout))
-            layer.drawLayer { bg in
-                drawSceneContent(context: &bg)
+            if let cm = cameraEffect.swiftUIColorMatrix {
+                layer.addFilter(.colorMatrix(cm))
             }
-            for drawn in unitsToDraw {
-                drawUnitContent(drawn, context: &layer, layout: .sceneSpace, ignoreSample: ignoreSample)
+            layer.drawLayer { camLayer in
+                camLayer.concatenate(cameraMove.canvasTransform(layout: layout))
+                camLayer.drawLayer { bg in
+                    drawSceneContent(context: &bg)
+                }
+                for drawn in unitsToDraw {
+                    drawUnitContent(drawn, context: &camLayer, layout: .sceneSpace, ignoreSample: ignoreSample)
+                }
+                for drawn in unitsToDraw {
+                    drawUnitSkeleton(drawn, context: &camLayer, layout: .sceneSpace)
+                }
             }
-            for drawn in unitsToDraw {
-                drawUnitSkeleton(drawn, context: &layer, layout: .sceneSpace)
+            if let overlay = cameraEffect.overlayColor {
+                layer.fill(Path(viewportRect), with: .color(overlay))
             }
         }
     }

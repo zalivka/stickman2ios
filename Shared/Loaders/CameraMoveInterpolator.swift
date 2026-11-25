@@ -45,6 +45,122 @@ enum CameraMoveInterpolator {
         )
     }
 
+    static func inbetweenEffect(
+        scene: StickmanScene,
+        originIndex: Int,
+        frame1: StickmanFrame,
+        frame2: StickmanFrame,
+        step: Int,
+        framesNumber: Int
+    ) -> CameraEffect {
+        if framesNumber <= 0 {
+            assertionFailure("CameraMoveInterpolator framesNumber must be > 0, got \(framesNumber)")
+            return frame2.cameraEffect
+        }
+        if step < 0 || step >= framesNumber {
+            assertionFailure("CameraMoveInterpolator step \(step) out of \(framesNumber)")
+            return frame2.cameraEffect
+        }
+        let localProgress = Float(step + 1) / Float(framesNumber + 1)
+        if let span = scene.cameraTweens.findForSpan(from: originIndex, to: originIndex + 1),
+           span.fromFrame >= 0, span.toFrame < scene.frames.count {
+            let source = scene.frames[span.fromFrame].cameraEffect
+            let target = scene.frames[span.toFrame].cameraEffect
+            let sourcePosition = Float(originIndex) + localProgress
+            let raw = (sourcePosition - Float(span.fromFrame)) / Float(span.toFrame - span.fromFrame)
+            let spanProgress = min(max(raw, 0), 1)
+            return tweenEffect(
+                source,
+                target,
+                easing: span.easingType,
+                strength: span.easingStrength,
+                t: spanProgress
+            )
+        }
+        return tweenEffect(
+            frame1.cameraEffect,
+            frame2.cameraEffect,
+            easing: .NO,
+            strength: Easing.defaultStrength,
+            t: localProgress
+        )
+    }
+
+    static func tweenEffect(
+        _ source: CameraEffect,
+        _ target: CameraEffect,
+        easing: TweenEasing,
+        strength: Float,
+        t: Float
+    ) -> CameraEffect {
+        let clampedT = min(max(t, 0), 1)
+        let u: Float
+        if easing.isShake || easing.isCartwheel || easing == .NO {
+            u = clampedT
+        } else {
+            u = min(max(Easing.sample(easing, t: clampedT, strength: strength), 0), 1)
+        }
+        if source.isZero && target.isZero {
+            return .none
+        }
+        if source.isZero {
+            return CameraEffect(
+                kind: target.kind,
+                colorIndex: target.colorIndex,
+                snapshot: target.rgb,
+                power: target.power * u
+            )
+        }
+        if target.isZero {
+            return CameraEffect(
+                kind: source.kind,
+                colorIndex: source.colorIndex,
+                snapshot: source.rgb,
+                power: source.power * (1.0 - u)
+            )
+        }
+        // Same kind: blend power, and blend RGB channels when colors differ (e.g. black fade → white fade passes through gray).
+        if source.kind == target.kind {
+            if source.kind == .fade || source.kind == .colorize {
+                let blendedRGB = (
+                    r: source.rgb.r + (target.rgb.r - source.rgb.r) * u,
+                    g: source.rgb.g + (target.rgb.g - source.rgb.g) * u,
+                    b: source.rgb.b + (target.rgb.b - source.rgb.b) * u
+                )
+                // Keep colorIndex only when colors match exactly; otherwise mark as off-palette (-1) since it's mid-transition.
+                let blendedIndex = source.rgbInt == target.rgbInt ? source.colorIndex : -1
+                return CameraEffect(
+                    kind: source.kind,
+                    colorIndex: blendedIndex,
+                    snapshot: blendedRGB,
+                    power: source.power + (target.power - source.power) * u
+                )
+            }
+            return CameraEffect(
+                kind: source.kind,
+                colorIndex: source.colorIndex,
+                snapshot: source.rgb,
+                power: source.power + (target.power - source.power) * u
+            )
+        }
+        // Cross-fade through neutral at u = 0.5 when switching between two distinct active effects.
+        if u < 0.5 {
+            return CameraEffect(
+                kind: source.kind,
+                colorIndex: source.colorIndex,
+                snapshot: source.rgb,
+                power: source.power * (1.0 - 2.0 * u)
+            )
+        } else {
+            return CameraEffect(
+                kind: target.kind,
+                colorIndex: target.colorIndex,
+                snapshot: target.rgb,
+                power: target.power * (2.0 * u - 1.0)
+            )
+        }
+    }
+
     static func tween(
         _ source: PictureMove,
         _ target: PictureMove,

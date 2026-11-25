@@ -206,6 +206,7 @@ struct AudioScreen: View {
                 bgName: scene.currentFrameOrNil?.bgName,
                 bgMove: scene.currentFrameOrNil?.bgMove ?? .identity,
                 cameraMove: scene.currentFrameOrNil?.cameraMove ?? .identity,
+                cameraEffect: scene.currentFrameOrNil?.cameraEffect ?? .none,
                 sceneWidth: scene.width,
                 sceneHeight: scene.height,
                 currentIndex: scene.currentIndex,

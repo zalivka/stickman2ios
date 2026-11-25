@@ -47,8 +47,17 @@ enum NlerpInterpolator {
                 }
             }
             let cameraMove: PictureMove
+            let cameraEffect: CameraEffect
             if let scene, let originIndex {
                 cameraMove = CameraMoveInterpolator.inbetween(
+                    scene: scene,
+                    originIndex: originIndex,
+                    frame1: frame1,
+                    frame2: frame2,
+                    step: step,
+                    framesNumber: duration
+                )
+                cameraEffect = CameraMoveInterpolator.inbetweenEffect(
                     scene: scene,
                     originIndex: originIndex,
                     frame1: frame1,
@@ -59,6 +68,13 @@ enum NlerpInterpolator {
             } else {
                 let cameraT = CGFloat(step + 1) / CGFloat(duration + 1)
                 cameraMove = frame1.cameraMove.lerp(frame2.cameraMove, t: cameraT)
+                cameraEffect = CameraMoveInterpolator.tweenEffect(
+                    frame1.cameraEffect,
+                    frame2.cameraEffect,
+                    easing: .NO,
+                    strength: Easing.defaultStrength,
+                    t: Float(cameraT)
+                )
             }
             let bgName: String?
             let bgMove: PictureMove
@@ -94,7 +110,8 @@ enum NlerpInterpolator {
                 units: units,
                 bgName: bgName,
                 bgMove: bgMove,
-                cameraMove: cameraMove
+                cameraMove: cameraMove,
+                cameraEffect: cameraEffect
             )
             try adjustSlavesPositions(frame1: frame1, frame2: frame2, generated: &generated)
             frames.append(generated)

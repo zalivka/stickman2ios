@@ -160,6 +160,7 @@ struct FullscreenPreviewScreen: View {
             bgName: movie.currentFrameOrNil?.bgName,
             bgMove: movie.currentFrameOrNil?.bgMove ?? .identity,
             cameraMove: movie.currentFrameOrNil?.cameraMove ?? .identity,
+            cameraEffect: movie.currentFrameOrNil?.cameraEffect ?? .none,
             sceneWidth: movie.width,
             sceneHeight: movie.height,
             currentIndex: movie.currentIndex,

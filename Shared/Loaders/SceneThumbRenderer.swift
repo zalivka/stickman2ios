@@ -111,6 +111,7 @@ enum SceneThumbRenderer {
             bgName: frame.bgName,
             bgMove: frame.bgMove,
             cameraMove: frame.cameraMove,
+            cameraEffect: frame.cameraEffect,
             sceneWidth: scene.width,
             sceneHeight: scene.height,
             currentIndex: scene.currentIndex,

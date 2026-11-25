@@ -45,6 +45,8 @@ enum CameraInbetweener {
         }
         let source = scene.frames[from].cameraMove
         let target = scene.frames[to].cameraMove
+        let sourceEffect = scene.frames[from].cameraEffect
+        let targetEffect = scene.frames[to].cameraEffect
         let duration = to - from
         if duration < 2 {
             return
@@ -57,6 +59,13 @@ enum CameraInbetweener {
                 easing: easing,
                 strength: strength,
                 frequency: shakeFrequency,
+                t: t
+            )
+            scene.frames[from + step].cameraEffect = CameraMoveInterpolator.tweenEffect(
+                sourceEffect,
+                targetEffect,
+                easing: easing,
+                strength: strength,
                 t: t
             )
         }

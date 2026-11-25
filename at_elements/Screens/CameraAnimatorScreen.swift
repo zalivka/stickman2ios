@@ -8,6 +8,7 @@ struct CameraAnimatorScreen: View {
     @State private var navMode: DualNavigation.Mode = .frames
     @State private var range: ClosedRange<Int>
     @State private var showingPreview = false
+    @State private var showingEffects = false
     @State private var showingTweenRange = false
     @State private var showingTweenEasing = false
     @State private var tweenDraftRange: ClosedRange<Int> = 0...0
@@ -43,12 +44,23 @@ struct CameraAnimatorScreen: View {
                 MainPanel(
                     onPlay: { showingPreview = true },
                     playEnabled: scene.frames.count >= 2,
+                    onCameraEffects: { showingEffects.toggle() },
+                    cameraEffectsActivated: showingEffects,
                     onUndo: performUndo,
                     undoEnabled: undo.canUndo,
                     onReset: resetCamera,
                     onTween: openTweenRange,
                     tweenEnabled: scene.frames.count >= 2
                 )
+                if showingEffects {
+                    CameraEffectPanel(
+                        effect: scene.currentFrameOrNil?.cameraEffect ?? .none,
+                        locked: !canMutateCamera,
+                        onSelectKind: selectEffectKind,
+                        onSelectColor: selectEffectColor,
+                        onPickCustomColor: pickCustomColor
+                    )
+                }
                 SkeletonCanvas(
                     unit: (scene.currentFrameOrNil?.units.isEmpty == false) ? unitBinding : nil,
                     frameUnits: scene.currentFrameOrNil?.units ?? [],
@@ -57,6 +69,7 @@ struct CameraAnimatorScreen: View {
                     bgName: scene.currentFrameOrNil?.bgName,
                     bgMove: scene.currentFrameOrNil?.bgMove ?? .identity,
                     cameraMove: scene.currentFrameOrNil?.cameraMove ?? .identity,
+                    cameraEffect: scene.currentFrameOrNil?.cameraEffect ?? .none,
                     sceneWidth: scene.width,
                     sceneHeight: scene.height,
                     currentIndex: scene.currentIndex,
@@ -70,6 +83,23 @@ struct CameraAnimatorScreen: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SkeletonCanvas.pane)
+                .overlay(alignment: .bottom) {
+                    if showingEffects,
+                       let currentEffect = scene.currentFrameOrNil?.cameraEffect,
+                       currentEffect.kind != .none {
+                        CameraEffectPowerBar(
+                            effect: currentEffect,
+                            locked: !canMutateCamera,
+                            onPowerDragBegan: prepareCameraUndo,
+                            onPowerChanged: updateEffectPower,
+                            onPowerEnded: { noteCameraFingers(0) }
+                        )
+                        .padding(.leading, 12)
+                        .padding(.trailing, SeekFramesBar.barWidth + 12)
+                        .padding(.bottom, 10)
+                        .paddingBottomSafeArea()
+                    }
+                }
             }
         }
         .overlay(alignment: .trailing) {
@@ -119,7 +149,9 @@ struct CameraAnimatorScreen: View {
         .ignoresSafeArea(edges: [.horizontal, .bottom])
         .modifier(StatusBarClearance())
         .overlay(alignment: .topLeading) {
-            FullscreenBackButton()
+            FullscreenBackButton(
+                extraLeading: showingEffects ? CameraEffectPanel.width : 0
+            )
         }
         .overlay {
             if !toast.isEmpty {
@@ -227,6 +259,107 @@ struct CameraAnimatorScreen: View {
         }
     }
 
+    private func selectEffectKind(_ kind: CameraEffect.Kind) {
+        if !canMutateCamera {
+            showToast("Locked")
+            return
+        }
+        let current = scene.currentFrameOrNil?.cameraEffect ?? .none
+        let next: CameraEffect
+        if kind == .none {
+            if current.isZero {
+                return
+            }
+            next = .none
+        } else {
+            let power: Float = current.isZero ? 0.5 : current.power
+            next = CameraEffect(kind: kind, colorIndex: current.colorIndex, power: power)
+        }
+        commitTimeline()
+        writeCameraEffect(next)
+    }
+
+    private func selectEffectColor(_ kind: CameraEffect.Kind, _ colorIndex: Int) {
+        if !canMutateCamera {
+            showToast("Locked")
+            return
+        }
+        let current = scene.currentFrameOrNil?.cameraEffect ?? .none
+        if current.kind == kind && current.colorIndex == colorIndex && !current.isZero {
+            return
+        }
+        let power: Float = current.isZero ? 0.5 : current.power
+        let next = CameraEffect(kind: kind, colorIndex: colorIndex, power: power)
+        commitTimeline()
+        writeCameraEffect(next)
+    }
+
+    private func pickCustomColor(_ kind: CameraEffect.Kind, _ slot: Int, _ rgb: Int) {
+        if !canMutateCamera {
+            showToast("Locked")
+            return
+        }
+        var palette = kind.palette
+        if palette.isEmpty {
+            palette = [Int](repeating: 0x000000, count: CameraEffect.paletteSize)
+        }
+        // If this exact color already exists in the palette, just select that slot.
+        if let existing = palette.firstIndex(of: rgb & 0xFFFFFF) {
+            selectEffectColor(kind, existing)
+            return
+        }
+        let clampedSlot = min(max(slot, 0), CameraEffect.paletteSize - 1)
+        palette[clampedSlot] = rgb & 0xFFFFFF
+        AppSettings.setPalette(palette, for: kind)
+
+        let current = scene.currentFrameOrNil?.cameraEffect ?? .none
+        let power: Float = current.isZero ? 0.5 : current.power
+        let next = CameraEffect(kind: kind, colorIndex: clampedSlot, power: power)
+        commitTimeline()
+        writeCameraEffect(next)
+        showToast("Color added to palette")
+    }
+
+    private func updateEffectPower(_ power: Float) {
+        if !canMutateCamera {
+            showToast("Locked")
+            return
+        }
+        guard let current = scene.currentFrameOrNil?.cameraEffect, current.kind != .none else {
+            return
+        }
+        let clamped = min(max(power, 0), 1)
+        let next = CameraEffect(
+            kind: current.kind,
+            colorIndex: current.colorIndex,
+            snapshot: current.rgb,
+            power: clamped < 0.05 ? 0 : clamped
+        )
+        writeCameraEffect(next)
+    }
+
+    private func writeCameraEffect(_ effect: CameraEffect) {
+        switch navMode {
+        case .frames:
+            let index = scene.currentIndex
+            if index < 0 || index >= scene.frames.count {
+                assertionFailure("CameraAnimatorScreen currentIndex \(index) out of \(scene.frames.count)")
+                return
+            }
+            scene.frames[index].cameraEffect = effect
+            scene.retweenCameraEndpoints(frames: [index])
+        case .range:
+            if range.lowerBound < 0 || range.upperBound >= scene.frames.count {
+                assertionFailure("CameraAnimatorScreen range \(range) out of \(scene.frames.count)")
+                return
+            }
+            for index in range {
+                scene.frames[index].cameraEffect = effect
+            }
+            scene.retweenCameraEndpoints(frames: Array(range))
+        }
+    }
+
     private func resetCamera() {
         switch navMode {
         case .frames:
@@ -234,11 +367,14 @@ struct CameraAnimatorScreen: View {
                 deleteCurrentTween()
                 return
             }
-            if scene.currentFrameOrNil?.cameraMove.isZero ?? true {
+            let frame = scene.currentFrameOrNil
+            if (frame?.cameraMove.isZero ?? true) && (frame?.cameraEffect.isZero ?? true) {
                 return
             }
             commitTimeline()
             scene.frames[scene.currentIndex].cameraMove = .identity
+            scene.frames[scene.currentIndex].cameraEffect = .none
+            scene.retweenCameraEndpoints(frames: [scene.currentIndex])
         case .range:
             resetRangeMode()
         }
@@ -267,7 +403,9 @@ struct CameraAnimatorScreen: View {
         commitTimeline()
         for index in range {
             scene.frames[index].cameraMove = .identity
+            scene.frames[index].cameraEffect = .none
         }
+        scene.retweenCameraEndpoints(frames: Array(range))
     }
 
     private func openTweenRange() {
@@ -433,6 +571,7 @@ struct CameraAnimatorScreen: View {
                     } else {
                         prepareCameraUndo()
                         scene.frames[newIndex].cameraMove = scene.frames[source].cameraMove
+                        scene.frames[newIndex].cameraEffect = scene.frames[source].cameraEffect
                         scene.retweenCameraEndpoints(frames: [newIndex])
                     }
                 }

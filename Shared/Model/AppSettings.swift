@@ -9,6 +9,12 @@ enum AppSettings {
     private static let paperDrawAntialiasingKey = "paperDrawAntialiasing"
     static let showOnionSkeletonKey = "showOnionSkeleton"
     static let skeletonColorRGBKey = "skeletonColorRGB"
+    static let cameraFxFadePaletteKey = "cameraFxFadePalette"
+    static let cameraFxTintPaletteKey = "cameraFxTintPalette"
+
+    static let cameraFxPaletteSize = 6
+    static let defaultCameraFxFadePalette: [Int] = [0x000000, 0xFFFFFF, 0x00A8E8, 0x3B6EE8, 0xD4A359, 0xE63946]
+    static let defaultCameraFxTintPalette: [Int] = [0x00A8E8, 0x3B6EE8, 0xD4A359, 0xE63946, 0x38B000, 0x9D4EDD]
     #if DEBUG
     /// Display-only. Missing key is off. A separate key from the retired "No sidecar" switch.
     static let ignoreBmSampleKey = "debugIgnoreBmSample"
@@ -27,6 +33,63 @@ enum AppSettings {
         set {
             UserDefaults.standard.set(newValue, forKey: showOnionSkeletonKey)
         }
+    }
+
+    /// 6-slot Fade palette (includes black, white). Defaults to `[0x000000, 0xFFFFFF, 0x00A8E8, 0x3B6EE8, 0xD4A359, 0xE63946]`.
+    static var cameraFxFadePalette: [Int] {
+        get {
+            guard let raw = UserDefaults.standard.array(forKey: cameraFxFadePaletteKey) as? [Int] else {
+                return defaultCameraFxFadePalette
+            }
+            return normalizeCameraFxPalette(raw)
+        }
+        set {
+            UserDefaults.standard.set(normalizeCameraFxPalette(newValue), forKey: cameraFxFadePaletteKey)
+        }
+    }
+
+    /// 6-slot Tint palette. Defaults to `[0x00A8E8, 0x3B6EE8, 0xD4A359, 0xE63946, 0x38B000, 0x9D4EDD]`.
+    static var cameraFxTintPalette: [Int] {
+        get {
+            guard let raw = UserDefaults.standard.array(forKey: cameraFxTintPaletteKey) as? [Int] else {
+                return defaultCameraFxTintPalette
+            }
+            return normalizeCameraFxPalette(raw)
+        }
+        set {
+            UserDefaults.standard.set(normalizeCameraFxPalette(newValue), forKey: cameraFxTintPaletteKey)
+        }
+    }
+
+    static func palette(for kind: CameraEffect.Kind) -> [Int] {
+        switch kind {
+        case .fade:
+            return cameraFxFadePalette
+        case .colorize:
+            return cameraFxTintPalette
+        case .none, .desaturate:
+            return []
+        }
+    }
+
+    static func setPalette(_ palette: [Int], for kind: CameraEffect.Kind) {
+        switch kind {
+        case .fade:
+            cameraFxFadePalette = palette
+        case .colorize:
+            cameraFxTintPalette = palette
+        case .none, .desaturate:
+            break
+        }
+    }
+
+    static func normalizeCameraFxPalette(_ raw: [Int]) -> [Int] {
+        var out = raw.map { $0 & 0xFFFFFF }
+        out = Array(out.prefix(cameraFxPaletteSize))
+        while out.count < cameraFxPaletteSize {
+            out.append(0x000000)
+        }
+        return out
     }
 
     /// 24-bit `0xRRGGBB` color for normal editor skeleton bones/nodes. Defaults to `0xFF7100`.

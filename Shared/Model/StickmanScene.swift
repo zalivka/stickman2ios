@@ -608,6 +608,7 @@ struct StickmanFrame {
     var bgName: String? = nil
     var bgMove: PictureMove = .identity
     var cameraMove: PictureMove = .identity
+    var cameraEffect: CameraEffect = .none
     var originFrameIndex: Int = 0
     var slaves = SlavesRegistry()
 

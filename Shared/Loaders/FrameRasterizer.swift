@@ -52,9 +52,16 @@ enum FrameRasterizer {
                 drawUnit(unit, assets: assets, context: cg)
             }
             cg.restoreGState()
+            if let overlay = frame.cameraEffect.overlayUIColor {
+                overlay.setFill()
+                cg.fill(CGRect(origin: .zero, size: size))
+            }
         }
-        guard let cgImage = image.cgImage else {
+        guard var cgImage = image.cgImage else {
             throw SceneLoadError(message: "FrameRasterizer produced no CGImage")
+        }
+        if frame.cameraEffect.normalizedColorMatrix != nil {
+            cgImage = frame.cameraEffect.applyColorMatrix(to: cgImage)
         }
         if cgImage.width != Int(sceneWidth.rounded()) || cgImage.height != Int(sceneHeight.rounded()) {
             throw SceneLoadError(
