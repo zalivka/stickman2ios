@@ -9,9 +9,6 @@ struct UnitPropertiesPanel: View {
     static let accent = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
     private static let label = Color(white: 0.82)
     private static let activeGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
-    private static let effectKinds: [CameraEffect.Kind] = [
-        .none, .fade, .desaturate, .colorize
-    ]
 
     var unit: StickmanUnit
     var assets: UnitAssets
@@ -56,8 +53,6 @@ struct UnitPropertiesPanel: View {
     @State private var opacityTracking = false
     @State private var effectPercent = 50
     @State private var effectTracking = false
-    @State private var showingColorPicker = false
-    @State private var pickerKind: CameraEffect.Kind = .fade
 
     var body: some View {
         HStack(spacing: 0) {
@@ -104,23 +99,6 @@ struct UnitPropertiesPanel: View {
                 effectPercent = Int((power * 100).rounded())
             }
         }
-        .sheet(isPresented: $showingColorPicker) {
-            FlexColorPickerSheet(initial: pickerInitialColor) { picked in
-                if let rgb = AppSettings.rgb(from: picked) {
-                    onPickEffectCustomColor(pickerKind, rgb)
-                }
-                showingColorPicker = false
-            }
-        }
-    }
-
-    private var pickerInitialColor: UIColor {
-        if unit.effect.kind == pickerKind && !unit.effect.isZero {
-            return AppSettings.uiColor(fromRGB: unit.effect.rgbInt)
-        }
-        let pal = pickerKind.palette
-        let rgb = pal.first ?? 0x000000
-        return AppSettings.uiColor(fromRGB: rgb)
     }
 
     private var actions: some View {
@@ -315,21 +293,16 @@ struct UnitPropertiesPanel: View {
             .accessibilityLabel("Apply")
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 10) {
-                    VStack(spacing: 6) {
-                        ForEach(Self.effectKinds, id: \.self) { kind in
-                            effectKindButton(kind)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
-
-                    if unit.effect.kind == .fade || unit.effect.kind == .colorize {
-                        effectColorGrid
-                            .padding(.horizontal, 10)
-                            .padding(.top, 2)
-                    }
-                }
+                EffectPaletteControls(
+                    effect: unit.effect,
+                    locked: colorLocked,
+                    selectedFill: .white,
+                    accessibilityPrefix: "Item effect",
+                    onSelectKind: onSelectEffectKind,
+                    onSelectColor: onSelectEffectColor,
+                    onPickCustomColor: onPickEffectCustomColor
+                )
+                .padding(.top, 6)
                 .padding(.bottom, 8)
             }
             .fixedSize(horizontal: false, vertical: isPad && unit.effect.kind != .none)
@@ -363,79 +336,6 @@ struct UnitPropertiesPanel: View {
         .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.pane)
-    }
-
-    private func effectKindButton(_ kind: CameraEffect.Kind) -> some View {
-        let selected = unit.effect.kind == kind
-        return Button {
-            onSelectEffectKind(kind)
-        } label: {
-            Text(kind.displayName)
-                .font(.system(size: 14, weight: selected ? .bold : .semibold))
-                .foregroundStyle(selected ? .black : .white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(selected ? Color.white : Color.white.opacity(0.09))
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(colorLocked)
-        .opacity(colorLocked ? 0.4 : 1)
-        .accessibilityLabel("Item effect \(kind.displayName)")
-    }
-
-    private var effectColorGrid: some View {
-        let kind = unit.effect.kind
-        let palette = kind.palette
-        return LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
-            spacing: 8
-        ) {
-            ForEach(0..<max(palette.count, 6), id: \.self) { index in
-                let rgb = index < palette.count ? palette[index] : 0x000000
-                let selected = !unit.effect.isZero && unit.effect.rgbInt == rgb
-                Button {
-                    onSelectEffectColor(kind, index)
-                } label: {
-                    Circle()
-                        .fill(AppSettings.color(fromRGB: rgb))
-                        .frame(width: 24, height: 24)
-                        .overlay {
-                            Circle()
-                                .strokeBorder(selected ? Color.white : Color.clear, lineWidth: 2.5)
-                        }
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(colorLocked)
-                .opacity(colorLocked ? 0.4 : 1)
-                .accessibilityLabel("Effect color #\(index + 1) \(AppSettings.hexString(fromRGB: rgb))")
-            }
-
-            Button {
-                pickerKind = kind
-                showingColorPicker = true
-            } label: {
-                Circle()
-                    .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
-                    .frame(width: 24, height: 24)
-                    .overlay {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.7))
-                    }
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(colorLocked)
-            .opacity(colorLocked ? 0.4 : 1)
-            .accessibilityLabel("Pick custom color")
-        }
     }
 
     private func stateRow(_ state: Int) -> some View {

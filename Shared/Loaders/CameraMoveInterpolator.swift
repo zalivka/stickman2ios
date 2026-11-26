@@ -23,9 +23,7 @@ enum CameraMoveInterpolator {
            span.fromFrame >= 0, span.toFrame < scene.frames.count {
             let source = scene.frames[span.fromFrame].cameraMove
             let target = scene.frames[span.toFrame].cameraMove
-            let sourcePosition = Float(originIndex) + localProgress
-            let raw = (sourcePosition - Float(span.fromFrame)) / Float(span.toFrame - span.fromFrame)
-            let spanProgress = min(max(raw, 0), 1)
+            let spanProgress = span.progress(originIndex: originIndex, localProgress: localProgress)
             return tween(
                 source,
                 target,
@@ -66,9 +64,7 @@ enum CameraMoveInterpolator {
            span.fromFrame >= 0, span.toFrame < scene.frames.count {
             let source = scene.frames[span.fromFrame].cameraEffect
             let target = scene.frames[span.toFrame].cameraEffect
-            let sourcePosition = Float(originIndex) + localProgress
-            let raw = (sourcePosition - Float(span.fromFrame)) / Float(span.toFrame - span.fromFrame)
-            let spanProgress = min(max(raw, 0), 1)
+            let spanProgress = span.progress(originIndex: originIndex, localProgress: localProgress)
             return tweenEffect(
                 source,
                 target,
@@ -155,22 +151,8 @@ enum CameraMoveInterpolator {
                 power: source.power + (target.power - source.power) * u
             )
         }
-        // Cross-fade through neutral at u = 0.5 when switching between two distinct active effects.
-        if u < 0.5 {
-            return CameraEffect(
-                kind: source.kind,
-                colorIndex: source.colorIndex,
-                snapshot: source.rgb,
-                power: source.power * (1.0 - 2.0 * u)
-            )
-        } else {
-            return CameraEffect(
-                kind: target.kind,
-                colorIndex: target.colorIndex,
-                snapshot: target.rgb,
-                power: target.power * (2.0 * u - 1.0)
-            )
-        }
+        // Conflicting active effect kinds cannot be blended; step at midpoint during live frame-to-frame interpolation.
+        return u < 0.5 ? source : target
     }
 
     static func tween(

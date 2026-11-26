@@ -5,23 +5,12 @@ struct CameraEffectPanel: View {
     static let width: CGFloat = 112
     static let pane = Color(red: 0x20 / 255, green: 0x20 / 255, blue: 0x20 / 255)
     static let accent = MainPanel.cameraEffects
-    private static let effectKinds: [CameraEffect.Kind] = [
-        .none, .fade, .desaturate, .colorize
-    ]
 
     var effect: CameraEffect
     var locked: Bool
     var onSelectKind: (CameraEffect.Kind) -> Void
     var onSelectColor: (CameraEffect.Kind, Int) -> Void
     var onPickCustomColor: (CameraEffect.Kind, Int) -> Void
-
-    private var activeKind: CameraEffect.Kind {
-        effect.kind == .fade || effect.kind == .colorize ? effect.kind : (effect.kind == .desaturate ? .desaturate : .none)
-    }
-
-    private var showsPalette: Bool {
-        effect.kind == .fade || effect.kind == .colorize
-    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -34,18 +23,15 @@ struct CameraEffectPanel: View {
                         .foregroundStyle(Color(white: 0.72))
                         .padding(.top, 10)
 
-                    VStack(spacing: 6) {
-                        ForEach(Self.effectKinds, id: \.self) { kind in
-                            kindButton(kind)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-
-                    if showsPalette {
-                        colorGrid
-                            .padding(.horizontal, 10)
-                            .padding(.top, 4)
-                    }
+                    EffectPaletteControls(
+                        effect: effect,
+                        locked: locked,
+                        selectedFill: Self.accent,
+                        accessibilityPrefix: "Camera effect",
+                        onSelectKind: onSelectKind,
+                        onSelectColor: onSelectColor,
+                        onPickCustomColor: onPickCustomColor
+                    )
                 }
                 .padding(.bottom, 12)
             }
@@ -54,6 +40,46 @@ struct CameraEffectPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
+    }
+}
+
+/// Shared effect-kind buttons, 6-color palette grid, and custom-color picker sheet
+/// used by both `CameraEffectPanel` and `UnitPropertiesPanel`.
+struct EffectPaletteControls: View {
+    private static let effectKinds: [CameraEffect.Kind] = [
+        .none, .fade, .desaturate, .colorize
+    ]
+
+    var effect: CameraEffect
+    var locked: Bool
+    var selectedFill: Color
+    var accessibilityPrefix: String
+    var onSelectKind: (CameraEffect.Kind) -> Void
+    var onSelectColor: (CameraEffect.Kind, Int) -> Void
+    var onPickCustomColor: (CameraEffect.Kind, Int) -> Void
+
+    @State private var showingColorPicker = false
+    @State private var pickerKind: CameraEffect.Kind = .fade
+
+    private var showsPalette: Bool {
+        effect.kind == .fade || effect.kind == .colorize
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            VStack(spacing: 6) {
+                ForEach(Self.effectKinds, id: \.self) { kind in
+                    kindButton(kind)
+                }
+            }
+            .padding(.horizontal, 8)
+
+            if showsPalette {
+                colorGrid
+                    .padding(.horizontal, 10)
+                    .padding(.top, 2)
+            }
+        }
         .sheet(isPresented: $showingColorPicker) {
             FlexColorPickerSheet(initial: pickerInitialColor) { picked in
                 if let rgb = AppSettings.rgb(from: picked) {
@@ -63,9 +89,6 @@ struct CameraEffectPanel: View {
             }
         }
     }
-
-    @State private var showingColorPicker = false
-    @State private var pickerKind: CameraEffect.Kind = .fade
 
     private var pickerInitialColor: UIColor {
         if effect.kind == pickerKind && !effect.isZero {
@@ -88,14 +111,14 @@ struct CameraEffectPanel: View {
                 .frame(minHeight: 38)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(selected ? Self.accent : Color.white.opacity(0.09))
+                        .fill(selected ? selectedFill : Color.white.opacity(0.09))
                 )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(locked)
         .opacity(locked ? 0.4 : 1)
-        .accessibilityLabel("Camera effect \(kind.displayName)")
+        .accessibilityLabel("\(accessibilityPrefix) \(kind.displayName)")
     }
 
     private var colorGrid: some View {

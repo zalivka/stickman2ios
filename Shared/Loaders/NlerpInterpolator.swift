@@ -85,9 +85,7 @@ enum NlerpInterpolator {
                 let source = scene.frames[span.fromFrame].bgMove
                 let target = scene.frames[span.toFrame].bgMove
                 let localProgress = Float(step + 1) / Float(duration + 1)
-                let sourcePosition = Float(originIndex) + localProgress
-                let raw = (sourcePosition - Float(span.fromFrame)) / Float(span.toFrame - span.fromFrame)
-                let spanProgress = min(max(raw, 0), 1)
+                let spanProgress = span.progress(originIndex: originIndex, localProgress: localProgress)
                 bgMove = CameraMoveInterpolator.tween(
                     source,
                     target,

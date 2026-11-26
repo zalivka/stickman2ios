@@ -1,6 +1,6 @@
 import Foundation
 
-struct CameraAutoTweenRange: Equatable {
+struct CameraAutoTweenRange: TweenSpanProtocol {
     var fromFrame: Int
     var toFrame: Int
     var easingType: TweenEasing
@@ -27,20 +27,16 @@ struct CameraAutoTweenRange: Equatable {
         self.channel = channel
     }
 
-    func contains(_ frameIndex: Int) -> Bool {
-        frameIndex >= fromFrame && frameIndex <= toFrame
-    }
-
-    func containsInterior(_ frameIndex: Int) -> Bool {
-        frameIndex > fromFrame && frameIndex < toFrame
-    }
-
-    func containsSpan(from: Int, to: Int) -> Bool {
-        from >= fromFrame && to <= toFrame
-    }
-
-    func intersects(from: Int, to: Int) -> Bool {
-        fromFrame < to && from < toFrame
+    func remapped(from: Int, to: Int) -> CameraAutoTweenRange {
+        CameraAutoTweenRange(
+            fromFrame: from,
+            toFrame: to,
+            easingType: easingType,
+            easingStrength: easingStrength,
+            shakeFrequency: shakeFrequency,
+            segmentNumber: segmentNumber,
+            channel: channel
+        )
     }
 }
 
@@ -168,61 +164,30 @@ struct CameraTweenStorage: Equatable {
     }
 
     mutating func reconcileInsert(at index: Int, oldFrameCount: Int) -> [CameraAutoTweenRange] {
-        if oldFrameCount < 1 {
-            assertionFailure("CameraTweenStorage insert oldFrameCount \(oldFrameCount)")
-            return []
-        }
-        if index < 0 || index > oldFrameCount {
-            assertionFailure("CameraTweenStorage insert \(index) out of \(oldFrameCount)")
-            return []
-        }
-        var retween: [CameraAutoTweenRange] = []
-        var next: [CameraAutoTweenRange] = []
-        for span in ranges {
-            let remapped: CameraAutoTweenRange
-            if index <= span.fromFrame {
-                remapped = remap(span, from: span.fromFrame + 1, to: span.toFrame + 1)
-            } else if index <= span.toFrame {
-                remapped = remap(span, from: span.fromFrame, to: span.toFrame + 1)
-                retween.append(remapped)
-            } else {
-                remapped = span
-            }
-            next.append(remapped)
-        }
+        let (next, retween) = TweenSpanReconciler.reconcileInsert(
+            spans: ranges,
+            at: index,
+            oldFrameCount: oldFrameCount,
+            owner: "CameraTweenStorage"
+        )
         ranges = next
-        ensureValid(frameCount: oldFrameCount + 1)
+        if oldFrameCount >= 1 && index >= 0 && index <= oldFrameCount {
+            ensureValid(frameCount: oldFrameCount + 1)
+        }
         return retween
     }
 
     mutating func reconcileDelete(deleted: [Int], oldFrameCount: Int) -> [CameraAutoTweenRange] {
-        if oldFrameCount < 1 {
-            assertionFailure("CameraTweenStorage delete oldFrameCount \(oldFrameCount)")
-            return []
-        }
-        let deletedSet = Set(deleted)
-        var retween: [CameraAutoTweenRange] = []
-        var next: [CameraAutoTweenRange] = []
-        for span in ranges {
-            if (span.fromFrame...span.toFrame).allSatisfy({ deletedSet.contains($0) }) {
-                continue
-            }
-            if deletedSet.contains(span.fromFrame) || deletedSet.contains(span.toFrame) {
-                continue
-            }
-            let from = span.fromFrame - deletedSet.filter { $0 < span.fromFrame }.count
-            let to = span.toFrame - deletedSet.filter { $0 < span.toFrame }.count
-            if from >= to {
-                continue
-            }
-            let remapped = remap(span, from: from, to: to)
-            if (span.fromFrame + 1..<span.toFrame).contains(where: { deletedSet.contains($0) }) {
-                retween.append(remapped)
-            }
-            next.append(remapped)
-        }
+        let (next, retween) = TweenSpanReconciler.reconcileDelete(
+            spans: ranges,
+            deleted: deleted,
+            oldFrameCount: oldFrameCount,
+            owner: "CameraTweenStorage"
+        )
         ranges = next
-        ensureValid(frameCount: oldFrameCount - deletedSet.count)
+        if oldFrameCount >= 1 {
+            ensureValid(frameCount: oldFrameCount - Set(deleted).count)
+        }
         return retween
     }
 
@@ -323,18 +288,6 @@ struct CameraTweenStorage: Equatable {
         ranges = kept
         let maxSegment = ranges.map(\.segmentNumber).max() ?? 0
         nextSegmentNumber = max(nextSegmentNumber, maxSegment + 1)
-    }
-
-    private func remap(_ span: CameraAutoTweenRange, from: Int, to: Int) -> CameraAutoTweenRange {
-        CameraAutoTweenRange(
-            fromFrame: from,
-            toFrame: to,
-            easingType: span.easingType,
-            easingStrength: span.easingStrength,
-            shakeFrequency: span.shakeFrequency,
-            segmentNumber: span.segmentNumber,
-            channel: span.channel
-        )
     }
 
     private mutating func sort() {

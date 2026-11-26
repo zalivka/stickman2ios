@@ -26,7 +26,104 @@ enum TweenChannel: String, Codable, CaseIterable, Equatable {
     }
 }
 
-struct AutoTweenRange: Equatable {
+protocol TweenSpanProtocol: Equatable {
+    var fromFrame: Int { get }
+    var toFrame: Int { get }
+    func remapped(from: Int, to: Int) -> Self
+}
+
+extension TweenSpanProtocol {
+    func contains(_ frameIndex: Int) -> Bool {
+        frameIndex >= fromFrame && frameIndex <= toFrame
+    }
+
+    func containsInterior(_ frameIndex: Int) -> Bool {
+        frameIndex > fromFrame && frameIndex < toFrame
+    }
+
+    func containsSpan(from: Int, to: Int) -> Bool {
+        from >= fromFrame && to <= toFrame
+    }
+
+    func intersects(from: Int, to: Int) -> Bool {
+        fromFrame < to && from < toFrame
+    }
+
+    func progress(originIndex: Int, localProgress: Float) -> Float {
+        let sourcePosition = Float(originIndex) + localProgress
+        let raw = (sourcePosition - Float(fromFrame)) / Float(toFrame - fromFrame)
+        return min(max(raw, 0), 1)
+    }
+}
+
+enum TweenSpanReconciler {
+    static func reconcileInsert<Span: TweenSpanProtocol>(
+        spans: [Span],
+        at index: Int,
+        oldFrameCount: Int,
+        owner: String
+    ) -> (next: [Span], retween: [Span]) {
+        if oldFrameCount < 1 {
+            assertionFailure("\(owner) insert oldFrameCount \(oldFrameCount)")
+            return (spans, [])
+        }
+        if index < 0 || index > oldFrameCount {
+            assertionFailure("\(owner) insert \(index) out of \(oldFrameCount)")
+            return (spans, [])
+        }
+        var retween: [Span] = []
+        var next: [Span] = []
+        for span in spans {
+            let remapped: Span
+            if index <= span.fromFrame {
+                remapped = span.remapped(from: span.fromFrame + 1, to: span.toFrame + 1)
+            } else if index <= span.toFrame {
+                remapped = span.remapped(from: span.fromFrame, to: span.toFrame + 1)
+                retween.append(remapped)
+            } else {
+                remapped = span
+            }
+            next.append(remapped)
+        }
+        return (next, retween)
+    }
+
+    static func reconcileDelete<Span: TweenSpanProtocol>(
+        spans: [Span],
+        deleted: [Int],
+        oldFrameCount: Int,
+        owner: String
+    ) -> (next: [Span], retween: [Span]) {
+        if oldFrameCount < 1 {
+            assertionFailure("\(owner) delete oldFrameCount \(oldFrameCount)")
+            return (spans, [])
+        }
+        let deletedSet = Set(deleted)
+        var retween: [Span] = []
+        var next: [Span] = []
+        for span in spans {
+            if (span.fromFrame...span.toFrame).allSatisfy({ deletedSet.contains($0) }) {
+                continue
+            }
+            if deletedSet.contains(span.fromFrame) || deletedSet.contains(span.toFrame) {
+                continue
+            }
+            let from = span.fromFrame - deletedSet.filter { $0 < span.fromFrame }.count
+            let to = span.toFrame - deletedSet.filter { $0 < span.toFrame }.count
+            if from >= to {
+                continue
+            }
+            let remapped = span.remapped(from: from, to: to)
+            if (span.fromFrame + 1..<span.toFrame).contains(where: { deletedSet.contains($0) }) {
+                retween.append(remapped)
+            }
+            next.append(remapped)
+        }
+        return (next, retween)
+    }
+}
+
+struct AutoTweenRange: TweenSpanProtocol {
     var unitName: String
     var fromFrame: Int
     var toFrame: Int
@@ -56,20 +153,16 @@ struct AutoTweenRange: Equatable {
         self.channel = channel
     }
 
-    func contains(_ frameIndex: Int) -> Bool {
-        frameIndex >= fromFrame && frameIndex <= toFrame
-    }
-
-    func containsInterior(_ frameIndex: Int) -> Bool {
-        frameIndex > fromFrame && frameIndex < toFrame
-    }
-
-    func containsSpan(from: Int, to: Int) -> Bool {
-        from >= fromFrame && to <= toFrame
-    }
-
-    func intersects(from: Int, to: Int) -> Bool {
-        fromFrame < to && from < toFrame
+    func remapped(from: Int, to: Int) -> AutoTweenRange {
+        AutoTweenRange(
+            unitName: unitName,
+            fromFrame: from,
+            toFrame: to,
+            easingType: easingType,
+            easingStrength: easingStrength,
+            shakeFrequency: shakeFrequency,
+            channel: channel
+        )
     }
 }
 
@@ -346,61 +439,30 @@ struct UnitTweenStorage: Equatable {
     }
 
     mutating func reconcileInsert(at index: Int, oldFrameCount: Int) -> [AutoTweenRange] {
-        if oldFrameCount < 1 {
-            assertionFailure("UnitTweenStorage insert oldFrameCount \(oldFrameCount)")
-            return []
-        }
-        if index < 0 || index > oldFrameCount {
-            assertionFailure("UnitTweenStorage insert \(index) out of \(oldFrameCount)")
-            return []
-        }
-        var retween: [AutoTweenRange] = []
-        var next: [AutoTweenRange] = []
-        for span in ranges {
-            let remapped: AutoTweenRange
-            if index <= span.fromFrame {
-                remapped = remap(span, from: span.fromFrame + 1, to: span.toFrame + 1)
-            } else if index <= span.toFrame {
-                remapped = remap(span, from: span.fromFrame, to: span.toFrame + 1)
-                retween.append(remapped)
-            } else {
-                remapped = span
-            }
-            next.append(remapped)
-        }
+        let (next, retween) = TweenSpanReconciler.reconcileInsert(
+            spans: ranges,
+            at: index,
+            oldFrameCount: oldFrameCount,
+            owner: "UnitTweenStorage"
+        )
         ranges = next
-        ensureValid(frameCount: oldFrameCount + 1)
+        if oldFrameCount >= 1 && index >= 0 && index <= oldFrameCount {
+            ensureValid(frameCount: oldFrameCount + 1)
+        }
         return retween
     }
 
     mutating func reconcileDelete(deleted: [Int], oldFrameCount: Int) -> [AutoTweenRange] {
-        if oldFrameCount < 1 {
-            assertionFailure("UnitTweenStorage delete oldFrameCount \(oldFrameCount)")
-            return []
-        }
-        let deletedSet = Set(deleted)
-        var retween: [AutoTweenRange] = []
-        var next: [AutoTweenRange] = []
-        for span in ranges {
-            if (span.fromFrame...span.toFrame).allSatisfy({ deletedSet.contains($0) }) {
-                continue
-            }
-            if deletedSet.contains(span.fromFrame) || deletedSet.contains(span.toFrame) {
-                continue
-            }
-            let from = span.fromFrame - deletedSet.filter { $0 < span.fromFrame }.count
-            let to = span.toFrame - deletedSet.filter { $0 < span.toFrame }.count
-            if from >= to {
-                continue
-            }
-            let remapped = remap(span, from: from, to: to)
-            if (span.fromFrame + 1..<span.toFrame).contains(where: { deletedSet.contains($0) }) {
-                retween.append(remapped)
-            }
-            next.append(remapped)
-        }
+        let (next, retween) = TweenSpanReconciler.reconcileDelete(
+            spans: ranges,
+            deleted: deleted,
+            oldFrameCount: oldFrameCount,
+            owner: "UnitTweenStorage"
+        )
         ranges = next
-        ensureValid(frameCount: oldFrameCount - deletedSet.count)
+        if oldFrameCount >= 1 {
+            ensureValid(frameCount: oldFrameCount - Set(deleted).count)
+        }
         return retween
     }
 
@@ -409,18 +471,6 @@ struct UnitTweenStorage: Equatable {
             return false
         }
         return ranges.contains { $0.fromFrame <= index && index < $0.toFrame }
-    }
-
-    private func remap(_ span: AutoTweenRange, from: Int, to: Int) -> AutoTweenRange {
-        AutoTweenRange(
-            unitName: span.unitName,
-            fromFrame: from,
-            toFrame: to,
-            easingType: span.easingType,
-            easingStrength: span.easingStrength,
-            shakeFrequency: span.shakeFrequency,
-            channel: span.channel
-        )
     }
 
     private mutating func sort() {

@@ -1,6 +1,6 @@
 import Foundation
 
-struct BackgroundAutoTweenRange: Equatable {
+struct BackgroundAutoTweenRange: TweenSpanProtocol {
     var fromFrame: Int
     var toFrame: Int
     var bgName: String
@@ -27,20 +27,16 @@ struct BackgroundAutoTweenRange: Equatable {
         self.segmentNumber = segmentNumber
     }
 
-    func contains(_ frameIndex: Int) -> Bool {
-        frameIndex >= fromFrame && frameIndex <= toFrame
-    }
-
-    func containsInterior(_ frameIndex: Int) -> Bool {
-        frameIndex > fromFrame && frameIndex < toFrame
-    }
-
-    func containsSpan(from: Int, to: Int) -> Bool {
-        from >= fromFrame && to <= toFrame
-    }
-
-    func intersects(from: Int, to: Int) -> Bool {
-        fromFrame < to && from < toFrame
+    func remapped(from: Int, to: Int) -> BackgroundAutoTweenRange {
+        BackgroundAutoTweenRange(
+            fromFrame: from,
+            toFrame: to,
+            bgName: bgName,
+            easingType: easingType,
+            easingStrength: easingStrength,
+            shakeFrequency: shakeFrequency,
+            segmentNumber: segmentNumber
+        )
     }
 }
 
@@ -156,61 +152,30 @@ struct BackgroundTweenStorage: Equatable {
     }
 
     mutating func reconcileInsert(at index: Int, oldFrameCount: Int) -> [BackgroundAutoTweenRange] {
-        if oldFrameCount < 1 {
-            assertionFailure("BackgroundTweenStorage insert oldFrameCount \(oldFrameCount)")
-            return []
-        }
-        if index < 0 || index > oldFrameCount {
-            assertionFailure("BackgroundTweenStorage insert \(index) out of \(oldFrameCount)")
-            return []
-        }
-        var retween: [BackgroundAutoTweenRange] = []
-        var next: [BackgroundAutoTweenRange] = []
-        for span in ranges {
-            let remapped: BackgroundAutoTweenRange
-            if index <= span.fromFrame {
-                remapped = remap(span, from: span.fromFrame + 1, to: span.toFrame + 1)
-            } else if index <= span.toFrame {
-                remapped = remap(span, from: span.fromFrame, to: span.toFrame + 1)
-                retween.append(remapped)
-            } else {
-                remapped = span
-            }
-            next.append(remapped)
-        }
+        let (next, retween) = TweenSpanReconciler.reconcileInsert(
+            spans: ranges,
+            at: index,
+            oldFrameCount: oldFrameCount,
+            owner: "BackgroundTweenStorage"
+        )
         ranges = next
-        ensureValid(frameCount: oldFrameCount + 1)
+        if oldFrameCount >= 1 && index >= 0 && index <= oldFrameCount {
+            ensureValid(frameCount: oldFrameCount + 1)
+        }
         return retween
     }
 
     mutating func reconcileDelete(deleted: [Int], oldFrameCount: Int) -> [BackgroundAutoTweenRange] {
-        if oldFrameCount < 1 {
-            assertionFailure("BackgroundTweenStorage delete oldFrameCount \(oldFrameCount)")
-            return []
-        }
-        let deletedSet = Set(deleted)
-        var retween: [BackgroundAutoTweenRange] = []
-        var next: [BackgroundAutoTweenRange] = []
-        for span in ranges {
-            if (span.fromFrame...span.toFrame).allSatisfy({ deletedSet.contains($0) }) {
-                continue
-            }
-            if deletedSet.contains(span.fromFrame) || deletedSet.contains(span.toFrame) {
-                continue
-            }
-            let from = span.fromFrame - deletedSet.filter { $0 < span.fromFrame }.count
-            let to = span.toFrame - deletedSet.filter { $0 < span.toFrame }.count
-            if from >= to {
-                continue
-            }
-            let remapped = remap(span, from: from, to: to)
-            if (span.fromFrame + 1..<span.toFrame).contains(where: { deletedSet.contains($0) }) {
-                retween.append(remapped)
-            }
-            next.append(remapped)
-        }
+        let (next, retween) = TweenSpanReconciler.reconcileDelete(
+            spans: ranges,
+            deleted: deleted,
+            oldFrameCount: oldFrameCount,
+            owner: "BackgroundTweenStorage"
+        )
         ranges = next
-        ensureValid(frameCount: oldFrameCount - deletedSet.count)
+        if oldFrameCount >= 1 {
+            ensureValid(frameCount: oldFrameCount - Set(deleted).count)
+        }
         return retween
     }
 
@@ -307,18 +272,6 @@ struct BackgroundTweenStorage: Equatable {
         ranges = kept
         let maxSegment = ranges.map(\.segmentNumber).max() ?? 0
         nextSegmentNumber = max(nextSegmentNumber, maxSegment + 1)
-    }
-
-    private func remap(_ span: BackgroundAutoTweenRange, from: Int, to: Int) -> BackgroundAutoTweenRange {
-        BackgroundAutoTweenRange(
-            fromFrame: from,
-            toFrame: to,
-            bgName: span.bgName,
-            easingType: span.easingType,
-            easingStrength: span.easingStrength,
-            shakeFrequency: span.shakeFrequency,
-            segmentNumber: span.segmentNumber
-        )
     }
 
     private mutating func sort() {
