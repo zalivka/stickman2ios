@@ -19,7 +19,7 @@ enum CameraMoveInterpolator {
             return frame2.cameraMove
         }
         let localProgress = Float(step + 1) / Float(framesNumber + 1)
-        if let span = scene.cameraTweens.findForSpan(from: originIndex, to: originIndex + 1),
+        if let span = scene.cameraTweens.findMotionForSpan(from: originIndex, to: originIndex + 1),
            span.fromFrame >= 0, span.toFrame < scene.frames.count {
             let source = scene.frames[span.fromFrame].cameraMove
             let target = scene.frames[span.toFrame].cameraMove
@@ -62,7 +62,7 @@ enum CameraMoveInterpolator {
             return frame2.cameraEffect
         }
         let localProgress = Float(step + 1) / Float(framesNumber + 1)
-        if let span = scene.cameraTweens.findForSpan(from: originIndex, to: originIndex + 1),
+        if let span = scene.cameraTweens.findColorForSpan(from: originIndex, to: originIndex + 1),
            span.fromFrame >= 0, span.toFrame < scene.frames.count {
             let source = scene.frames[span.fromFrame].cameraEffect
             let target = scene.frames[span.toFrame].cameraEffect
@@ -74,6 +74,7 @@ enum CameraMoveInterpolator {
                 target,
                 easing: span.easingType,
                 strength: span.easingStrength,
+                frequency: span.shakeFrequency,
                 t: spanProgress
             )
         }
@@ -86,20 +87,31 @@ enum CameraMoveInterpolator {
         )
     }
 
+    static func colorProgress(
+        easing: TweenEasing,
+        strength: Float,
+        frequency: Float = UnitTweenStorage.defaultPulseFrequency,
+        t: Float
+    ) -> Float {
+        let clampedT = min(max(t, 0), 1)
+        if easing.isPulseColor {
+            return Easing.pulseProgress(t: clampedT, frequency: frequency)
+        }
+        if easing.isShake || easing.isCartwheel || easing == .NO {
+            return clampedT
+        }
+        return min(max(Easing.sample(easing, t: clampedT, strength: strength), 0), 1)
+    }
+
     static func tweenEffect(
         _ source: CameraEffect,
         _ target: CameraEffect,
         easing: TweenEasing,
         strength: Float,
+        frequency: Float = UnitTweenStorage.defaultPulseFrequency,
         t: Float
     ) -> CameraEffect {
-        let clampedT = min(max(t, 0), 1)
-        let u: Float
-        if easing.isShake || easing.isCartwheel || easing == .NO {
-            u = clampedT
-        } else {
-            u = min(max(Easing.sample(easing, t: clampedT, strength: strength), 0), 1)
-        }
+        let u = colorProgress(easing: easing, strength: strength, frequency: frequency, t: t)
         if source.isZero && target.isZero {
             return .none
         }

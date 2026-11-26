@@ -8,27 +8,41 @@ struct RangePicker: View {
     let title: String
     let frameCount: Int
     let initialRange: ClosedRange<Int>
+    var showsChannelPicker: Bool = false
+    var initialChannel: TweenChannel = .both
     var preview: ((Int) -> AnyView)?
     var canApply: ((ClosedRange<Int>) -> Bool)? = nil
+    var canApplyWithChannel: ((ClosedRange<Int>, TweenChannel) -> Bool)? = nil
+    var warning: ((ClosedRange<Int>) -> String?)? = nil
+    var warningWithChannel: ((ClosedRange<Int>, TweenChannel) -> String?)? = nil
     var onCancel: (() -> Void)? = nil
     var onApply: (ClosedRange<Int>) -> Void
+    var onApplyWithChannel: ((ClosedRange<Int>, TweenChannel) -> Void)? = nil
 
     @State private var draft: ClosedRange<Int>
+    @State private var selectedChannel: TweenChannel
     @State private var currentIndex: Int
     @State private var shownStart: Int
     @State private var shownEnd: Int
     @Environment(\.dismiss) private var dismiss
 
     private let previewGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
+    private let warningRed = Color(red: 0xe5 / 255, green: 0x39 / 255, blue: 0x35 / 255)
 
     init(
         title: String,
         frameCount: Int,
         initialRange: ClosedRange<Int>,
+        showsChannelPicker: Bool = false,
+        initialChannel: TweenChannel = .both,
         preview: ((Int) -> AnyView)? = nil,
         canApply: ((ClosedRange<Int>) -> Bool)? = nil,
+        canApplyWithChannel: ((ClosedRange<Int>, TweenChannel) -> Bool)? = nil,
+        warning: ((ClosedRange<Int>) -> String?)? = nil,
+        warningWithChannel: ((ClosedRange<Int>, TweenChannel) -> String?)? = nil,
         onCancel: (() -> Void)? = nil,
-        onApply: @escaping (ClosedRange<Int>) -> Void
+        onApply: @escaping (ClosedRange<Int>) -> Void = { _ in },
+        onApplyWithChannel: ((ClosedRange<Int>, TweenChannel) -> Void)? = nil
     ) {
         if frameCount < 1 {
             assertionFailure("RangePicker frameCount must be >= 1, got \(frameCount)")
@@ -39,11 +53,18 @@ struct RangePicker: View {
         self.title = title
         self.frameCount = frameCount
         self.initialRange = initialRange
+        self.showsChannelPicker = showsChannelPicker
+        self.initialChannel = initialChannel
         self.preview = preview
         self.canApply = canApply
+        self.canApplyWithChannel = canApplyWithChannel
+        self.warning = warning
+        self.warningWithChannel = warningWithChannel
         self.onCancel = onCancel
         self.onApply = onApply
+        self.onApplyWithChannel = onApplyWithChannel
         _draft = State(initialValue: initialRange)
+        _selectedChannel = State(initialValue: initialChannel)
         _currentIndex = State(initialValue: initialRange.lowerBound)
         _shownStart = State(initialValue: initialRange.lowerBound)
         _shownEnd = State(initialValue: initialRange.upperBound)
@@ -77,6 +98,23 @@ struct RangePicker: View {
                 previewBox(border: .red, frame: shownEnd, draftFrame: draft.upperBound)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                if let warningText = currentWarning {
+                    Text(warningText)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(warningRed)
+                        )
+                        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+                        .padding(.bottom, 12)
+                        .allowsHitTesting(false)
+                        .accessibilityLabel(warningText)
+                }
+            }
             VerticalRangeBar(
                 frameCount: frameCount,
                 currentIndex: $currentIndex,
@@ -104,6 +142,7 @@ struct RangePicker: View {
 
     private func applyInitialRange() {
         draft = initialRange
+        selectedChannel = initialChannel
         currentIndex = initialRange.lowerBound
         shownStart = initialRange.lowerBound
         shownEnd = initialRange.upperBound
@@ -117,7 +156,10 @@ struct RangePicker: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if showsChannelPicker {
+                    channelChips
+                }
+                Spacer(minLength: 4)
                 applyButton
             }
             .padding(.horizontal, 12)
@@ -126,6 +168,29 @@ struct RangePicker: View {
             SkeletonChrome.bonesAccent.frame(height: 3)
         }
         .background(SkeletonChrome.pane)
+    }
+
+    private var channelChips: some View {
+        HStack(spacing: 6) {
+            ForEach(TweenChannel.allCases, id: \.self) { channel in
+                let isSelected = selectedChannel == channel
+                Button {
+                    selectedChannel = channel
+                } label: {
+                    Text(channel.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isSelected ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(isSelected ? SkeletonChrome.boneNew : Color.white.opacity(0.16))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Channel \(channel.displayName)")
+            }
+        }
     }
 
     private var backButton: some View {
@@ -142,13 +207,30 @@ struct RangePicker: View {
         .accessibilityLabel("Back")
     }
 
+    private var currentWarning: String? {
+        if let warningWithChannel {
+            return warningWithChannel(draft, selectedChannel)
+        }
+        return warning?(draft)
+    }
+
     private var applyEnabled: Bool {
-        canApply?(draft) ?? true
+        if currentWarning != nil {
+            return false
+        }
+        if let canApplyWithChannel {
+            return canApplyWithChannel(draft, selectedChannel)
+        }
+        return canApply?(draft) ?? true
     }
 
     private var applyButton: some View {
         Button {
-            onApply(draft)
+            if let onApplyWithChannel {
+                onApplyWithChannel(draft, selectedChannel)
+            } else {
+                onApply(draft)
+            }
         } label: {
             Text("Apply")
                 .font(.system(size: 15, weight: .bold))

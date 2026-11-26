@@ -270,6 +270,7 @@ struct BgAnimatorScreen: View {
                 initialStrength: span.strength,
                 initialFrequency: span.frequency,
                 showsCartwheel: false,
+                channel: .motion,
                 onApply: applyTweenEasing
             )
         }

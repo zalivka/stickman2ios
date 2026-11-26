@@ -13,7 +13,7 @@ struct CameraEffectPanel: View {
     var locked: Bool
     var onSelectKind: (CameraEffect.Kind) -> Void
     var onSelectColor: (CameraEffect.Kind, Int) -> Void
-    var onPickCustomColor: (CameraEffect.Kind, Int, Int) -> Void
+    var onPickCustomColor: (CameraEffect.Kind, Int) -> Void
 
     private var activeKind: CameraEffect.Kind {
         effect.kind == .fade || effect.kind == .colorize ? effect.kind : (effect.kind == .desaturate ? .desaturate : .none)
@@ -57,9 +57,7 @@ struct CameraEffectPanel: View {
         .sheet(isPresented: $showingColorPicker) {
             FlexColorPickerSheet(initial: pickerInitialColor) { picked in
                 if let rgb = AppSettings.rgb(from: picked) {
-                    let kind = pickerKind
-                    let slot = effect.colorIndex >= 0 ? effect.colorIndex : 0
-                    onPickCustomColor(kind, slot, rgb)
+                    onPickCustomColor(pickerKind, rgb)
                 }
                 showingColorPicker = false
             }
@@ -70,10 +68,11 @@ struct CameraEffectPanel: View {
     @State private var pickerKind: CameraEffect.Kind = .fade
 
     private var pickerInitialColor: UIColor {
+        if effect.kind == pickerKind && !effect.isZero {
+            return AppSettings.uiColor(fromRGB: effect.rgbInt)
+        }
         let pal = pickerKind.palette
-        let idx = effect.colorIndex >= 0 ? effect.colorIndex : 0
-        let clamped = min(max(idx, 0), max(pal.count - 1, 0))
-        let rgb = pal.isEmpty ? 0x000000 : pal[clamped]
+        let rgb = pal.first ?? 0x000000
         return AppSettings.uiColor(fromRGB: rgb)
     }
 
@@ -108,7 +107,7 @@ struct CameraEffectPanel: View {
         ) {
             ForEach(0..<max(palette.count, 6), id: \.self) { index in
                 let rgb = index < palette.count ? palette[index] : 0x000000
-                let selected = effect.colorIndex == index
+                let selected = !effect.isZero && effect.rgbInt == rgb
                 Button {
                     onSelectColor(kind, index)
                 } label: {
@@ -128,7 +127,7 @@ struct CameraEffectPanel: View {
                 .accessibilityLabel("Effect color #\(index + 1) \(AppSettings.hexString(fromRGB: rgb))")
             }
 
-            // "+" cell: pick any color and write it into the selected slot.
+            // "+" cell: pick any color and add it to the palette, evicting the oldest color.
             Button {
                 pickerKind = kind
                 showingColorPicker = true

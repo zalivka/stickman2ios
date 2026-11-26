@@ -435,6 +435,9 @@ enum SceneXML {
         xml += XMLWrite.attr("scale", XMLWrite.float(unit.scale))
         xml += XMLWrite.attr("alpha", XMLWrite.float(unit.alpha))
         xml += XMLWrite.attr("state", "\(unit.assetsState)")
+        if !unit.effect.isZero {
+            xml += XMLWrite.attr("fx", unit.effect.serialize())
+        }
         xml += ">\n"
         for point in unit.points {
             xml += try serialize(point, unitName: unit.name)
@@ -509,6 +512,7 @@ enum SceneXML {
         private var unitState = 0
         private var unitType: StickmanUnitType = .unit
         private var unitBubble: BubbleMeta?
+        private var unitEffect: CameraEffect = .none
         private var unitPoints: [StickmanPoint] = []
         private var resolvedNameCache: [String: String] = [:]
         private var linkedEdgesCache: [String: (sig: [(id: Int, parentId: Int?, isBase: Bool)], edges: [StickmanEdge])] = [:]
@@ -763,6 +767,7 @@ enum SceneXML {
             var stateVal = 0
             var typeSlice: (UnsafePointer<UInt8>, Int)?
             var metaStr: String?
+            var fxStr: String?
 
             var p = start
             while p < gt {
@@ -786,6 +791,10 @@ enum SceneXML {
                 let valLen = valEnd - valStart
 
                 switch nameLen {
+                case 2:
+                    if nameStart[0] == 102 && nameStart[1] == 120 { // fx
+                        fxStr = Self.unescapeXML(valStart, valLen)
+                    }
                 case 4:
                     if nameStart[0] == 110 && nameStart[1] == 97 && nameStart[2] == 109 && nameStart[3] == 101 { // name
                         rawName = Self.unescapeXML(valStart, valLen)
@@ -841,6 +850,11 @@ enum SceneXML {
             unitArrange = arrange
             unitFlipped = flippedVal
             unitState = stateVal
+            if let fx = fxStr, !fx.isEmpty {
+                unitEffect = try CameraEffect.parse(fx)
+            } else {
+                unitEffect = .none
+            }
 
             if let (ts, tl) = typeSlice, tl > 0 {
                 if tl == 4 && ts[0] == 117 && ts[1] == 110 && ts[2] == 105 && ts[3] == 116 {
@@ -1027,7 +1041,8 @@ enum SceneXML {
                 flipped: unitFlipped,
                 assetsState: unitState,
                 unitType: unitType,
-                bubble: unitBubble
+                bubble: unitBubble,
+                effect: unitEffect
             )
             if let cached = linkedEdgesCache[name], cached.sig.count == deduped.count {
                 var matches = true
@@ -1058,6 +1073,7 @@ enum SceneXML {
             unitState = 0
             unitType = .unit
             unitBubble = nil
+            unitEffect = .none
             unitPoints.removeAll(keepingCapacity: true)
         }
 

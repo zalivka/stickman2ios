@@ -83,6 +83,39 @@ enum AppSettings {
         }
     }
 
+    /// Inserts `rgb` into the palette for `kind`, evicting the oldest color when full,
+    /// and returns the palette index of `rgb`.
+    /// For `.fade`, slots `0` (`0x000000`) and `1` (`0xFFFFFF`) are pinned and custom colors
+    /// rotate through the remaining slots (inserting at index `2`, dropping the last slot).
+    /// For `.colorize`, custom colors insert at index `0` and drop the last slot.
+    static func pushPaletteColor(_ rgb: Int, for kind: CameraEffect.Kind) -> Int {
+        let masked = rgb & 0xFFFFFF
+        var palette = Self.palette(for: kind)
+        if palette.isEmpty {
+            palette = [Int](repeating: 0x000000, count: cameraFxPaletteSize)
+        }
+        if let existing = palette.firstIndex(of: masked) {
+            return existing
+        }
+        let insertIndex: Int
+        switch kind {
+        case .fade:
+            if palette.count >= 2 {
+                palette[0] = 0x000000
+                palette[1] = 0xFFFFFF
+            }
+            insertIndex = min(2, palette.count)
+        case .colorize:
+            insertIndex = 0
+        case .none, .desaturate:
+            return 0
+        }
+        palette.insert(masked, at: insertIndex)
+        palette = Array(palette.prefix(cameraFxPaletteSize))
+        setPalette(palette, for: kind)
+        return insertIndex
+    }
+
     static func normalizeCameraFxPalette(_ raw: [Int]) -> [Int] {
         var out = raw.map { $0 & 0xFFFFFF }
         out = Array(out.prefix(cameraFxPaletteSize))

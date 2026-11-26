@@ -92,6 +92,9 @@ struct EasingCurvePreview: View {
     }
 
     private func previewValue(_ t: Float) -> Float {
+        if easing.isPulseColor {
+            return Easing.pulseProgress(t: t, frequency: frequency)
+        }
         if easing.isShake {
             let centered = Float(sin(2 * Double.pi * Double(frequency) * Double(t)))
             let amplitude = 0.45 * strength

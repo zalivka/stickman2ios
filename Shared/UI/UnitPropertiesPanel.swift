@@ -4,10 +4,14 @@ import UIKit
 /// Android UNIT panel — actions for the active scene unit.
 struct UnitPropertiesPanel: View {
     static let width: CGFloat = 86
+    static let effectsWidth: CGFloat = 112
     static let pane = Color(red: 0x20 / 255, green: 0x20 / 255, blue: 0x20 / 255)
     static let accent = Color(red: 0, green: 0xbd / 255, blue: 0x78 / 255)
     private static let label = Color(white: 0.82)
     private static let activeGreen = Color(red: 0x99 / 255, green: 0xc9 / 255, blue: 0x3c / 255)
+    private static let effectKinds: [CameraEffect.Kind] = [
+        .none, .fade, .desaturate, .colorize
+    ]
 
     var unit: StickmanUnit
     var assets: UnitAssets
@@ -27,6 +31,7 @@ struct UnitPropertiesPanel: View {
     var onEditItem: (() -> Void)? = nil
     var onSetText: (() -> Void)? = nil
     var poseLocked: Bool = false
+    var colorLocked: Bool = false
     var structureOwned: Bool = false
     var tweenEnabled: Bool = true
     var onTween: (() -> Void)? = nil
@@ -35,6 +40,13 @@ struct UnitPropertiesPanel: View {
     var onOpacityPreview: (CGFloat) -> Void
     /// Returns false when an AUTO interior blocks the write. The live preview stays.
     var onOpacityCommit: (CGFloat) -> Bool
+    @Binding var showingEffects: Bool
+    var onSelectEffectKind: (CameraEffect.Kind) -> Void = { _ in }
+    var onSelectEffectColor: (CameraEffect.Kind, Int) -> Void = { _, _ in }
+    var onPickEffectCustomColor: (CameraEffect.Kind, Int) -> Void = { _, _ in }
+    var onEffectPowerDragBegan: () -> Void = {}
+    var onEffectPowerPreview: (Float) -> Void = { _ in }
+    var onEffectPowerCommit: (Float) -> Bool = { _ in true }
     var backTick: Int
     var onClose: () -> Void
 
@@ -42,6 +54,10 @@ struct UnitPropertiesPanel: View {
     @State private var showingOpacity = false
     @State private var opacityPercent = 100
     @State private var opacityTracking = false
+    @State private var effectPercent = 50
+    @State private var effectTracking = false
+    @State private var showingColorPicker = false
+    @State private var pickerKind: CameraEffect.Kind = .fade
 
     var body: some View {
         HStack(spacing: 0) {
@@ -55,19 +71,25 @@ struct UnitPropertiesPanel: View {
                 if showingOpacity {
                     opacityOverlay
                 }
+                if showingEffects {
+                    effectsOverlay
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Self.pane)
         }
-        .frame(width: Self.width)
+        .frame(width: showingEffects ? Self.effectsWidth : Self.width)
         .frame(maxHeight: .infinity)
         .onChange(of: unit.name) { _, _ in
             showingStates = false
             showingOpacity = false
+            showingEffects = false
         }
         .onChange(of: backTick) { _, _ in
             if showingOpacity {
                 showingOpacity = false
+            } else if showingEffects {
+                showingEffects = false
             } else {
                 onClose()
             }
@@ -77,6 +99,28 @@ struct UnitPropertiesPanel: View {
                 opacityPercent = Int(alpha * 100)
             }
         }
+        .onChange(of: unit.effect.power) { _, power in
+            if showingEffects && !effectTracking {
+                effectPercent = Int((power * 100).rounded())
+            }
+        }
+        .sheet(isPresented: $showingColorPicker) {
+            FlexColorPickerSheet(initial: pickerInitialColor) { picked in
+                if let rgb = AppSettings.rgb(from: picked) {
+                    onPickEffectCustomColor(pickerKind, rgb)
+                }
+                showingColorPicker = false
+            }
+        }
+    }
+
+    private var pickerInitialColor: UIColor {
+        if unit.effect.kind == pickerKind && !unit.effect.isZero {
+            return AppSettings.uiColor(fromRGB: unit.effect.rgbInt)
+        }
+        let pal = pickerKind.palette
+        let rgb = pal.first ?? 0x000000
+        return AppSettings.uiColor(fromRGB: rgb)
     }
 
     private var actions: some View {
@@ -120,10 +164,14 @@ struct UnitPropertiesPanel: View {
                         onSetText()
                     })
                 }
-                actionButton("Delete", icon: "props_delete", enabled: !poseLocked, action: onDelete)
-                actionButton("Opacity", icon: "props_opacity", enabled: !poseLocked) {
+                actionButton("Delete", icon: "props_delete", enabled: !poseLocked && !colorLocked, action: onDelete)
+                actionButton("Opacity", icon: "props_opacity", enabled: !colorLocked) {
                     opacityPercent = Int(unit.alpha * 100)
                     showingOpacity = true
+                }
+                actionButton("Effects", icon: "props_effects", enabled: !colorLocked) {
+                    effectPercent = Int((unit.effect.power * 100).rounded())
+                    showingEffects = true
                 }
                 actionButton("Flip", icon: "props_flip", enabled: !poseLocked, action: onFlip)
                 if SlavesRegistry.isEnslaved(unit) {
@@ -150,7 +198,7 @@ struct UnitPropertiesPanel: View {
                     actionButton(
                         structureOwned ? "Tween (AUTO)" : "Tween",
                         icon: "props_tween",
-                        enabled: tweenEnabled && !poseLocked && !structureOwned,
+                        enabled: tweenEnabled && !(poseLocked && colorLocked),
                         action: onTween
                     )
                 }
@@ -241,6 +289,153 @@ struct UnitPropertiesPanel: View {
         .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.pane)
+    }
+
+    private var effectsOverlay: some View {
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let displayedPercent = effectTracking ? effectPercent : Int((unit.effect.power * 100).rounded())
+        return VStack(spacing: 0) {
+            Button {
+                showingEffects = false
+            } label: {
+                VStack(spacing: 2) {
+                    Image(decorative: Self.icon("props_apply"), scale: 2)
+                        .frame(width: 45, height: 45)
+                    if unit.effect.kind != .none {
+                        Text("\(displayedPercent)%")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Apply")
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 10) {
+                    VStack(spacing: 6) {
+                        ForEach(Self.effectKinds, id: \.self) { kind in
+                            effectKindButton(kind)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+
+                    if unit.effect.kind == .fade || unit.effect.kind == .colorize {
+                        effectColorGrid
+                            .padding(.horizontal, 10)
+                            .padding(.top, 2)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+            .fixedSize(horizontal: false, vertical: isPad && unit.effect.kind != .none)
+
+            if isPad && unit.effect.kind != .none {
+                VerticalOpacityBar(
+                    percent: displayedPercent,
+                    onBegan: {
+                        effectTracking = true
+                        effectPercent = Int((unit.effect.power * 100).rounded())
+                        onEffectPowerDragBegan()
+                    },
+                    onChanged: { progress in
+                        effectPercent = progress
+                        onEffectPowerPreview(Float(progress) / 100.0)
+                    },
+                    onEnded: {
+                        let raw = effectPercent
+                        let snapped = raw < 5 ? 0 : raw
+                        let applied = onEffectPowerCommit(Float(snapped) / 100.0)
+                        effectPercent = applied ? snapped : raw
+                        effectTracking = false
+                    }
+                )
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Self.pane)
+    }
+
+    private func effectKindButton(_ kind: CameraEffect.Kind) -> some View {
+        let selected = unit.effect.kind == kind
+        return Button {
+            onSelectEffectKind(kind)
+        } label: {
+            Text(kind.displayName)
+                .font(.system(size: 14, weight: selected ? .bold : .semibold))
+                .foregroundStyle(selected ? .black : .white)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(selected ? Color.white : Color.white.opacity(0.09))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(colorLocked)
+        .opacity(colorLocked ? 0.4 : 1)
+        .accessibilityLabel("Item effect \(kind.displayName)")
+    }
+
+    private var effectColorGrid: some View {
+        let kind = unit.effect.kind
+        let palette = kind.palette
+        return LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+            spacing: 8
+        ) {
+            ForEach(0..<max(palette.count, 6), id: \.self) { index in
+                let rgb = index < palette.count ? palette[index] : 0x000000
+                let selected = !unit.effect.isZero && unit.effect.rgbInt == rgb
+                Button {
+                    onSelectEffectColor(kind, index)
+                } label: {
+                    Circle()
+                        .fill(AppSettings.color(fromRGB: rgb))
+                        .frame(width: 24, height: 24)
+                        .overlay {
+                            Circle()
+                                .strokeBorder(selected ? Color.white : Color.clear, lineWidth: 2.5)
+                        }
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(colorLocked)
+                .opacity(colorLocked ? 0.4 : 1)
+                .accessibilityLabel("Effect color #\(index + 1) \(AppSettings.hexString(fromRGB: rgb))")
+            }
+
+            Button {
+                pickerKind = kind
+                showingColorPicker = true
+            } label: {
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
+                    .frame(width: 24, height: 24)
+                    .overlay {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.7))
+                    }
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(colorLocked)
+            .opacity(colorLocked ? 0.4 : 1)
+            .accessibilityLabel("Pick custom color")
+        }
     }
 
     private func stateRow(_ state: Int) -> some View {

@@ -126,6 +126,13 @@ enum NlerpInterpolator {
     static func inbetween(unit1: StickmanUnit, unit2: StickmanUnit, t: CGFloat) throws -> StickmanUnit {
         let scaleVal = lerp(unit1.scale, unit2.scale, t)
         let alphaVal = min(max(lerp(unit1.alpha, unit2.alpha, t), 0), 1)
+        let effectVal = CameraMoveInterpolator.tweenEffect(
+            unit1.effect,
+            unit2.effect,
+            easing: .NO,
+            strength: Easing.defaultStrength,
+            t: Float(t)
+        )
         // Flip mirrors the bones, so a blend rotates every limb across the gap.
         // Hold unit1 until the destination keyframe, which is emitted as itself.
         if unit1.flipped != unit2.flipped {
@@ -133,6 +140,7 @@ enum NlerpInterpolator {
             let base = try held.basePoint()
             try held.scaleAt(pivotX: base.x, pivotY: base.y, target: scaleVal)
             held.alpha = alphaVal
+            held.effect = effectVal
             return held
         }
 
@@ -149,6 +157,7 @@ enum NlerpInterpolator {
             let moved = try result.basePoint()
             try result.scaleAt(pivotX: moved.x, pivotY: moved.y, target: scaleVal)
             result.alpha = alphaVal
+            result.effect = effectVal
             return result
         }
 
@@ -220,7 +229,8 @@ enum NlerpInterpolator {
             flipped: unit1.flipped,
             assetsState: unit1.assetsState,
             unitType: unit1.unitType,
-            bubble: unit1.bubble
+            bubble: unit1.bubble,
+            effect: effectVal
         )
         try result.link()
         let base = try result.basePoint()

@@ -63,7 +63,7 @@ struct CameraEffect: Equatable {
 
     init(kind: Kind, colorIndex: Int, snapshot: (r: Float, g: Float, b: Float), power: Float) {
         self.kind = kind
-        self.colorIndex = Self.clampedColorIndex(colorIndex)
+        self.colorIndex = colorIndex < 0 ? -1 : Self.clampedColorIndex(colorIndex)
         self.rgb = snapshot
         self.power = kind == .none ? 0 : min(max(power, 0), 1)
     }
@@ -83,6 +83,12 @@ struct CameraEffect: Equatable {
 
     var isZero: Bool {
         kind == .none || power < Self.zeroThreshold
+    }
+
+    /// Two effects can be tweened together when either is inactive (`.none` / 0% power)
+    /// or both share the same `Kind`. Different active kinds (e.g. `Fade` vs `Tint`) conflict.
+    func canTween(with other: CameraEffect) -> Bool {
+        isZero || other.isZero || kind == other.kind
     }
 
     static func == (lhs: CameraEffect, rhs: CameraEffect) -> Bool {
@@ -250,6 +256,43 @@ struct CameraEffect: Equatable {
         guard let m = normalizedColorMatrix else {
             return nil
         }
+        return Self.makeSwiftUIColorMatrix(m)
+    }
+
+    /// 4x5 color matrix for individual scene units (items).
+    /// Note: SwiftUI `.colorMatrix` operates on unpremultiplied RGBA, so `.fade` is omitted for items
+    /// (items only support `.none`, `.desaturate`, and `.colorize`). If a `.fade` effect is present on a unit,
+    /// `unitColorMatrix` still blends RGB toward the target color while preserving alpha.
+    var unitColorMatrix: [Float]? {
+        if isZero {
+            return nil
+        }
+        switch kind {
+        case .none:
+            return nil
+        case .desaturate, .colorize:
+            return normalizedColorMatrix
+        case .fade:
+            let p = min(max(power, 0), 1)
+            let (rt, gt, bt) = rgb
+            let invP = 1.0 - p
+            return [
+                invP, 0,    0,    0, p * rt,
+                0,    invP, 0,    0, p * gt,
+                0,    0,    invP, 0, p * bt,
+                0,    0,    0,    1, 0
+            ]
+        }
+    }
+
+    var unitSwiftUIColorMatrix: SwiftUI.ColorMatrix? {
+        guard let m = unitColorMatrix else {
+            return nil
+        }
+        return Self.makeSwiftUIColorMatrix(m)
+    }
+
+    private static func makeSwiftUIColorMatrix(_ m: [Float]) -> SwiftUI.ColorMatrix {
         var cm = SwiftUI.ColorMatrix()
         cm.r1 = m[0];  cm.r2 = m[1];  cm.r3 = m[2];  cm.r4 = m[3];  cm.r5 = m[4]
         cm.g1 = m[5];  cm.g2 = m[6];  cm.g3 = m[7];  cm.g4 = m[8];  cm.g5 = m[9]
@@ -290,6 +333,19 @@ struct CameraEffect: Equatable {
         guard let m = normalizedColorMatrix else {
             return image
         }
+        return Self.applyMatrix(m, to: image)
+    }
+
+    /// Applies `unitColorMatrix` to a transparent unit bitmap (`premultipliedLast`).
+    /// Scales bias terms by `alpha / 255` so transparent pixels remain `[0, 0, 0, 0]`.
+    func applyUnitColorMatrix(to image: CGImage) -> CGImage {
+        guard let m = unitColorMatrix else {
+            return image
+        }
+        return Self.applyMatrix(m, to: image)
+    }
+
+    private static func applyMatrix(_ m: [Float], to image: CGImage) -> CGImage {
         let width = image.width
         let height = image.height
         if width <= 0 || height <= 0 {
@@ -319,19 +375,24 @@ struct CameraEffect: Equatable {
 
             let ptr = baseAddress.assumingMemoryBound(to: UInt8.self)
             let count = width * height
-            let r1 = m[0], r2 = m[1], r3 = m[2], r5 = m[4] * 255.0
-            let g1 = m[5], g2 = m[6], g3 = m[7], g5 = m[9] * 255.0
-            let b1 = m[10], b2 = m[11], b3 = m[12], b5 = m[14] * 255.0
+            let r1 = m[0], r2 = m[1], r3 = m[2], r5 = m[4]
+            let g1 = m[5], g2 = m[6], g3 = m[7], g5 = m[9]
+            let b1 = m[10], b2 = m[11], b3 = m[12], b5 = m[14]
 
             for i in 0..<count {
                 let offset = i * 4
+                let a = ptr[offset + 3]
+                if a == 0 {
+                    continue
+                }
+                let af = Float(a)
                 let r = Float(ptr[offset])
                 let g = Float(ptr[offset + 1])
                 let b = Float(ptr[offset + 2])
 
-                let nr = min(max(r1 * r + r2 * g + r3 * b + r5, 0), 255)
-                let ng = min(max(g1 * r + g2 * g + g3 * b + g5, 0), 255)
-                let nb = min(max(b1 * r + b2 * g + b3 * b + b5, 0), 255)
+                let nr = min(max(r1 * r + r2 * g + r3 * b + r5 * af, 0), af)
+                let ng = min(max(g1 * r + g2 * g + g3 * b + g5 * af, 0), af)
+                let nb = min(max(b1 * r + b2 * g + b3 * b + b5 * af, 0), af)
 
                 ptr[offset]     = UInt8(nr + 0.5)
                 ptr[offset + 1] = UInt8(ng + 0.5)

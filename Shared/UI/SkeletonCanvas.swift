@@ -541,10 +541,16 @@ struct SkeletonCanvas: View {
         layout: SkeletonLayout,
         ignoreSample: Bool
     ) {
+        let colorMatrix = drawn.effect.unitSwiftUIColorMatrix
         if drawn.unitType == .bubble {
-            if drawn.alpha < 1 {
+            if drawn.alpha < 1 || colorMatrix != nil {
                 context.drawLayer { layer in
-                    layer.opacity = Double(drawn.alpha)
+                    if drawn.alpha < 1 {
+                        layer.opacity = Double(drawn.alpha)
+                    }
+                    if let colorMatrix {
+                        layer.addFilter(.colorMatrix(colorMatrix))
+                    }
                     layer.drawLayer { opaque in
                         drawBubbleText(drawn, context: &opaque, layout: layout)
                     }
@@ -553,9 +559,14 @@ struct SkeletonCanvas: View {
                 drawBubbleText(drawn, context: &context, layout: layout)
             }
         } else if let assets {
-            if drawn.alpha < 1 {
+            if drawn.alpha < 1 || colorMatrix != nil {
                 context.drawLayer { layer in
-                    layer.opacity = Double(drawn.alpha)
+                    if drawn.alpha < 1 {
+                        layer.opacity = Double(drawn.alpha)
+                    }
+                    if let colorMatrix {
+                        layer.addFilter(.colorMatrix(colorMatrix))
+                    }
                     layer.drawLayer { opaque in
                         drawBitmaps(drawn, context: &opaque, layout: layout, assets: assets, ignoreSample: ignoreSample)
                     }

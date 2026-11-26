@@ -12,6 +12,7 @@ struct CameraAnimatorScreen: View {
     @State private var showingTweenRange = false
     @State private var showingTweenEasing = false
     @State private var tweenDraftRange: ClosedRange<Int> = 0...0
+    @State private var tweenDraftChannel: TweenChannel = .both
     @State private var tweenApplyRange: ClosedRange<Int>?
     @State private var toast = ""
     @State private var cameraHold = CameraHold()
@@ -55,7 +56,7 @@ struct CameraAnimatorScreen: View {
                 if showingEffects {
                     CameraEffectPanel(
                         effect: scene.currentFrameOrNil?.cameraEffect ?? .none,
-                        locked: !canMutateCamera,
+                        locked: !canMutateCameraColor,
                         onSelectKind: selectEffectKind,
                         onSelectColor: selectEffectColor,
                         onPickCustomColor: pickCustomColor
@@ -89,7 +90,7 @@ struct CameraAnimatorScreen: View {
                        currentEffect.kind != .none {
                         CameraEffectPowerBar(
                             effect: currentEffect,
-                            locked: !canMutateCamera,
+                            locked: !canMutateCameraColor,
                             onPowerDragBegan: prepareCameraUndo,
                             onPowerChanged: updateEffectPower,
                             onPowerEnded: { noteCameraFingers(0) }
@@ -124,7 +125,7 @@ struct CameraAnimatorScreen: View {
                     Button {
                         openTweenEasing(for: chip)
                     } label: {
-                        Text(chip.easingType.displayName)
+                        Text(cameraChipTitle(chip))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16)
@@ -175,6 +176,8 @@ struct CameraAnimatorScreen: View {
                 title: "Smooth camera movement",
                 frameCount: scene.frames.count,
                 initialRange: tweenDraftRange,
+                showsChannelPicker: true,
+                initialChannel: tweenDraftChannel,
                 preview: { index in
                     AnyView(
                         RangeFramePreview(
@@ -185,10 +188,12 @@ struct CameraAnimatorScreen: View {
                         )
                     )
                 },
-                canApply: canApplyTween(range:),
-                onApply: { next in
+                canApplyWithChannel: canApplyTween(range:channel:),
+                warningWithChannel: tweenRangeWarning(range:channel:),
+                onApplyWithChannel: { next, channel in
                     showingTweenRange = false
                     tweenApplyRange = next
+                    tweenDraftChannel = channel
                     showingTweenEasing = true
                 }
             )
@@ -201,6 +206,7 @@ struct CameraAnimatorScreen: View {
                 initialStrength: span.strength,
                 initialFrequency: span.frequency,
                 showsCartwheel: false,
+                channel: tweenDraftChannel,
                 onApply: applyTweenEasing
             )
         }
@@ -215,8 +221,24 @@ struct CameraAnimatorScreen: View {
         }
     }
 
+    private var canMutateCameraColor: Bool {
+        switch navMode {
+        case .frames:
+            return !scene.isCameraColorLocked(frameIndex: scene.currentIndex)
+        case .range:
+            return !range.contains(where: { scene.isCameraColorLocked(frameIndex: $0) })
+        }
+    }
+
     private var currentCameraSpan: CameraAutoTweenRange? {
         scene.cameraTweens.findContaining(frameIndex: scene.currentIndex)
+    }
+
+    private func cameraChipTitle(_ span: CameraAutoTweenRange) -> String {
+        if span.channel == .both {
+            return span.easingType.displayName
+        }
+        return "\(span.easingType.displayName) (\(span.channel.displayName))"
     }
 
     private func tweenStickStyle(_ index: Int) -> (color: Color?, scale: CGFloat) {
@@ -260,7 +282,7 @@ struct CameraAnimatorScreen: View {
     }
 
     private func selectEffectKind(_ kind: CameraEffect.Kind) {
-        if !canMutateCamera {
+        if !canMutateCameraColor {
             showToast("Locked")
             return
         }
@@ -280,48 +302,42 @@ struct CameraAnimatorScreen: View {
     }
 
     private func selectEffectColor(_ kind: CameraEffect.Kind, _ colorIndex: Int) {
-        if !canMutateCamera {
+        if !canMutateCameraColor {
             showToast("Locked")
             return
         }
         let current = scene.currentFrameOrNil?.cameraEffect ?? .none
-        if current.kind == kind && current.colorIndex == colorIndex && !current.isZero {
-            return
-        }
         let power: Float = current.isZero ? 0.5 : current.power
         let next = CameraEffect(kind: kind, colorIndex: colorIndex, power: power)
+        if current.kind == kind && current.rgbInt == next.rgbInt && !current.isZero {
+            return
+        }
         commitTimeline()
         writeCameraEffect(next)
     }
 
-    private func pickCustomColor(_ kind: CameraEffect.Kind, _ slot: Int, _ rgb: Int) {
-        if !canMutateCamera {
+    private func pickCustomColor(_ kind: CameraEffect.Kind, _ rgb: Int) {
+        if !canMutateCameraColor {
             showToast("Locked")
             return
         }
-        var palette = kind.palette
-        if palette.isEmpty {
-            palette = [Int](repeating: 0x000000, count: CameraEffect.paletteSize)
-        }
-        // If this exact color already exists in the palette, just select that slot.
-        if let existing = palette.firstIndex(of: rgb & 0xFFFFFF) {
-            selectEffectColor(kind, existing)
+        let existed = kind.palette.contains(rgb & 0xFFFFFF)
+        let slot = AppSettings.pushPaletteColor(rgb, for: kind)
+        if existed {
+            selectEffectColor(kind, slot)
             return
         }
-        let clampedSlot = min(max(slot, 0), CameraEffect.paletteSize - 1)
-        palette[clampedSlot] = rgb & 0xFFFFFF
-        AppSettings.setPalette(palette, for: kind)
 
         let current = scene.currentFrameOrNil?.cameraEffect ?? .none
         let power: Float = current.isZero ? 0.5 : current.power
-        let next = CameraEffect(kind: kind, colorIndex: clampedSlot, power: power)
+        let next = CameraEffect(kind: kind, colorIndex: slot, power: power)
         commitTimeline()
         writeCameraEffect(next)
         showToast("Color added to palette")
     }
 
     private func updateEffectPower(_ power: Float) {
-        if !canMutateCamera {
+        if !canMutateCameraColor {
             showToast("Locked")
             return
         }
@@ -347,7 +363,9 @@ struct CameraAnimatorScreen: View {
                 return
             }
             scene.frames[index].cameraEffect = effect
-            scene.retweenCameraEndpoints(frames: [index])
+            if scene.retweenCameraEndpoints(frames: [index]) {
+                showToast("Can't tween: start and end frames have different color effects")
+            }
         case .range:
             if range.lowerBound < 0 || range.upperBound >= scene.frames.count {
                 assertionFailure("CameraAnimatorScreen range \(range) out of \(scene.frames.count)")
@@ -356,7 +374,9 @@ struct CameraAnimatorScreen: View {
             for index in range {
                 scene.frames[index].cameraEffect = effect
             }
-            scene.retweenCameraEndpoints(frames: Array(range))
+            if scene.retweenCameraEndpoints(frames: Array(range)) {
+                showToast("Can't tween: start and end frames have different color effects")
+            }
         }
     }
 
@@ -413,6 +433,7 @@ struct CameraAnimatorScreen: View {
             return
         }
         tweenDraftRange = resolveTweenInitialRange()
+        tweenDraftChannel = .both
         showingTweenRange = true
     }
 
@@ -426,22 +447,42 @@ struct CameraAnimatorScreen: View {
         return RangePicker.suggestedTweenRange(current: scene.currentIndex, frameCount: scene.frames.count)
     }
 
-    private func canApplyTween(range: ClosedRange<Int>) -> Bool {
+    private func canApplyTween(range: ClosedRange<Int>, channel: TweenChannel) -> Bool {
         if range.upperBound - range.lowerBound < 2 {
             return false
         }
         if let intersecting = scene.cameraTweens.findIntersecting(
             from: range.lowerBound,
-            to: range.upperBound
+            to: range.upperBound,
+            channel: channel
         ), intersecting.fromFrame != range.lowerBound || intersecting.toFrame != range.upperBound {
             return false
         }
-        return true
+        return CameraInbetweener.rangeWarning(
+            scene: scene,
+            from: range.lowerBound,
+            to: range.upperBound,
+            channel: channel
+        ) == nil
+    }
+
+    private func tweenRangeWarning(range: ClosedRange<Int>, channel: TweenChannel) -> String? {
+        if range.upperBound - range.lowerBound < 2 {
+            return nil
+        }
+        return CameraInbetweener.rangeWarning(
+            scene: scene,
+            from: range.lowerBound,
+            to: range.upperBound,
+            channel: channel
+        )
     }
 
     private var tweenEasingInitial: (type: TweenEasing, strength: Float, frequency: Float) {
         let range = tweenApplyRange ?? tweenDraftRange
-        if let span = scene.cameraTweens.findExact(from: range.lowerBound, to: range.upperBound) {
+        if let span = scene.cameraTweens.findExact(from: range.lowerBound, to: range.upperBound, channel: tweenDraftChannel)
+            ?? scene.cameraTweens.findExact(from: range.lowerBound, to: range.upperBound)
+        {
             return (span.easingType, span.easingStrength, span.shakeFrequency)
         }
         return (.NO, Easing.defaultStrength, UnitTweenStorage.defaultShakeFrequency)
@@ -449,6 +490,7 @@ struct CameraAnimatorScreen: View {
 
     private func openTweenEasing(for span: CameraAutoTweenRange) {
         tweenApplyRange = span.fromFrame...span.toFrame
+        tweenDraftChannel = span.channel
         showingTweenEasing = true
     }
 
@@ -456,11 +498,12 @@ struct CameraAnimatorScreen: View {
         let range = tweenApplyRange ?? tweenDraftRange
         let from = range.lowerBound
         let to = range.upperBound
+        let channel = tweenDraftChannel
         if to - from < 2 {
             assertionFailure("CameraAnimatorScreen tween range \(from)..\(to) too short")
             return
         }
-        if !canApplyTween(range: from...to) {
+        if !canApplyTween(range: from...to, channel: channel) {
             return
         }
         commitTimeline()
@@ -470,7 +513,8 @@ struct CameraAnimatorScreen: View {
             to: to,
             easing: type,
             strength: strength,
-            shakeFrequency: frequency
+            shakeFrequency: frequency,
+            channel: channel
         )
         scene.currentIndex = to
         clampRange()

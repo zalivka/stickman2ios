@@ -7,6 +7,7 @@ struct CameraAutoTweenRange: Equatable {
     var easingStrength: Float
     var shakeFrequency: Float
     var segmentNumber: Int
+    var channel: TweenChannel
 
     init(
         fromFrame: Int,
@@ -14,7 +15,8 @@ struct CameraAutoTweenRange: Equatable {
         easingType: TweenEasing,
         easingStrength: Float,
         shakeFrequency: Float,
-        segmentNumber: Int
+        segmentNumber: Int,
+        channel: TweenChannel = .both
     ) {
         self.fromFrame = fromFrame
         self.toFrame = toFrame
@@ -22,6 +24,7 @@ struct CameraAutoTweenRange: Equatable {
         self.easingStrength = min(max(easingStrength, 0), 1)
         self.shakeFrequency = UnitTweenStorage.clampFrequency(easingType, shakeFrequency)
         self.segmentNumber = segmentNumber
+        self.channel = channel
     }
 
     func contains(_ frameIndex: Int) -> Bool {
@@ -56,6 +59,7 @@ struct CameraTweenStorage: Equatable {
         easingType: TweenEasing,
         easingStrength: Float,
         shakeFrequency: Float,
+        channel: TweenChannel = .both,
         frameCount: Int
     ) {
         let from = min(fromFrame, toFrame)
@@ -68,7 +72,9 @@ struct CameraTweenStorage: Equatable {
             assertionFailure("Camera tween range must cover at least 2 frames")
             return
         }
-        ranges.removeAll { $0.intersects(from: from, to: to) }
+        ranges.removeAll {
+            $0.channel.conflicts(with: channel) && $0.intersects(from: from, to: to)
+        }
         let segment = nextSegmentNumber
         nextSegmentNumber += 1
         ranges.append(
@@ -78,7 +84,8 @@ struct CameraTweenStorage: Equatable {
                 easingType: easingType,
                 easingStrength: easingStrength,
                 shakeFrequency: shakeFrequency,
-                segmentNumber: segment
+                segmentNumber: segment,
+                channel: channel
             )
         )
         ensureValid(frameCount: frameCount)
@@ -88,8 +95,10 @@ struct CameraTweenStorage: Equatable {
         ranges.first { $0.contains(frameIndex) }
     }
 
-    func findExact(from: Int, to: Int) -> CameraAutoTweenRange? {
-        ranges.first { $0.fromFrame == from && $0.toFrame == to }
+    func findExact(from: Int, to: Int, channel: TweenChannel? = nil) -> CameraAutoTweenRange? {
+        ranges.first {
+            $0.fromFrame == from && $0.toFrame == to && (channel == nil || $0.channel == channel)
+        }
     }
 
     func findForSpan(from: Int, to: Int) -> CameraAutoTweenRange? {
@@ -98,12 +107,28 @@ struct CameraTweenStorage: Equatable {
         return ranges.first { $0.containsSpan(from: start, to: end) }
     }
 
-    func findIntersecting(from: Int, to: Int) -> CameraAutoTweenRange? {
-        ranges.first { $0.intersects(from: from, to: to) }
+    func findMotionForSpan(from: Int, to: Int) -> CameraAutoTweenRange? {
+        let start = min(from, to)
+        let end = max(from, to)
+        return ranges.first { $0.channel.includesMotion && $0.containsSpan(from: start, to: end) }
+    }
+
+    func findColorForSpan(from: Int, to: Int) -> CameraAutoTweenRange? {
+        let start = min(from, to)
+        let end = max(from, to)
+        return ranges.first { $0.channel.includesColor && $0.containsSpan(from: start, to: end) }
+    }
+
+    func findIntersecting(from: Int, to: Int, channel: TweenChannel = .both) -> CameraAutoTweenRange? {
+        ranges.first { $0.channel.conflicts(with: channel) && $0.intersects(from: from, to: to) }
     }
 
     func isPoseLocked(frameIndex: Int) -> Bool {
-        ranges.contains { $0.containsInterior(frameIndex) }
+        ranges.contains { $0.channel.includesMotion && $0.containsInterior(frameIndex) }
+    }
+
+    func isColorLocked(frameIndex: Int) -> Bool {
+        ranges.contains { $0.channel.includesColor && $0.containsInterior(frameIndex) }
     }
 
     func lockMessage(frameIndex: Int) -> String {
@@ -121,8 +146,10 @@ struct CameraTweenStorage: Equatable {
         return range
     }
 
-    mutating func removeExact(from: Int, to: Int) -> CameraAutoTweenRange? {
-        guard let index = ranges.firstIndex(where: { $0.fromFrame == from && $0.toFrame == to }) else {
+    mutating func removeExact(from: Int, to: Int, channel: TweenChannel? = nil) -> CameraAutoTweenRange? {
+        guard let index = ranges.firstIndex(where: {
+            $0.fromFrame == from && $0.toFrame == to && (channel == nil || $0.channel == channel)
+        }) else {
             return nil
         }
         return ranges.remove(at: index)
@@ -212,7 +239,8 @@ struct CameraTweenStorage: Equatable {
                 easingType: span.easingType,
                 easingStrength: span.easingStrength,
                 shakeFrequency: span.shakeFrequency,
-                params: ["shakeFrequency": span.shakeFrequency]
+                params: ["shakeFrequency": span.shakeFrequency],
+                channel: span.channel
             )
         }
         do {
@@ -248,7 +276,8 @@ struct CameraTweenStorage: Equatable {
             if from >= to {
                 continue
             }
-            if findIntersecting(from: from, to: to) != nil {
+            let channel = persisted.channel ?? .both
+            if findIntersecting(from: from, to: to, channel: channel) != nil {
                 continue
             }
             let frequency = persisted.shakeFrequency
@@ -262,7 +291,8 @@ struct CameraTweenStorage: Equatable {
                     easingType: persisted.easingType,
                     easingStrength: persisted.easingStrength,
                     shakeFrequency: frequency,
-                    segmentNumber: segment
+                    segmentNumber: segment,
+                    channel: channel
                 )
             )
             nextSegmentNumber = max(nextSegmentNumber, segment + 1)
@@ -279,7 +309,10 @@ struct CameraTweenStorage: Equatable {
         sort()
         var kept: [CameraAutoTweenRange] = []
         for current in ranges {
-            if let prev = kept.last, prev.intersects(from: current.fromFrame, to: current.toFrame) {
+            if let prev = kept.first(where: {
+                $0.channel.conflicts(with: current.channel)
+                    && $0.intersects(from: current.fromFrame, to: current.toFrame)
+            }) {
                 assertionFailure(
                     "Overlapping camera spans: [\(prev.fromFrame)..\(prev.toFrame)] and [\(current.fromFrame)..\(current.toFrame)] — dropping later span"
                 )
@@ -299,7 +332,8 @@ struct CameraTweenStorage: Equatable {
             easingType: span.easingType,
             easingStrength: span.easingStrength,
             shakeFrequency: span.shakeFrequency,
-            segmentNumber: span.segmentNumber
+            segmentNumber: span.segmentNumber,
+            channel: span.channel
         )
     }
 
@@ -308,7 +342,10 @@ struct CameraTweenStorage: Equatable {
             if $0.fromFrame != $1.fromFrame {
                 return $0.fromFrame < $1.fromFrame
             }
-            return $0.toFrame < $1.toFrame
+            if $0.toFrame != $1.toFrame {
+                return $0.toFrame < $1.toFrame
+            }
+            return $0.channel.rawValue < $1.channel.rawValue
         }
     }
 
@@ -325,5 +362,6 @@ struct CameraTweenStorage: Equatable {
         var easingStrength: Float
         var shakeFrequency: Float?
         var params: [String: Float]?
+        var channel: TweenChannel?
     }
 }

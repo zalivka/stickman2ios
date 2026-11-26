@@ -58,6 +58,7 @@ struct StickmanUnit {
     var assetsState: Int = 0
     var unitType: StickmanUnitType = .unit
     var bubble: BubbleMeta? = nil
+    var effect: CameraEffect = .none
 
     func point(id: Int) throws -> StickmanPoint {
         guard let point = points.first(where: { $0.id == id }) else {
@@ -521,20 +522,25 @@ struct StickmanUnit {
     }
 
     /// Copy interpolated pose onto this instance; keep attachment / identity fields.
-    mutating func applyPose(from other: StickmanUnit) throws {
+    mutating func applyPose(from other: StickmanUnit, channel: TweenChannel = .both) throws {
         if name != other.name {
             throw SceneLoadError(message: "StickmanUnit '\(name)' applyPose from '\(other.name)'")
         }
-        for i in points.indices {
-            guard let src = other.points.first(where: { $0.id == points[i].id }) else {
-                throw SceneLoadError(message: "StickmanUnit '\(name)' applyPose missing point \(points[i].id)")
+        if channel.includesMotion {
+            for i in points.indices {
+                guard let src = other.points.first(where: { $0.id == points[i].id }) else {
+                    throw SceneLoadError(message: "StickmanUnit '\(name)' applyPose missing point \(points[i].id)")
+                }
+                points[i].x = src.x
+                points[i].y = src.y
             }
-            points[i].x = src.x
-            points[i].y = src.y
+            scale = other.scale
+            flipped = other.flipped
         }
-        scale = other.scale
-        alpha = other.alpha
-        flipped = other.flipped
+        if channel.includesColor {
+            alpha = other.alpha
+            effect = other.effect
+        }
     }
 
     func handlerRotateDiff(handler: CGPoint) throws -> CGFloat {
@@ -643,6 +649,20 @@ struct StickmanFrame {
                 throw SceneLoadError(message: "StickmanFrame \(id) opacity missing slave '\(slaveName)'")
             }
             units[index].alpha = alpha
+        }
+    }
+
+    mutating func setUnitEffect(_ effect: CameraEffect, unitNamed name: String) throws {
+        guard units.contains(where: { $0.name == name }) else {
+            throw SceneLoadError(message: "StickmanFrame \(id) effect missing '\(name)'")
+        }
+        try refreshAttachments()
+        let names = [name] + slaves.allSlaves(of: name)
+        for slaveName in names {
+            guard let index = units.firstIndex(where: { $0.name == slaveName }) else {
+                throw SceneLoadError(message: "StickmanFrame \(id) effect missing slave '\(slaveName)'")
+            }
+            units[index].effect = effect
         }
     }
 
@@ -1410,6 +1430,17 @@ struct StickmanScene {
         return root.name != unitName && unitTweens.isPoseLocked(unitName: root.name, frameIndex: frameIndex)
     }
 
+    func isColorLocked(unitName: String, frameIndex: Int) -> Bool {
+        if unitTweens.isColorLocked(unitName: unitName, frameIndex: frameIndex) {
+            return true
+        }
+        guard let unit = frames[safe: frameIndex]?.units.first(where: { $0.name == unitName }) else {
+            return false
+        }
+        let root = SlavesRegistry.rootMaster(of: unit, in: frames[frameIndex].units)
+        return root.name != unitName && unitTweens.isColorLocked(unitName: root.name, frameIndex: frameIndex)
+    }
+
     func isStructureLocked(unitName: String, frameIndex: Int) -> Bool {
         if unitTweens.isOwned(unitName: unitName, frameIndex: frameIndex) {
             return true
@@ -1432,14 +1463,28 @@ struct StickmanScene {
         cameraTweens.isPoseLocked(frameIndex: frameIndex)
     }
 
+    func isCameraColorLocked(frameIndex: Int) -> Bool {
+        cameraTweens.isColorLocked(frameIndex: frameIndex)
+    }
+
     mutating func removeCameraTweenContaining(frameIndex: Int) -> CameraAutoTweenRange? {
         cameraTweens.removeContaining(frameIndex: frameIndex)
     }
 
-    mutating func retweenCameraSpan(_ span: CameraAutoTweenRange) {
+    /// True when `span` was removed because its endpoint effects conflict.
+    @discardableResult
+    mutating func retweenCameraSpan(_ span: CameraAutoTweenRange) -> Bool {
         if span.fromFrame < 0 || span.toFrame >= frames.count || span.fromFrame >= span.toFrame {
-            _ = cameraTweens.removeExact(from: span.fromFrame, to: span.toFrame)
-            return
+            _ = cameraTweens.removeExact(from: span.fromFrame, to: span.toFrame, channel: span.channel)
+            return false
+        }
+        if span.channel.includesColor && !CameraInbetweener.endpointEffectsCompatible(
+            scene: self,
+            from: span.fromFrame,
+            to: span.toFrame
+        ) {
+            _ = cameraTweens.removeExact(from: span.fromFrame, to: span.toFrame, channel: span.channel)
+            return true
         }
         CameraInbetweener.bakeInteriors(
             scene: &self,
@@ -1447,19 +1492,27 @@ struct StickmanScene {
             to: span.toFrame,
             easing: span.easingType,
             strength: span.easingStrength,
-            shakeFrequency: span.shakeFrequency
+            shakeFrequency: span.shakeFrequency,
+            channel: span.channel
         )
+        return false
     }
 
-    mutating func retweenCameraEndpoints(frames edited: [Int]) {
+    /// True when a camera span was removed because its endpoint effects conflict.
+    @discardableResult
+    mutating func retweenCameraEndpoints(frames edited: [Int]) -> Bool {
         if edited.isEmpty {
-            return
+            return false
         }
         let editedSet = Set(edited)
+        var droppedForEffect = false
         for span in cameraTweens.ranges
         where editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame) {
-            retweenCameraSpan(span)
+            if retweenCameraSpan(span) {
+                droppedForEffect = true
+            }
         }
+        return droppedForEffect
     }
 
     func isBackgroundPoseLocked(frameIndex: Int) -> Bool {
@@ -1505,26 +1558,28 @@ struct StickmanScene {
             let root = SlavesRegistry.rootMaster(of: unit, in: frames[range.fromFrame].units)
             for connected in try SlavesRegistry.allConnected(of: root, in: frames[range.fromFrame].units)
             where connected.name != unitName {
-                unitTweens.removeExact(unitName: connected.name, from: range.fromFrame, to: range.toFrame)
+                unitTweens.removeExact(unitName: connected.name, from: range.fromFrame, to: range.toFrame, channel: range.channel)
             }
         }
         return range
     }
 
     mutating func breakTweensTouching(unitName: String, frameIndex: Int) throws {
-        if unitTweens.isOwned(unitName: unitName, frameIndex: frameIndex) {
+        while unitTweens.isOwned(unitName: unitName, frameIndex: frameIndex) {
             _ = try removeUnitTweenContaining(unitName: unitName, frameIndex: frameIndex)
         }
         guard let unit = frames[safe: frameIndex]?.units.first(where: { $0.name == unitName }) else {
             return
         }
         let root = SlavesRegistry.rootMaster(of: unit, in: frames[frameIndex].units)
-        if root.name != unitName && unitTweens.isOwned(unitName: root.name, frameIndex: frameIndex) {
-            _ = try removeUnitTweenContaining(unitName: root.name, frameIndex: frameIndex)
+        if root.name != unitName {
+            while unitTweens.isOwned(unitName: root.name, frameIndex: frameIndex) {
+                _ = try removeUnitTweenContaining(unitName: root.name, frameIndex: frameIndex)
+            }
         }
     }
 
-    /// True when a span was removed because its endpoint flip flags differ.
+    /// True when a span was removed because its endpoint flip flags or color effects conflict.
     @discardableResult
     mutating func retweenEndpoints(unitName: String, frames edited: [Int]) throws -> Bool {
         if edited.isEmpty {
@@ -1535,13 +1590,13 @@ struct StickmanScene {
             span.unitName == unitName && (editedSet.contains(span.fromFrame) || editedSet.contains(span.toFrame))
         }
         var seen = Set<String>()
-        var droppedForFlip = false
+        var dropped = false
         for span in spans {
             guard let unit = self.frames[safe: span.fromFrame]?.units.first(where: { $0.name == span.unitName }) else {
                 continue
             }
             let root = SlavesRegistry.rootMaster(of: unit, in: self.frames[span.fromFrame].units)
-            let key = "\(root.name):\(span.fromFrame):\(span.toFrame)"
+            let key = "\(root.name):\(span.fromFrame):\(span.toFrame):\(span.channel.rawValue)"
             if !seen.insert(key).inserted {
                 continue
             }
@@ -1552,37 +1607,47 @@ struct StickmanScene {
                     toFrame: span.toFrame,
                     easingType: span.easingType,
                     easingStrength: span.easingStrength,
-                    shakeFrequency: span.shakeFrequency
+                    shakeFrequency: span.shakeFrequency,
+                    channel: span.channel
                 )
             ) {
-                droppedForFlip = true
+                dropped = true
             }
         }
-        return droppedForFlip
+        return dropped
     }
 
-    /// True when `span` was removed because its endpoint flip flags differ.
+    /// True when `span` was removed because its endpoint flip flags or color effects conflict.
     @discardableResult
     mutating func retweenSpan(_ span: AutoTweenRange) throws -> Bool {
         if span.fromFrame < 0 || span.toFrame >= frames.count {
-            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame, channel: span.channel)
             return false
         }
         guard let startUnit = frames[span.fromFrame].units.first(where: { $0.name == span.unitName }),
               frames[span.toFrame].units.contains(where: { $0.name == span.unitName })
         else {
-            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame, channel: span.channel)
             return false
         }
         let root = SlavesRegistry.rootMaster(of: startUnit, in: frames[span.fromFrame].units)
         if SlavesRegistry.isEnslaved(root) {
-            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+            unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame, channel: span.channel)
             return false
         }
         if root.name != span.unitName {
             return false
         }
-        if !UnitInbetweener.endpointFlipsMatch(
+        if span.channel.includesMotion && !UnitInbetweener.endpointFlipsMatch(
+            scene: self,
+            rootName: root.name,
+            from: span.fromFrame,
+            to: span.toFrame
+        ) {
+            try dropSpanAndSlaves(span)
+            return true
+        }
+        if span.channel.includesColor && !UnitInbetweener.endpointEffectsCompatible(
             scene: self,
             rootName: root.name,
             from: span.fromFrame,
@@ -1598,7 +1663,8 @@ struct StickmanScene {
             to: span.toFrame,
             easing: span.easingType,
             strength: span.easingStrength,
-            shakeFrequency: span.shakeFrequency
+            shakeFrequency: span.shakeFrequency,
+            channel: span.channel
         ) {
             try dropSpanAndSlaves(span)
         }
@@ -1606,7 +1672,7 @@ struct StickmanScene {
     }
 
     private mutating func dropSpanAndSlaves(_ span: AutoTweenRange) throws {
-        unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame)
+        unitTweens.removeExact(unitName: span.unitName, from: span.fromFrame, to: span.toFrame, channel: span.channel)
         guard let endpoint = frames[safe: span.fromFrame],
               let unit = endpoint.units.first(where: { $0.name == span.unitName })
         else {
@@ -1614,14 +1680,14 @@ struct StickmanScene {
         }
         let root = SlavesRegistry.rootMaster(of: unit, in: endpoint.units)
         for connected in try SlavesRegistry.allConnected(of: root, in: endpoint.units) where connected.name != span.unitName {
-            unitTweens.removeExact(unitName: connected.name, from: span.fromFrame, to: span.toFrame)
+            unitTweens.removeExact(unitName: connected.name, from: span.fromFrame, to: span.toFrame, channel: span.channel)
         }
     }
 
     private mutating func retweenCameraReconciled(_ spans: [CameraAutoTweenRange]) {
         var seen = Set<String>()
         for span in spans {
-            let key = "\(span.fromFrame):\(span.toFrame)"
+            let key = "\(span.fromFrame):\(span.toFrame):\(span.channel.rawValue)"
             if !seen.insert(key).inserted {
                 continue
             }
@@ -1647,7 +1713,7 @@ struct StickmanScene {
                 continue
             }
             let root = SlavesRegistry.rootMaster(of: unit, in: frames[span.fromFrame].units)
-            let key = "\(root.name):\(span.fromFrame):\(span.toFrame)"
+            let key = "\(root.name):\(span.fromFrame):\(span.toFrame):\(span.channel.rawValue)"
             if !seen.insert(key).inserted {
                 continue
             }
@@ -1658,7 +1724,8 @@ struct StickmanScene {
                     toFrame: span.toFrame,
                     easingType: span.easingType,
                     easingStrength: span.easingStrength,
-                    shakeFrequency: span.shakeFrequency
+                    shakeFrequency: span.shakeFrequency,
+                    channel: span.channel
                 )
             )
         }

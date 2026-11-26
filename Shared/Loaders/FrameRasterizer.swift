@@ -271,7 +271,16 @@ enum FrameRasterizer {
         guard let start = drawn.point(optionalId: 1), let end = drawn.point(optionalId: 2) else { return }
         let angle = atan2(end.y - start.y, end.x - start.x)
         let rgba = bubble.rgba
-        let color = UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a)
+        let color: UIColor
+        if let m = drawn.effect.unitColorMatrix {
+            let r = Float(rgba.r), g = Float(rgba.g), b = Float(rgba.b)
+            let nr = min(max(m[0] * r + m[1] * g + m[2] * b + m[4], 0), 1)
+            let ng = min(max(m[5] * r + m[6] * g + m[7] * b + m[9], 0), 1)
+            let nb = min(max(m[10] * r + m[11] * g + m[12] * b + m[14], 0), 1)
+            color = UIColor(red: CGFloat(nr), green: CGFloat(ng), blue: CGFloat(nb), alpha: rgba.a)
+        } else {
+            color = UIColor(red: rgba.r, green: rgba.g, blue: rgba.b, alpha: rgba.a)
+        }
         let font = UIFont.systemFont(ofSize: bubble.fontSize)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -334,7 +343,8 @@ enum FrameRasterizer {
                 y: bone.start.y + yOffset
             )
             context.scaleBy(x: pictureScale, y: mirror ? -pictureScale : pictureScale)
-            drawImage(picture.image, alpha: alpha)
+            let bitmap = drawn.effect.isZero ? picture.image : drawn.effect.applyUnitColorMatrix(to: picture.image)
+            drawImage(bitmap, alpha: alpha)
             context.restoreGState()
         }
     }

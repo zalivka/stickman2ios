@@ -5,6 +5,7 @@ struct EasingChoiceSheet: View {
     var initialStrength: Float
     var initialFrequency: Float
     var showsCartwheel: Bool
+    var channel: TweenChannel
     var onApply: (TweenEasing, Float, Float) -> Void
 
     @State private var easing: TweenEasing
@@ -15,7 +16,7 @@ struct EasingChoiceSheet: View {
     private static let pickerOrder: [TweenEasing] = [
         .NO, .IN_OUT_EXPO, .BOUNCE_IN, .BOUNCE_OUT,
         .IN_OUT_BACK, .IN_QUINT, .OUT_QUINT, .SHAKE_X,
-        .SHAKE_Y, .CARTWHEEL_CW, .CARTWHEEL_CCW
+        .SHAKE_Y, .CARTWHEEL_CW, .CARTWHEEL_CCW, .PULSE_COLOR
     ]
     private static let cellSize: CGFloat = 80
 
@@ -24,16 +25,26 @@ struct EasingChoiceSheet: View {
         initialStrength: Float,
         initialFrequency: Float,
         showsCartwheel: Bool = true,
+        channel: TweenChannel = .both,
         onApply: @escaping (TweenEasing, Float, Float) -> Void
     ) {
-        self.initialType = initialType
+        let resolvedType: TweenEasing
+        if !channel.includesMotion && (initialType.isShake || initialType.isCartwheel) {
+            resolvedType = .NO
+        } else if !channel.includesColor && initialType.isPulseColor {
+            resolvedType = .NO
+        } else {
+            resolvedType = initialType
+        }
+        self.initialType = resolvedType
         self.initialStrength = initialStrength
         self.initialFrequency = initialFrequency
         self.showsCartwheel = showsCartwheel
+        self.channel = channel
         self.onApply = onApply
-        _easing = State(initialValue: initialType)
-        _strength = State(initialValue: Self.clampedStrength(initialType, initialStrength))
-        _frequency = State(initialValue: UnitTweenStorage.clampFrequency(initialType, initialFrequency))
+        _easing = State(initialValue: resolvedType)
+        _strength = State(initialValue: Self.clampedStrength(resolvedType, initialStrength))
+        _frequency = State(initialValue: UnitTweenStorage.clampFrequency(resolvedType, initialFrequency))
     }
 
     var body: some View {
@@ -54,14 +65,14 @@ struct EasingChoiceSheet: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 HStack(alignment: .top, spacing: 8) {
-                    if easing != .NO {
+                    if showsStrengthSlider {
                         VerticalValueSlider(value: $strength, range: strengthRange)
                     }
-                    if easing.isShake || easing.isCartwheel {
+                    if showsFrequencySlider {
                         VerticalValueSlider(value: $frequency, range: frequencyRange)
                     }
                 }
-                .frame(width: easing == .NO ? 0 : (easing.isShake || easing.isCartwheel ? 80 : 36))
+                .frame(width: sliderColumnWidth)
                 .frame(maxHeight: .infinity)
             }
             .padding(16)
@@ -71,6 +82,22 @@ struct EasingChoiceSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationBackground(SkeletonChrome.pane)
+    }
+
+    private var showsStrengthSlider: Bool {
+        easing != .NO && !easing.isPulseColor
+    }
+
+    private var showsFrequencySlider: Bool {
+        easing.isShake || easing.isCartwheel || easing.isPulseColor
+    }
+
+    private var sliderColumnWidth: CGFloat {
+        switch (showsStrengthSlider, showsFrequencySlider) {
+        case (false, false): return 0
+        case (true, true): return 80
+        case (true, false), (false, true): return 36
+        }
     }
 
     private var topPanel: some View {
@@ -123,7 +150,18 @@ struct EasingChoiceSheet: View {
     }
 
     private var pickerTypes: [TweenEasing] {
-        showsCartwheel ? Self.pickerOrder : Self.pickerOrder.filter { !$0.isCartwheel }
+        Self.pickerOrder.filter { type in
+            if !channel.includesMotion && (type.isShake || type.isCartwheel) {
+                return false
+            }
+            if !channel.includesColor && type.isPulseColor {
+                return false
+            }
+            if !showsCartwheel && type.isCartwheel {
+                return false
+            }
+            return true
+        }
     }
 
     private func cell(_ type: TweenEasing) -> some View {
@@ -159,7 +197,9 @@ struct EasingChoiceSheet: View {
         if !easing.isCartwheel && next.isCartwheel && !initialType.isCartwheel {
             frequency = UnitTweenStorage.defaultCartwheelTurns
             strength = 0
-        } else if easing.isShake != next.isShake || easing.isCartwheel != next.isCartwheel {
+        } else if !easing.isPulseColor && next.isPulseColor && !initialType.isPulseColor {
+            frequency = UnitTweenStorage.defaultPulseFrequency
+        } else if easing.isShake != next.isShake || easing.isCartwheel != next.isCartwheel || easing.isPulseColor != next.isPulseColor {
             frequency = UnitTweenStorage.clampFrequency(next, frequency)
         }
         easing = next
@@ -174,14 +214,14 @@ struct EasingChoiceSheet: View {
         if easing != .NO {
             return false
         }
-        if next == .NO || next.isShake || next.isCartwheel {
+        if next == .NO || next.isShake || next.isCartwheel || next.isPulseColor {
             return false
         }
         return abs(strength - Easing.defaultStrength) < 0.02
     }
 
     private func previewStrength(for type: TweenEasing) -> Float {
-        if type == .NO {
+        if type == .NO || type.isPulseColor {
             return 1
         }
         if type == easing {
@@ -197,6 +237,9 @@ struct EasingChoiceSheet: View {
         if type.isCartwheel {
             return UnitTweenStorage.defaultCartwheelTurns
         }
+        if type.isPulseColor {
+            return UnitTweenStorage.defaultPulseFrequency
+        }
         return UnitTweenStorage.defaultShakeFrequency
     }
 
@@ -205,19 +248,23 @@ struct EasingChoiceSheet: View {
     }
 
     private var frequencyRange: ClosedRange<Float> {
-        easing.isCartwheel
-            ? UnitTweenStorage.minCartwheelTurns...UnitTweenStorage.maxCartwheelTurns
-            : UnitTweenStorage.minShakeFrequency...UnitTweenStorage.maxShakeFrequency
+        if easing.isCartwheel {
+            return UnitTweenStorage.minCartwheelTurns...UnitTweenStorage.maxCartwheelTurns
+        }
+        if easing.isPulseColor {
+            return UnitTweenStorage.minPulseFrequency...UnitTweenStorage.maxPulseFrequency
+        }
+        return UnitTweenStorage.minShakeFrequency...UnitTweenStorage.maxShakeFrequency
     }
 
     private func commit() {
-        let appliedStrength = easing == .NO ? 1 : strength
+        let appliedStrength = (easing == .NO || easing.isPulseColor) ? 1 : strength
         onApply(easing, appliedStrength, UnitTweenStorage.clampFrequency(easing, frequency))
         dismiss()
     }
 
     private static func clampedStrength(_ type: TweenEasing, _ value: Float) -> Float {
-        if type == .NO {
+        if type == .NO || type.isPulseColor {
             return 1
         }
         if type.isCartwheel {
@@ -273,6 +320,7 @@ extension TweenEasing {
         case .SHAKE_Y: return "Vertical shake"
         case .CARTWHEEL_CW: return "Rotation to right"
         case .CARTWHEEL_CCW: return "Rotation to left"
+        case .PULSE_COLOR: return "Pulsating color"
         }
     }
 
@@ -289,6 +337,7 @@ extension TweenEasing {
         case .SHAKE_Y: return Color(red: 0xd5 / 255, green: 0, blue: 0xf9 / 255)
         case .CARTWHEEL_CW: return Color(red: 0xf5 / 255, green: 0, blue: 0x57 / 255)
         case .CARTWHEEL_CCW: return Color(red: 1, green: 0x3d / 255, blue: 0)
+        case .PULSE_COLOR: return Color(red: 0xaa / 255, green: 0x00 / 255, blue: 1)
         }
     }
 }

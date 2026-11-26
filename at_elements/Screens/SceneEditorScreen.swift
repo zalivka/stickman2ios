@@ -50,9 +50,11 @@ struct SceneEditorScreen: View {
     @State private var showingTweenRange = false
     @State private var showingTweenEasing = false
     @State private var tweenDraftRange: ClosedRange<Int> = 0...0
+    @State private var tweenDraftChannel: TweenChannel = .both
     @State private var tweenApplyRange: ClosedRange<Int>?
     @State private var showingInsert = false
     @State private var showingEditUnit = false
+    @State private var showingUnitEffects = false
     @State private var editUnitBackTick = 0
     @State private var showingEditFrame = false
     @State private var showingMenu = false
@@ -239,6 +241,27 @@ struct SceneEditorScreen: View {
                 .background(SkeletonCanvas.pane)
                 .accessibilityIdentifier("editor_canvas")
                 .ignoresSafeArea(edges: .bottom)
+                .overlay(alignment: .bottom) {
+                    if UIDevice.current.userInterfaceIdiom != .pad,
+                       showingEditUnit,
+                       showingUnitEffects,
+                       let selectedUnit,
+                       selectedUnit.effect.kind != .none {
+                        CameraEffectPowerBar(
+                            effect: selectedUnit.effect,
+                            locked: scene.isColorLocked(unitName: selectedUnit.name, frameIndex: scene.currentIndex),
+                            onPowerDragBegan: prepareSelectionUndo,
+                            onPowerChanged: previewSelectedEffectPower,
+                            onPowerEnded: {
+                                _ = commitSelectedEffectPower(selectedUnit.effect.power)
+                            }
+                        )
+                        .padding(.leading, UnitPropertiesPanel.effectsWidth + 12)
+                        .padding(.trailing, SeekFramesBar.barWidth + 12)
+                        .padding(.bottom, 10)
+                        .paddingBottomSafeArea()
+                    }
+                }
             }
             if showingInsert {
                 ItemChooserPanel(
@@ -287,6 +310,10 @@ struct SceneEditorScreen: View {
                                 unitName: selectedUnit.name,
                                 frameIndex: scene.currentIndex
                             ),
+                            colorLocked: scene.isColorLocked(
+                                unitName: selectedUnit.name,
+                                frameIndex: scene.currentIndex
+                            ),
                             structureOwned: scene.isStructureLocked(
                                 unitName: selectedUnit.name,
                                 frameIndex: scene.currentIndex
@@ -297,8 +324,18 @@ struct SceneEditorScreen: View {
                             onOpacityDragBegan: prepareSelectionUndo,
                             onOpacityPreview: previewSelectedOpacity,
                             onOpacityCommit: commitSelectedOpacity,
+                            showingEffects: $showingUnitEffects,
+                            onSelectEffectKind: selectSelectedEffectKind,
+                            onSelectEffectColor: selectSelectedEffectColor,
+                            onPickEffectCustomColor: pickSelectedEffectCustomColor,
+                            onEffectPowerDragBegan: prepareSelectionUndo,
+                            onEffectPowerPreview: previewSelectedEffectPower,
+                            onEffectPowerCommit: commitSelectedEffectPower,
                             backTick: editUnitBackTick,
-                            onClose: { showingEditUnit = false }
+                            onClose: {
+                                showingUnitEffects = false
+                                showingEditUnit = false
+                            }
                         )
                     } else {
                         PresentUnitsPanel(
@@ -356,6 +393,9 @@ struct SceneEditorScreen: View {
             undo.clearRangeBaseline()
         }
         .onChange(of: selectedUnitName) { _, next in
+            if next == nil {
+                showingUnitEffects = false
+            }
             refreshEditableItem(for: next)
         }
         .ignoresSafeArea(edges: [.horizontal, .bottom])
@@ -385,7 +425,7 @@ struct SceneEditorScreen: View {
                     Button {
                         openTweenEasing(for: chip)
                     } label: {
-                        Text(chip.easingType.displayName)
+                        Text(tweenChipTitle(chip))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16)
@@ -576,6 +616,8 @@ struct SceneEditorScreen: View {
                 title: "Tweening",
                 frameCount: scene.frames.count,
                 initialRange: tweenDraftRange,
+                showsChannelPicker: true,
+                initialChannel: tweenDraftChannel,
                 preview: { index in
                     AnyView(
                         RangeFramePreview(
@@ -586,14 +628,12 @@ struct SceneEditorScreen: View {
                         )
                     )
                 },
-                canApply: canApplyTween(range:),
-                onApply: { next in
-                    if !tweenEndpointFlipsMatch(range: next) {
-                        showToast("Can't tween: the first and last frame are flipped differently")
-                        return
-                    }
+                canApplyWithChannel: canApplyTween(range:channel:),
+                warningWithChannel: tweenRangeWarning(range:channel:),
+                onApplyWithChannel: { next, channel in
                     showingTweenRange = false
                     tweenApplyRange = next
+                    tweenDraftChannel = channel
                     showingTweenEasing = true
                 }
             )
@@ -605,6 +645,7 @@ struct SceneEditorScreen: View {
                 initialType: span.type,
                 initialStrength: span.strength,
                 initialFrequency: span.frequency,
+                channel: tweenDraftChannel,
                 onApply: applyTweenEasing
             )
         }
@@ -776,6 +817,7 @@ struct SceneEditorScreen: View {
         showingTweenRange = false
         showingInsert = false
         showingEditUnit = false
+        showingUnitEffects = false
         editUnitBackTick = 0
         showingEditFrame = false
         showingMenu = false
@@ -902,6 +944,7 @@ struct SceneEditorScreen: View {
         if showingMenu {
             showingInsert = false
             showingEditUnit = false
+            showingUnitEffects = false
             showingEditFrame = false
         }
     }
@@ -911,12 +954,16 @@ struct SceneEditorScreen: View {
         if showingInsert {
             showingMenu = false
             showingEditUnit = false
+            showingUnitEffects = false
             showingEditFrame = false
         }
     }
 
     private func toggleEditUnit() {
         showingEditUnit.toggle()
+        if !showingEditUnit {
+            showingUnitEffects = false
+        }
         if showingEditUnit {
             showingMenu = false
             showingInsert = false
@@ -930,6 +977,7 @@ struct SceneEditorScreen: View {
             showingMenu = false
             showingInsert = false
             showingEditUnit = false
+            showingUnitEffects = false
         }
     }
 
@@ -1100,9 +1148,9 @@ struct SceneEditorScreen: View {
             return false
         }
         if let locked = rearrangeFrames.first(where: {
-            scene.unitTweens.isPoseLocked(unitName: selectedUnitName, frameIndex: $0)
+            scene.isColorLocked(unitName: selectedUnitName, frameIndex: $0)
         }) {
-            showToast(scene.unitTweens.poseLockMessage(unitName: selectedUnitName, frameIndex: locked))
+            showToast(scene.unitTweens.colorLockMessage(unitName: selectedUnitName, frameIndex: locked))
             return false
         }
         do {
@@ -1116,6 +1164,139 @@ struct SceneEditorScreen: View {
             return false
         }
         return true
+    }
+
+    private func selectSelectedEffectKind(_ kind: CameraEffect.Kind) {
+        guard let selectedUnit else {
+            assertionFailure("SceneEditorScreen effect kind without selected unit")
+            return
+        }
+        if let locked = rearrangeFrames.first(where: {
+            scene.isColorLocked(unitName: selectedUnit.name, frameIndex: $0)
+        }) {
+            showToast(scene.unitTweens.colorLockMessage(unitName: selectedUnit.name, frameIndex: locked))
+            return
+        }
+        let current = selectedUnit.effect
+        let next: CameraEffect
+        if kind == .none {
+            if current.isZero {
+                return
+            }
+            next = .none
+        } else {
+            let power: Float = current.isZero ? 0.5 : current.power
+            next = CameraEffect(kind: kind, colorIndex: current.colorIndex, power: power)
+        }
+        prepareSelectionUndo()
+        applySelectedUnitEffect(next)
+    }
+
+    private func selectSelectedEffectColor(_ kind: CameraEffect.Kind, _ colorIndex: Int) {
+        guard let selectedUnit else {
+            assertionFailure("SceneEditorScreen effect color without selected unit")
+            return
+        }
+        if let locked = rearrangeFrames.first(where: {
+            scene.isColorLocked(unitName: selectedUnit.name, frameIndex: $0)
+        }) {
+            showToast(scene.unitTweens.colorLockMessage(unitName: selectedUnit.name, frameIndex: locked))
+            return
+        }
+        let current = selectedUnit.effect
+        let power: Float = current.isZero ? 0.5 : current.power
+        let next = CameraEffect(kind: kind, colorIndex: colorIndex, power: power)
+        if current.kind == kind && current.rgbInt == next.rgbInt && !current.isZero {
+            return
+        }
+        prepareSelectionUndo()
+        applySelectedUnitEffect(next)
+    }
+
+    private func pickSelectedEffectCustomColor(_ kind: CameraEffect.Kind, _ rgb: Int) {
+        guard let selectedUnit else {
+            assertionFailure("SceneEditorScreen custom effect color without selected unit")
+            return
+        }
+        if let locked = rearrangeFrames.first(where: {
+            scene.isColorLocked(unitName: selectedUnit.name, frameIndex: $0)
+        }) {
+            showToast(scene.unitTweens.colorLockMessage(unitName: selectedUnit.name, frameIndex: locked))
+            return
+        }
+        let existed = kind.palette.contains(rgb & 0xFFFFFF)
+        let slot = AppSettings.pushPaletteColor(rgb, for: kind)
+        if existed {
+            selectSelectedEffectColor(kind, slot)
+            return
+        }
+
+        let current = selectedUnit.effect
+        let power: Float = current.isZero ? 0.5 : current.power
+        let next = CameraEffect(kind: kind, colorIndex: slot, power: power)
+        prepareSelectionUndo()
+        applySelectedUnitEffect(next)
+        showToast("Color added to palette")
+    }
+
+    private func previewSelectedEffectPower(_ power: Float) {
+        guard let selectedUnit else {
+            assertionFailure("SceneEditorScreen effect preview without selected unit")
+            return
+        }
+        let current = selectedUnit.effect
+        guard current.kind != .none else { return }
+        let clamped = min(max(power, 0), 1)
+        let next = CameraEffect(
+            kind: current.kind,
+            colorIndex: current.colorIndex,
+            snapshot: current.rgb,
+            power: clamped
+        )
+        do {
+            try scene.frames[scene.currentIndex].setUnitEffect(next, unitNamed: selectedUnit.name)
+        } catch {
+            bail(error)
+        }
+    }
+
+    private func commitSelectedEffectPower(_ power: Float) -> Bool {
+        guard let selectedUnit else {
+            assertionFailure("SceneEditorScreen effect commit without selected unit")
+            return false
+        }
+        if let locked = rearrangeFrames.first(where: {
+            scene.isColorLocked(unitName: selectedUnit.name, frameIndex: $0)
+        }) {
+            showToast(scene.unitTweens.colorLockMessage(unitName: selectedUnit.name, frameIndex: locked))
+            return false
+        }
+        let current = selectedUnit.effect
+        guard current.kind != .none else { return true }
+        let clamped = min(max(power, 0), 1)
+        let next = CameraEffect(
+            kind: current.kind,
+            colorIndex: current.colorIndex,
+            snapshot: current.rgb,
+            power: clamped < 0.05 ? 0 : clamped
+        )
+        applySelectedUnitEffect(next)
+        return true
+    }
+
+    private func applySelectedUnitEffect(_ effect: CameraEffect) {
+        guard let selectedUnitName else { return }
+        do {
+            for frameIndex in rearrangeFrames
+            where scene.frames[frameIndex].units.contains(where: { $0.name == selectedUnitName }) {
+                try scene.frames[frameIndex].setUnitEffect(effect, unitNamed: selectedUnitName)
+            }
+            if try retweenSelectedAfterPoseEdit(frames: rearrangeFrames) {
+                showToast("Can't tween: start and end frames have different color effects")
+            }
+        } catch {
+            bail(error)
+        }
     }
 
     /// Android `AdvancedUnitProperties` number picker. Returns false when the number is taken.
@@ -1763,7 +1944,10 @@ struct SceneEditorScreen: View {
             return ItemChooserPanel.width
         }
         if showingEditUnit {
-            return selectedUnit == nil ? PresentUnitsPanel.width : UnitPropertiesPanel.width
+            if selectedUnit == nil {
+                return PresentUnitsPanel.width
+            }
+            return showingUnitEffects ? UnitPropertiesPanel.effectsWidth : UnitPropertiesPanel.width
         }
         if showingEditFrame {
             return FrameOpsPanel.width
@@ -1984,7 +2168,9 @@ struct SceneEditorScreen: View {
         if SlavesRegistry.isEnslaved(unit) {
             return false
         }
-        if scene.isStructureLocked(unitName: unit.name, frameIndex: scene.currentIndex) {
+        let poseLocked = scene.isPoseLocked(unitName: unit.name, frameIndex: scene.currentIndex)
+        let colorLocked = scene.isColorLocked(unitName: unit.name, frameIndex: scene.currentIndex)
+        if poseLocked && colorLocked {
             return false
         }
         return true
@@ -1993,6 +2179,13 @@ struct SceneEditorScreen: View {
     private var selectedUnitTweenSpan: AutoTweenRange? {
         guard let selectedUnit else { return nil }
         return scene.unitTweens.findContaining(unitName: selectedUnit.name, frameIndex: scene.currentIndex)
+    }
+
+    private func tweenChipTitle(_ span: AutoTweenRange) -> String {
+        if span.channel == .both {
+            return span.easingType.displayName
+        }
+        return "\(span.easingType.displayName) (\(span.channel.displayName))"
     }
 
     private func tweenStickStyle(_ index: Int) -> (color: Color?, scale: CGFloat) {
@@ -2024,6 +2217,7 @@ struct SceneEditorScreen: View {
             return
         }
         tweenDraftRange = resolveTweenInitialRange(unitName: selectedUnit.name)
+        tweenDraftChannel = .both
         showingTweenRange = true
     }
 
@@ -2037,7 +2231,7 @@ struct SceneEditorScreen: View {
         return RangePicker.suggestedTweenRange(current: scene.currentIndex, frameCount: scene.frames.count)
     }
 
-    private func canApplyTween(range: ClosedRange<Int>) -> Bool {
+    private func canApplyTween(range: ClosedRange<Int>, channel: TweenChannel) -> Bool {
         guard let selectedUnit else {
             return false
         }
@@ -2048,26 +2242,52 @@ struct SceneEditorScreen: View {
             return false
         }
         let name = rootTweenName(of: selectedUnit)
-        if scene.frames[range.lowerBound].units.first(where: { $0.name == name }) == nil {
-            return false
-        }
-        if scene.frames[range.upperBound].units.first(where: { $0.name == name }) == nil {
-            return false
-        }
         if let intersecting = scene.unitTweens.findIntersecting(
             unitName: name,
             from: range.lowerBound,
-            to: range.upperBound
+            to: range.upperBound,
+            channel: channel
         ), intersecting.fromFrame != range.lowerBound || intersecting.toFrame != range.upperBound {
             return false
         }
-        return true
+        return UnitInbetweener.canPropagate(
+            scene: scene,
+            rootName: name,
+            from: range.lowerBound,
+            to: range.upperBound,
+            channel: channel
+        )
+    }
+
+    private func tweenRangeWarning(range: ClosedRange<Int>, channel: TweenChannel) -> String? {
+        guard let selectedUnit else {
+            return nil
+        }
+        if range.upperBound - range.lowerBound < 2 {
+            return nil
+        }
+        guard range.lowerBound >= 0, range.upperBound < scene.frames.count else {
+            return nil
+        }
+        let name = rootTweenName(of: selectedUnit)
+        return UnitInbetweener.rangeWarning(
+            scene: scene,
+            rootName: name,
+            from: range.lowerBound,
+            to: range.upperBound,
+            channel: channel
+        )
     }
 
     private var tweenEasingInitial: (type: TweenEasing, strength: Float, frequency: Float) {
         let range = tweenApplyRange ?? tweenDraftRange
         if let selectedUnit,
            let span = scene.unitTweens.findExact(
+            unitName: rootTweenName(of: selectedUnit),
+            from: range.lowerBound,
+            to: range.upperBound,
+            channel: tweenDraftChannel
+           ) ?? scene.unitTweens.findExact(
             unitName: rootTweenName(of: selectedUnit),
             from: range.lowerBound,
             to: range.upperBound
@@ -2080,6 +2300,7 @@ struct SceneEditorScreen: View {
 
     private func openTweenEasing(for span: AutoTweenRange) {
         tweenApplyRange = span.fromFrame...span.toFrame
+        tweenDraftChannel = span.channel
         showingTweenEasing = true
     }
 
@@ -2090,21 +2311,24 @@ struct SceneEditorScreen: View {
         let range = tweenApplyRange ?? tweenDraftRange
         let from = range.lowerBound
         let to = range.upperBound
+        let channel = tweenDraftChannel
         if to - from < 2 {
             assertionFailure("SceneEditorScreen tween range \(from)..\(to) too short")
             return
         }
         let rootName = rootTweenName(of: selectedUnit)
-        if !tweenEndpointFlipsMatch(range: from...to) {
-            showToast("Can't tween: the first and last frame are flipped differently")
-            return
-        }
-        if !canApplyTween(range: from...to) {
-            showToast("Select frames that both contain the unit")
+        if !canApplyTween(range: from...to, channel: channel) {
             return
         }
         do {
             try undo.commitTimeline(from: scene)
+            let warning = UnitInbetweener.rangeWarning(
+                scene: scene,
+                rootName: rootName,
+                from: from,
+                to: to,
+                channel: channel
+            )
             if try !UnitInbetweener.propagate(
                 scene: &scene,
                 rootName: rootName,
@@ -2112,12 +2336,10 @@ struct SceneEditorScreen: View {
                 to: to,
                 easing: type,
                 strength: strength,
-                shakeFrequency: frequency
+                shakeFrequency: frequency,
+                channel: channel
             ) {
-                let message = tweenEndpointFlipsMatch(range: from...to)
-                    ? "Can't tween inconsistent items"
-                    : "Can't tween: the first and last frame are flipped differently"
-                showToast(message)
+                showToast(warning ?? "Items are different")
                 return
             }
         } catch {
@@ -2153,18 +2375,6 @@ struct SceneEditorScreen: View {
         }
         let root = SlavesRegistry.rootMaster(of: selectedUnit, in: frame.units)
         return try scene.retweenEndpoints(unitName: root.name, frames: frames)
-    }
-
-    private func tweenEndpointFlipsMatch(range: ClosedRange<Int>) -> Bool {
-        guard let selectedUnit else {
-            return true
-        }
-        return UnitInbetweener.endpointFlipsMatch(
-            scene: scene,
-            rootName: rootTweenName(of: selectedUnit),
-            from: range.lowerBound,
-            to: range.upperBound
-        )
     }
 
     private func rootTweenName(of unit: StickmanUnit) -> String {

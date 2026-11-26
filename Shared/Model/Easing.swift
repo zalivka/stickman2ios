@@ -12,9 +12,11 @@ enum TweenEasing: String, Codable, CaseIterable {
     case SHAKE_Y
     case CARTWHEEL_CW
     case CARTWHEEL_CCW
+    case PULSE_COLOR
 
     var isShake: Bool { self == .SHAKE_X || self == .SHAKE_Y }
     var isCartwheel: Bool { self == .CARTWHEEL_CW || self == .CARTWHEEL_CCW }
+    var isPulseColor: Bool { self == .PULSE_COLOR }
 
     var label: String {
         switch self {
@@ -29,6 +31,7 @@ enum TweenEasing: String, Codable, CaseIterable {
         case .SHAKE_Y: return "Shake Y"
         case .CARTWHEEL_CW: return "Cartwheel CW"
         case .CARTWHEEL_CCW: return "Cartwheel CCW"
+        case .PULSE_COLOR: return "Pulsating color"
         }
     }
 }
@@ -43,7 +46,7 @@ enum Easing {
         let t = t.isFinite ? min(max(t, 0), 1) : 0
         let s = clamp01(strength)
         switch type {
-        case .NO, .SHAKE_X, .SHAKE_Y, .CARTWHEEL_CW, .CARTWHEEL_CCW:
+        case .NO, .SHAKE_X, .SHAKE_Y, .CARTWHEEL_CW, .CARTWHEEL_CCW, .PULSE_COLOR:
             return t
         case .BOUNCE_OUT:
             return lerp(t, easeOutBounce(t), s)
@@ -58,6 +61,12 @@ enum Easing {
         case .OUT_QUINT:
             return lerp(t, easeOutQuint(t), s)
         }
+    }
+
+    static func pulseProgress(t: Float, frequency: Float) -> Float {
+        let clampedT = t.isFinite ? min(max(t, 0), 1) : 0
+        let f = UnitTweenStorage.clampFrequency(.PULSE_COLOR, frequency)
+        return 0.5 * (1 - Float(cos(2 * Double.pi * Double(f) * Double(clampedT))))
     }
 
     private static func clamp01(_ value: Float) -> Float {

@@ -9,7 +9,8 @@ enum UnitInbetweener {
         to: Int,
         easing: TweenEasing,
         strength: Float,
-        shakeFrequency: Float
+        shakeFrequency: Float,
+        channel: TweenChannel = .both
     ) throws -> Bool {
         if from < 0 || to >= scene.frames.count || from >= to {
             throw SceneLoadError(message: "UnitInbetweener range \(from)..\(to) out of \(scene.frames.count)")
@@ -20,7 +21,10 @@ enum UnitInbetweener {
         if SlavesRegistry.isEnslaved(startRoot) {
             throw SceneLoadError(message: "UnitInbetweener enslaved '\(rootName)'")
         }
-        if !endpointFlipsMatch(scene: scene, rootName: rootName, from: from, to: to) {
+        if channel.includesMotion && !endpointFlipsMatch(scene: scene, rootName: rootName, from: from, to: to) {
+            return false
+        }
+        if channel.includesColor && !endpointEffectsCompatible(scene: scene, rootName: rootName, from: from, to: to) {
             return false
         }
         let conflicts = try scene.ensureStructureOnRange(
@@ -41,8 +45,10 @@ enum UnitInbetweener {
             return false
         }
 
-        _ = try bake(scene: &scene, start: startUnit, end: endUnit, from: from, to: to,
-                 easing: easing, strength: strength, shakeFrequency: shakeFrequency)
+        _ = try bake(
+            scene: &scene, start: startUnit, end: endUnit, from: from, to: to,
+            easing: easing, strength: strength, shakeFrequency: shakeFrequency, channel: channel
+        )
 
         let slaves = try attachedSlaves(of: startUnit, in: scene.frames[from].units)
         for slave in slaves.sorted(by: { $0.name < $1.name }) {
@@ -51,22 +57,26 @@ enum UnitInbetweener {
             else {
                 throw SceneLoadError(message: "UnitInbetweener missing slave '\(slave.name)'")
             }
-            _ = try bake(scene: &scene, start: startSlave, end: endSlave, from: from, to: to,
-                     easing: easing, strength: strength, shakeFrequency: shakeFrequency)
+            _ = try bake(
+                scene: &scene, start: startSlave, end: endSlave, from: from, to: to,
+                easing: easing, strength: strength, shakeFrequency: shakeFrequency, channel: channel
+            )
         }
 
-        for index in from...to {
-            let connected = try SlavesRegistry.allConnected(
-                of: scene.frames[index].unit(named: rootName),
-                in: scene.frames[index].units
-            )
-            for unit in connected.sorted(by: {
-                SlavesRegistry.slaveDepth($0, in: scene.frames[index].units)
-                    < SlavesRegistry.slaveDepth($1, in: scene.frames[index].units)
-            }) where SlavesRegistry.isEnslaved(unit) {
-                try scene.frames[index].moveUnitToMaster(named: unit.name)
+        if channel.includesMotion {
+            for index in from...to {
+                let connected = try SlavesRegistry.allConnected(
+                    of: scene.frames[index].unit(named: rootName),
+                    in: scene.frames[index].units
+                )
+                for unit in connected.sorted(by: {
+                    SlavesRegistry.slaveDepth($0, in: scene.frames[index].units)
+                        < SlavesRegistry.slaveDepth($1, in: scene.frames[index].units)
+                }) where SlavesRegistry.isEnslaved(unit) {
+                    try scene.frames[index].moveUnitToMaster(named: unit.name)
+                }
+                try scene.frames[index].refreshAttachments()
             }
-            try scene.frames[index].refreshAttachments()
         }
 
         scene.unitTweens.register(
@@ -76,6 +86,7 @@ enum UnitInbetweener {
             easingType: easing,
             easingStrength: strength,
             shakeFrequency: shakeFrequency,
+            channel: channel,
             frameCount: scene.frames.count
         )
         for slave in slaves {
@@ -86,8 +97,89 @@ enum UnitInbetweener {
                 easingType: easing,
                 easingStrength: strength,
                 shakeFrequency: shakeFrequency,
+                channel: channel,
                 frameCount: scene.frames.count
             )
+        }
+        return true
+    }
+
+    /// Non-mutating pre-flight check matching `propagate`: verifies the unit exists on both
+    /// endpoints, flip flags match (when `channel.includesMotion`), connected structures match,
+    /// and any missing interior frames have no name conflicts when auto-pasting the structure.
+    static func canPropagate(
+        scene: StickmanScene,
+        rootName: String,
+        from: Int,
+        to: Int,
+        channel: TweenChannel = .both
+    ) -> Bool {
+        rangeWarning(scene: scene, rootName: rootName, from: from, to: to, channel: channel) == nil
+    }
+
+    /// Returns a clear user-facing blocking message when the span cannot be tweened, or `nil` when valid.
+    static func rangeWarning(
+        scene: StickmanScene,
+        rootName: String,
+        from: Int,
+        to: Int,
+        channel: TweenChannel = .both
+    ) -> String? {
+        guard from >= 0, to < scene.frames.count, from < to else {
+            return "Items are different"
+        }
+        guard let startRoot = scene.frames[from].units.first(where: { $0.name == rootName }),
+              !SlavesRegistry.isEnslaved(startRoot),
+              scene.frames[to].units.contains(where: { $0.name == rootName })
+        else {
+            return "Item is missing on start or end frame"
+        }
+        guard let structure = try? SlavesRegistry.allConnected(of: startRoot, in: scene.frames[from].units) else {
+            return "Items are different"
+        }
+        for index in from...to {
+            let frame = scene.frames[index]
+            let intact = (try? frame.structureIntact(structure)) ?? false
+            if !intact && frame.hasNameIntersection(structure) {
+                return "Attached items are different"
+            }
+        }
+        if channel.includesMotion && !endpointFlipsMatch(scene: scene, rootName: rootName, from: from, to: to) {
+            return "First and last frame are flipped differently"
+        }
+        if channel.includesColor && !endpointEffectsCompatible(scene: scene, rootName: rootName, from: from, to: to) {
+            return "Color effects are different (e.g. Fade vs Tint)"
+        }
+        return nil
+    }
+
+    /// Root and every slave present on both ends have compatible color effects
+    /// (either one is `.none` / 0% power, or both share the same `CameraEffect.Kind`).
+    static func endpointEffectsCompatible(scene: StickmanScene, rootName: String, from: Int, to: Int) -> Bool {
+        guard from >= 0, to < scene.frames.count, from <= to else {
+            return true
+        }
+        guard let start = scene.frames[from].units.first(where: { $0.name == rootName }),
+              let end = scene.frames[to].units.first(where: { $0.name == rootName })
+        else {
+            return true
+        }
+        if !start.effect.canTween(with: end.effect) {
+            return false
+        }
+        var registry = SlavesRegistry()
+        guard (try? registry.populate(units: scene.frames[from].units)) != nil else {
+            return true
+        }
+        for slaveName in registry.allSlaves(of: rootName) {
+            guard let startSlave = scene.frames[from].units.first(where: { $0.name == slaveName }),
+                  let endSlave = scene.frames[to].units.first(where: { $0.name == slaveName })
+            else {
+                continue
+            }
+            if !startSlave.effect.canTween(with: endSlave.effect) {
+                return false
+            }
         }
         return true
     }
@@ -166,7 +258,8 @@ enum UnitInbetweener {
         to: Int,
         easing: TweenEasing,
         strength: Float,
-        shakeFrequency: Float
+        shakeFrequency: Float,
+        channel: TweenChannel
     ) throws -> [Int] {
         if start.name != end.name {
             throw SceneLoadError(message: "UnitInbetweener bake name mismatch '\(start.name)' vs '\(end.name)'")
@@ -187,7 +280,7 @@ enum UnitInbetweener {
             guard let unitIndex = scene.frames[frameIndex].units.firstIndex(where: { $0.name == start.name }) else {
                 throw SceneLoadError(message: "UnitInbetweener bake missing '\(start.name)' on frame \(frameIndex)")
             }
-            try scene.frames[frameIndex].units[unitIndex].applyPose(from: pose)
+            try scene.frames[frameIndex].units[unitIndex].applyPose(from: pose, channel: channel)
             written.append(frameIndex)
         }
         return written

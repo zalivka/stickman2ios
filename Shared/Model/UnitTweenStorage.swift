@@ -1,5 +1,31 @@
 import Foundation
 
+enum TweenChannel: String, Codable, CaseIterable, Equatable {
+    case both = "BOTH"
+    case motion = "MOTION"
+    case color = "COLOR"
+
+    var displayName: String {
+        switch self {
+        case .both: return "Both"
+        case .motion: return "Motion"
+        case .color: return "Color"
+        }
+    }
+
+    var includesMotion: Bool {
+        self == .both || self == .motion
+    }
+
+    var includesColor: Bool {
+        self == .both || self == .color
+    }
+
+    func conflicts(with other: TweenChannel) -> Bool {
+        (includesMotion && other.includesMotion) || (includesColor && other.includesColor)
+    }
+}
+
 struct AutoTweenRange: Equatable {
     var unitName: String
     var fromFrame: Int
@@ -7,6 +33,7 @@ struct AutoTweenRange: Equatable {
     var easingType: TweenEasing
     var easingStrength: Float
     var shakeFrequency: Float
+    var channel: TweenChannel
 
     init(
         unitName: String,
@@ -14,7 +41,8 @@ struct AutoTweenRange: Equatable {
         toFrame: Int,
         easingType: TweenEasing,
         easingStrength: Float,
-        shakeFrequency: Float
+        shakeFrequency: Float,
+        channel: TweenChannel = .both
     ) {
         if unitName.isEmpty {
             assertionFailure("AutoTweenRange empty unitName")
@@ -25,6 +53,7 @@ struct AutoTweenRange: Equatable {
         self.easingType = easingType
         self.easingStrength = min(max(easingStrength, 0), 1)
         self.shakeFrequency = UnitTweenStorage.clampFrequency(easingType, shakeFrequency)
+        self.channel = channel
     }
 
     func contains(_ frameIndex: Int) -> Bool {
@@ -53,6 +82,9 @@ struct UnitTweenStorage: Equatable {
     static let defaultCartwheelTurns: Float = 3
     static let minCartwheelTurns: Float = 1
     static let maxCartwheelTurns: Float = 12
+    static let defaultPulseFrequency: Float = 3
+    static let minPulseFrequency: Float = 1
+    static let maxPulseFrequency: Float = 12
 
     var ranges: [AutoTweenRange] = []
 
@@ -65,6 +97,7 @@ struct UnitTweenStorage: Equatable {
         easingType: TweenEasing,
         easingStrength: Float,
         shakeFrequency: Float,
+        channel: TweenChannel = .both,
         frameCount: Int
     ) {
         let from = min(fromFrame, toFrame)
@@ -77,7 +110,11 @@ struct UnitTweenStorage: Equatable {
             assertionFailure("Auto tween range must cover at least 2 frames")
             return
         }
-        ranges.removeAll { $0.unitName == unitName && $0.intersects(from: from, to: to) }
+        ranges.removeAll {
+            $0.unitName == unitName
+                && $0.channel.conflicts(with: channel)
+                && $0.intersects(from: from, to: to)
+        }
         ranges.append(
             AutoTweenRange(
                 unitName: unitName,
@@ -85,7 +122,8 @@ struct UnitTweenStorage: Equatable {
                 toFrame: to,
                 easingType: easingType,
                 easingStrength: easingStrength,
-                shakeFrequency: shakeFrequency
+                shakeFrequency: shakeFrequency,
+                channel: channel
             )
         )
         sort()
@@ -95,8 +133,17 @@ struct UnitTweenStorage: Equatable {
         ranges.first { $0.unitName == unitName && $0.contains(frameIndex) }
     }
 
-    func findExact(unitName: String, from: Int, to: Int) -> AutoTweenRange? {
-        ranges.first { $0.unitName == unitName && $0.fromFrame == from && $0.toFrame == to }
+    func findAllContaining(unitName: String, frameIndex: Int) -> [AutoTweenRange] {
+        ranges.filter { $0.unitName == unitName && $0.contains(frameIndex) }
+    }
+
+    func findExact(unitName: String, from: Int, to: Int, channel: TweenChannel? = nil) -> AutoTweenRange? {
+        ranges.first {
+            $0.unitName == unitName
+                && $0.fromFrame == from
+                && $0.toFrame == to
+                && (channel == nil || $0.channel == channel)
+        }
     }
 
     func findContainingSpan(unitName: String, from: Int, to: Int) -> AutoTweenRange? {
@@ -109,12 +156,36 @@ struct UnitTweenStorage: Equatable {
         return findContainingSpan(unitName: unitName, from: start, to: end)
     }
 
-    func findIntersecting(unitName: String, from: Int, to: Int) -> AutoTweenRange? {
-        ranges.first { $0.unitName == unitName && $0.intersects(from: from, to: to) }
+    func findMotionForSpan(unitName: String, from: Int, to: Int) -> AutoTweenRange? {
+        let start = min(from, to)
+        let end = max(from, to)
+        return ranges.first {
+            $0.unitName == unitName && $0.channel.includesMotion && $0.containsSpan(from: start, to: end)
+        }
+    }
+
+    func findColorForSpan(unitName: String, from: Int, to: Int) -> AutoTweenRange? {
+        let start = min(from, to)
+        let end = max(from, to)
+        return ranges.first {
+            $0.unitName == unitName && $0.channel.includesColor && $0.containsSpan(from: start, to: end)
+        }
+    }
+
+    func findIntersecting(unitName: String, from: Int, to: Int, channel: TweenChannel = .both) -> AutoTweenRange? {
+        ranges.first {
+            $0.unitName == unitName
+                && $0.channel.conflicts(with: channel)
+                && $0.intersects(from: from, to: to)
+        }
     }
 
     func isPoseLocked(unitName: String, frameIndex: Int) -> Bool {
-        ranges.contains { $0.unitName == unitName && $0.containsInterior(frameIndex) }
+        ranges.contains { $0.unitName == unitName && $0.channel.includesMotion && $0.containsInterior(frameIndex) }
+    }
+
+    func isColorLocked(unitName: String, frameIndex: Int) -> Bool {
+        ranges.contains { $0.unitName == unitName && $0.channel.includesColor && $0.containsInterior(frameIndex) }
     }
 
     func isOwned(unitName: String, frameIndex: Int) -> Bool {
@@ -122,10 +193,17 @@ struct UnitTweenStorage: Equatable {
     }
 
     func poseLockMessage(unitName: String, frameIndex: Int) -> String {
-        if let range = findContaining(unitName: unitName, frameIndex: frameIndex) {
+        if let range = ranges.first(where: { $0.unitName == unitName && $0.channel.includesMotion && $0.contains(frameIndex) }) {
             return "AUTO tween lock: \(unitName) frame \(frameIndex) is in [\(range.fromFrame)..\(range.toFrame)]"
         }
         return "AUTO tween lock: \(unitName) frame \(frameIndex)"
+    }
+
+    func colorLockMessage(unitName: String, frameIndex: Int) -> String {
+        if let range = ranges.first(where: { $0.unitName == unitName && $0.channel.includesColor && $0.contains(frameIndex) }) {
+            return "AUTO color tween lock: \(unitName) frame \(frameIndex) is in [\(range.fromFrame)..\(range.toFrame)]"
+        }
+        return "AUTO color tween lock: \(unitName) frame \(frameIndex)"
     }
 
     func structureLockMessage(unitName: String, frameIndex: Int) -> String {
@@ -143,8 +221,13 @@ struct UnitTweenStorage: Equatable {
         return range
     }
 
-    mutating func removeExact(unitName: String, from: Int, to: Int) {
-        ranges.removeAll { $0.unitName == unitName && $0.fromFrame == from && $0.toFrame == to }
+    mutating func removeExact(unitName: String, from: Int, to: Int, channel: TweenChannel? = nil) {
+        ranges.removeAll {
+            $0.unitName == unitName
+                && $0.fromFrame == from
+                && $0.toFrame == to
+                && (channel == nil || $0.channel == channel)
+        }
     }
 
     mutating func clear() {
@@ -182,7 +265,8 @@ struct UnitTweenStorage: Equatable {
                 toFrameId: scene.frames[span.toFrame].id,
                 easingType: span.easingType,
                 easingStrength: span.easingStrength,
-                params: ["shakeFrequency": span.shakeFrequency]
+                params: ["shakeFrequency": span.shakeFrequency],
+                channel: span.channel
             )
         }
         do {
@@ -226,7 +310,8 @@ struct UnitTweenStorage: Equatable {
             if from >= to {
                 continue
             }
-            if findIntersecting(unitName: unitName, from: from, to: to) != nil {
+            let channel = persisted.channel ?? .both
+            if findIntersecting(unitName: unitName, from: from, to: to, channel: channel) != nil {
                 continue
             }
             if scene.frames[from].units.first(where: { $0.name == unitName }) == nil {
@@ -243,6 +328,7 @@ struct UnitTweenStorage: Equatable {
                 easingType: persisted.easingType,
                 easingStrength: persisted.easingStrength,
                 shakeFrequency: frequency,
+                channel: channel,
                 frameCount: scene.frames.count
             )
         }
@@ -252,6 +338,9 @@ struct UnitTweenStorage: Equatable {
     static func clampFrequency(_ easing: TweenEasing, _ frequency: Float) -> Float {
         if easing.isCartwheel {
             return min(max(frequency, minCartwheelTurns), maxCartwheelTurns)
+        }
+        if easing.isPulseColor {
+            return min(max(frequency, minPulseFrequency), maxPulseFrequency)
         }
         return min(max(frequency, minShakeFrequency), maxShakeFrequency)
     }
@@ -329,7 +418,8 @@ struct UnitTweenStorage: Equatable {
             toFrame: to,
             easingType: span.easingType,
             easingStrength: span.easingStrength,
-            shakeFrequency: span.shakeFrequency
+            shakeFrequency: span.shakeFrequency,
+            channel: span.channel
         )
     }
 
@@ -341,7 +431,10 @@ struct UnitTweenStorage: Equatable {
             if $0.fromFrame != $1.fromFrame {
                 return $0.fromFrame < $1.fromFrame
             }
-            return $0.toFrame < $1.toFrame
+            if $0.toFrame != $1.toFrame {
+                return $0.toFrame < $1.toFrame
+            }
+            return $0.channel.rawValue < $1.channel.rawValue
         }
     }
 
@@ -357,7 +450,10 @@ struct UnitTweenStorage: Equatable {
             }
             var kept: [AutoTweenRange] = []
             for current in ordered {
-                if let prev = kept.last, prev.intersects(from: current.fromFrame, to: current.toFrame) {
+                if let prev = kept.first(where: {
+                    $0.channel.conflicts(with: current.channel)
+                        && $0.intersects(from: current.fromFrame, to: current.toFrame)
+                }) {
                     assertionFailure(
                         "Overlapping unit spans for \(name): [\(prev.fromFrame)..\(prev.toFrame)] and [\(current.fromFrame)..\(current.toFrame)] — dropping later span"
                     )
@@ -368,7 +464,14 @@ struct UnitTweenStorage: Equatable {
             }
         }
         if !dropKeys.isEmpty {
-            ranges.removeAll { span in dropKeys.contains(where: { $0.unitName == span.unitName && $0.fromFrame == span.fromFrame && $0.toFrame == span.toFrame }) }
+            ranges.removeAll { span in
+                dropKeys.contains(where: {
+                    $0.unitName == span.unitName
+                        && $0.fromFrame == span.fromFrame
+                        && $0.toFrame == span.toFrame
+                        && $0.channel == span.channel
+                })
+            }
         }
     }
 
@@ -384,5 +487,6 @@ struct UnitTweenStorage: Equatable {
         var easingType: TweenEasing
         var easingStrength: Float
         var params: [String: Float]?
+        var channel: TweenChannel?
     }
 }
